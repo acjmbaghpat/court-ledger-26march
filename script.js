@@ -130,3 +130,23 @@ function todayNext(){
   const list = records.filter(r => r.next === today);
   showFiltered(list);
 }
+function startScanner(){
+  const scannerDiv = document.getElementById("scanner");
+  scannerDiv.innerHTML = "";
+
+  const html5QrCode = new Html5Qrcode("scanner");
+
+  html5QrCode.start(
+    { facingMode: "environment" },
+    {
+      fps: 10,
+      qrbox: 250
+    },
+    (decodedText) => {
+      party.value = decodedText;   // barcode ka data party field me aa jayega
+      html5QrCode.stop();
+      scannerDiv.innerHTML = "";
+    },
+    (error) => {}
+  );
+}
