@@ -98,3 +98,30 @@ function downloadExcel(){
   a.download = "court_ledger.csv";
   a.click();
 }
+function showData(){
+  table.innerHTML = "";
+  records.forEach((r,index)=>{
+    table.innerHTML += `
+      <tr>
+        <td>${r.party}</td>
+        <td>${r.section}</td>
+        <td>${r.ps}</td>
+        <td>${r.receive}</td>
+        <td>${r.next}</td>
+        <td>
+          <button onclick="editRow(${index})">Edit</button>
+          <button onclick="deleteRow(${index})">Delete</button>
+        </td>
+      </tr>`;
+  });
+}
+function editRow(i){
+  const r = records[i];
+  party.value = r.party;
+  section.value = r.section;
+  ps.value = r.ps;
+  receive.value = r.receive;
+  next.value = r.next;
+
+  deleteRow(i);
+}
