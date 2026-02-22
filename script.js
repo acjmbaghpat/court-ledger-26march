@@ -79,3 +79,8 @@ function deleteRow(i){
     showData();
   }
 }
+function todayReceive(){
+  const today = new Date().toISOString().slice(0,10);
+  const list = records.filter(r => r.receive === today);
+  showFiltered(list);
+}
