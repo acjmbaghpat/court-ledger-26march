@@ -159,3 +159,12 @@ records.push({
   next: next.value
 });
 <td>${r.fileno}</td>
+function updateDashboard(){
+  const today = new Date().toISOString().slice(0,10);
+
+  total.innerText = records.length;
+  todayR.innerText = records.filter(r => r.receive === today).length;
+  todayN.innerText = records.filter(r => r.next === today).length;
+}
+
+updateDashboard();
