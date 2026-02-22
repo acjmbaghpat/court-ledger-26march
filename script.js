@@ -150,3 +150,12 @@ function startScanner(){
     (error) => {}
   );
 }
+records.push({
+  fileno: fileno.value,
+  party: party.value,
+  section: section.value,
+  ps: ps.value,
+  receive: receive.value,
+  next: next.value
+});
+<td>${r.fileno}</td>
