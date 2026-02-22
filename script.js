@@ -56,3 +56,26 @@ function showFiltered(list){
       </tr>`;
   });
 }
+function showData(){
+  table.innerHTML = "";
+  records.forEach((r,index)=>{
+    table.innerHTML += `
+      <tr>
+        <td>${r.party}</td>
+        <td>${r.section}</td>
+        <td>${r.ps}</td>
+        <td>${r.receive}</td>
+        <td>${r.next}</td>
+        <td>
+          <button onclick="deleteRow(${index})">Delete</button>
+        </td>
+      </tr>`;
+  });
+}
+function deleteRow(i){
+  if(confirm("Delete this record?")){
+    records.splice(i,1);
+    localStorage.setItem("courtData", JSON.stringify(records));
+    showData();
+  }
+}
