@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Court Ledger</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<h2>Court File Entry</h2>
+
+<form id="form">
+  <input id="party" placeholder="Party Name" required>
+  <input id="section" placeholder="Section" required>
+  <input id="ps" placeholder="Police Station">
+  <input type="date" id="receive">
+  <input type="date" id="next">
+  <button type="submit">Save</button>
+</form>
+
+<table border="1">
+  <thead>
+    <tr>
+      <th>Party</th><th>Section</th><th>PS</th>
+      <th>Receive</th><th>Next</th>
+    </tr>
+  </thead>
+  <tbody id="data"></tbody>
+</table>
+
+<script src="script.js"></script>
+</body>
+</html>
