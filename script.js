@@ -34,3 +34,25 @@ form.onsubmit = function(e){
   form.reset();
   showData();
 };
+document.getElementById("search").oninput = function(){
+  const q = this.value.toLowerCase();
+  const filtered = records.filter(r =>
+    r.party.toLowerCase().includes(q) ||
+    r.section.toLowerCase().includes(q)
+  );
+  showFiltered(filtered);
+};
+
+function showFiltered(list){
+  table.innerHTML = "";
+  list.forEach(r=>{
+    table.innerHTML += `
+      <tr>
+        <td>${r.party}</td>
+        <td>${r.section}</td>
+        <td>${r.ps}</td>
+        <td>${r.receive}</td>
+        <td>${r.next}</td>
+      </tr>`;
+  });
+}
