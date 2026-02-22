@@ -84,3 +84,17 @@ function todayReceive(){
   const list = records.filter(r => r.receive === today);
   showFiltered(list);
 }
+function downloadExcel(){
+  let csv = "Party,Section,PS,Receive,Next\n";
+  records.forEach(r=>{
+    csv += `${r.party},${r.section},${r.ps},${r.receive},${r.next}\n`;
+  });
+
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "court_ledger.csv";
+  a.click();
+}
