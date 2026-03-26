@@ -1,50 +1,1872 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Court Ledger</title>
-  <link rel="stylesheet" href="style.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Court Manager</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#f8fafc;color:#1e293b;min-height:100vh;padding-bottom:80px}
+button{cursor:pointer;font-family:inherit}
+:root{
+  --p:#4f46e5;--ph:#4338ca;--bg:#f8fafc;--sur:#fff;
+  --txt:#1e293b;--mu:#64748b;--bdr:#e2e8f0;
+  --dan:#ef4444;--danh:#dc2626;--suc:#10b981;--such:#059669;
+  --amb:#f59e0b;--ambh:#d97706;--inf:#0e7ac4;
+  --rl:16px;--rm:12px;
+  --ss:0 1px 3px rgba(0,0,0,.1);
+  --sm:0 4px 6px -1px rgba(0,0,0,.1),0 2px 4px -1px rgba(0,0,0,.06);
+}
+/* ── APP HEADER ── */
+#app-hdr{background:var(--p);color:#fff;padding:13px 16px 0;position:sticky;top:0;z-index:200;box-shadow:var(--sm)}
+#app-hdr-title{font-size:17px;font-weight:700;text-align:center;padding-bottom:10px}
+#tab-bar{display:flex;border-top:1px solid #ffffff30}
+.tab-btn{flex:1;padding:11px 8px;background:none;border:none;color:#ffffffaa;font-size:14px;font-weight:600;border-bottom:3px solid transparent;transition:all .15s}
+.tab-btn.on{color:#fff;border-bottom:3px solid #fff;background:#ffffff18}
+/* ── TAB CONTENT ── */
+.tab-c{display:none}.tab-c.on{display:block}
+/* ── LAYOUT ── */
+.cnt{padding:14px;max-width:1000px;margin:0 auto}
+.sec{background:var(--sur);padding:18px;margin-bottom:14px;border-radius:var(--rl);box-shadow:var(--ss);border:1px solid var(--bdr)}
+h3{margin:0 0 12px;font-size:15px;color:var(--txt);display:flex;align-items:center;gap:8px}
+/* ── INPUTS ── */
+input[type=text],input[type=date],select{
+  width:100%;padding:12px 14px;margin-top:6px;font-size:15px;
+  border-radius:var(--rm);border:1.5px solid var(--bdr);
+  background:var(--bg);color:var(--txt);font-family:inherit;outline:none;
+  transition:border-color .2s,box-shadow .2s;appearance:none;
+}
+input[type=text]:focus,input[type=date]:focus,select:focus{border-color:var(--p);box-shadow:0 0 0 3px rgba(79,70,229,.15);background:var(--sur);}
+input[type=file]{width:100%;padding:10px;margin-top:6px;font-size:14px;border-radius:var(--rm);border:1.5px solid var(--bdr);background:var(--sur)}
+/* ── BUTTONS ── */
+.btn{width:100%;padding:13px 16px;margin-top:10px;font-size:14px;font-weight:600;border-radius:var(--rm);border:none;background:var(--p);color:#fff;box-shadow:var(--sm);transition:transform .1s,background .2s;display:flex;justify-content:center;align-items:center;gap:8px}
+.btn:active{transform:scale(.98)}.btn:hover{background:var(--ph)}
+.btn-d{background:var(--dan)}.btn-d:hover{background:var(--danh)}
+.btn-s{background:var(--suc)}.btn-s:hover{background:var(--such)}
+.btn-a{background:var(--amb)}.btn-a:hover{background:var(--ambh)}
+.btn-g{background:#94a3b8}.btn-g:hover{background:#64748b}
+.btn-pu{background:#7c3aed}.btn-pu:hover{background:#6d28d9}
+.btn-opu{background:transparent;border:2px solid #7c3aed;color:#7c3aed;box-shadow:none}.btn-opu:hover{background:#ede9fe}
+.btn-sm{width:auto;padding:6px 14px;font-size:12px;margin-top:0}
+/* ── DASHBOARD ── */
+.dash{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px}
+@media(min-width:600px){.dash{grid-template-columns:repeat(4,1fr)}}
+.card{background:var(--sur);padding:14px 10px;border-radius:var(--rl);text-align:center;font-weight:600;font-size:13px;color:var(--mu);box-shadow:var(--ss);border:1px solid var(--bdr)}
+.card span{font-size:22px;color:var(--p);font-weight:700;display:block}
+/* ── TABLE ── */
+.twrap{background:var(--sur);border-radius:var(--rl);overflow-x:auto;box-shadow:var(--ss);border:1px solid var(--bdr);margin-bottom:14px}
+table{width:100%;border-collapse:collapse;min-width:900px;text-align:left}
+th,td{border-bottom:1px solid var(--bdr);padding:11px 14px;font-size:13px}
+th{background:#f1f5f9;font-weight:600;position:sticky;top:0;z-index:10}
+td input{width:100%;border:1px solid transparent;padding:7px;font-size:13px;background:transparent;border-radius:6px}
+td input:focus{background:var(--sur);border:1px solid var(--p)}
+tr:last-child td{border-bottom:none}
+tr:hover{background:#f8fafc}
+/* ── FILTER TABS ── */
+.ftabs{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.ftab{flex:1;min-width:0;padding:9px 8px;border-radius:var(--rm);border:2px solid var(--bdr);background:var(--bg);color:var(--mu);font-size:12px;font-weight:600;cursor:pointer;text-align:center;box-shadow:none;margin-top:0;display:flex;flex-direction:column;align-items:center;gap:2px}
+.ftab .tc{font-size:17px;font-weight:700}
+.ft-all{background:#ede9fe;border-color:var(--p);color:var(--p)}
+.ft-ps{background:#fff7ed;border-color:var(--amb);color:var(--ambh)}
+.ft-pr{background:#f0fdf4;border-color:var(--suc);color:var(--such)}
+/* ── DROPDOWN ── */
+.dwrap{position:relative}
+#caseDD{position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--sur);border:1.5px solid var(--p);border-radius:var(--rm);max-height:220px;overflow-y:auto;z-index:500;box-shadow:var(--sm);display:none}
+.di{padding:10px 14px;font-size:13px;cursor:pointer;border-bottom:1px solid var(--bdr)}
+.di:last-child{border-bottom:none}.di:hover,.di.act{background:#ede9fe}
+.di-cn{font-weight:700;color:var(--p);font-size:14px}.di-pt{color:var(--mu);font-size:11px;margin-top:2px}
+/* ── STATUS ── */
+.smsg{margin-top:10px;padding:10px 14px;border-radius:var(--rm);font-size:14px;font-weight:600;display:none}
+.s-ok{background:#dcfce7;color:#15803d;border:1px solid #86efac;display:block}
+.s-err{background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;display:block}
+.s-info{background:#ede9fe;color:var(--p);border:1px solid #c4b5fd;display:block}
+.s-warn{background:#fff7ed;color:#92400e;border:1px solid #fcd34d;display:block}
+/* ── GRID 2 ── */
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+.g2 .btn{margin-top:0}
+/* ── FLOAT BTNS ── */
+.flt{position:fixed;bottom:16px;right:14px;display:flex;flex-direction:column;gap:8px;z-index:100}
+.flt .btn{width:145px;box-shadow:0 6px 18px rgba(0,0,0,.25);margin-top:0;font-size:13px;padding:12px 10px}
+/* ── SCANNER OVERLAY ── */
+#scan-ov{display:none;position:fixed;inset:0;z-index:600;background:#000000f0;flex-direction:column;align-items:center;justify-content:center;gap:14px}
+#scan-ov.on{display:flex}
+#scan-box{position:relative;width:min(88vw,320px);height:min(88vw,320px);border-radius:16px;overflow:hidden;box-shadow:0 8px 48px #000a;background:#111}
+#scan-vid{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+.cr,.cr2{position:absolute;inset:0;pointer-events:none}
+.cr::before,.cr::after,.cr2::before,.cr2::after{content:'';position:absolute;width:34px;height:34px;border-color:#f0a500;border-style:solid}
+.cr::before{top:12px;left:12px;border-width:3px 0 0 3px;border-radius:5px 0 0 0}
+.cr::after{top:12px;right:12px;border-width:3px 3px 0 0;border-radius:0 5px 0 0}
+.cr2::before{bottom:12px;left:12px;border-width:0 0 3px 3px;border-radius:0 0 0 5px}
+.cr2::after{bottom:12px;right:12px;border-width:0 3px 3px 0;border-radius:0 0 5px 0}
+@keyframes sl{0%{top:12%}100%{top:84%}}
+.sline{position:absolute;left:8%;right:8%;height:2.5px;pointer-events:none;background:linear-gradient(90deg,transparent,#f0a500,#fff8,#f0a500,transparent);animation:sl 2s ease-in-out infinite alternate;box-shadow:0 0 8px #f0a500aa}
+#qr-hl{position:absolute;border:2.5px solid #18a558;border-radius:6px;box-shadow:0 0 12px #18a55888;display:none;pointer-events:none}
+@keyframes flash{0%{opacity:.55}100%{opacity:0}}
+#scan-flash{position:absolute;inset:0;background:#fff;pointer-events:none;opacity:0}
+#scan-flash.go{animation:flash .4s ease-out forwards}
+#scan-sb{position:absolute;bottom:0;left:0;right:0;background:#000000cc;color:#fff;text-align:center;font-size:12px;padding:9px 12px;font-weight:500}
+#scan-card{display:none;width:min(88vw,320px);border-radius:12px;padding:12px 18px;color:#fff;font-size:14px;font-weight:700;text-align:center}
+#scan-ctrl{width:min(88vw,320px);display:flex;flex-direction:column;gap:9px}
+#scan-ml{color:#ffffffaa;font-size:12px;text-align:center;background:#ffffff12;border-radius:8px;padding:8px}
+#cont-btn{background:#ffffff18;border:1.5px solid #ffffff44;color:#fff;border-radius:10px;padding:10px;font-size:13px;font-weight:600}
+#cont-btn.on{background:#18a55830;border-color:#18a558;color:#5effa0}
+#scan-close{background:#ffffff18;border:1.5px solid #ffffff44;color:#fff;border-radius:10px;padding:12px;font-size:14px;font-weight:600}
+/* open-scan btn */
+.osb{display:flex;align-items:center;gap:12px;background:var(--p);color:#fff;border-radius:12px;padding:14px 18px;font-size:14px;font-weight:600;width:100%;box-shadow:0 4px 16px rgba(79,70,229,.3);margin-top:4px;border:none}
+.osb .ic{font-size:24px}
+/* ── MODAL ── */
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;z-index:700;align-items:flex-end}
+.modal.on{display:flex}
+.modal.center{align-items:center;justify-content:center}
+.msh{background:var(--sur);border-radius:18px 18px 0 0;padding:20px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 -4px 24px rgba(0,0,0,.2)}
+.modal.center .msh{border-radius:var(--rl);max-width:420px;width:92%;animation:su .3s ease-out}
+@keyframes su{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+.mt{color:var(--p);font-weight:700;font-size:16px;margin-bottom:4px}
+.msub{color:var(--mu);font-size:13px;margin-bottom:14px}
+/* ── HIGHLIGHT ── */
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.hl{background:#fef08a!important;animation:pulse 1s 3}
+/* ── BUNDLE STYLES ── */
+.blbl{color:var(--mu);font-size:11px;letter-spacing:.5px;font-weight:600;text-transform:uppercase;margin-bottom:7px;margin-top:14px;display:block}
+.blbl.mt0{margin-top:0}
+.dgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:4px}
+.db{background:#f7f8fc;color:var(--mu);border:1px solid var(--bdr);border-radius:6px;padding:6px 2px;font-size:12px;font-weight:500;cursor:pointer}
+.db.on{background:var(--p);color:#fff;font-weight:700;border-color:var(--p)}
+.db:active{transform:scale(.93)}
+.crow{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:4px}
+.cb{background:#f7f8fc;color:var(--mu);border:1.5px solid var(--bdr);border-radius:8px;padding:8px 18px;font-size:16px;font-weight:700;cursor:pointer}
+.cb.on{background:var(--p);color:#fff;border-color:var(--p)}
+.cb:active{transform:scale(.93)}
+.sprev{background:#e8eeff;border:1.5px solid var(--p);border-radius:10px;padding:10px 14px;margin-top:12px;font-size:13px;color:var(--mu)}
+.sprev strong{color:var(--p);font-weight:700}
+.sdadd{background:#f7f8fc;border:1.5px dashed var(--bdr);color:var(--mu);border-radius:8px;padding:9px 14px;font-size:12px;margin-top:8px;cursor:pointer;display:inline-block}
+.clrbtn{background:none;border:1px solid rgba(239,68,68,.4);color:var(--dan);border-radius:4px;padding:2px 8px;font-size:10px;margin-left:8px;font-weight:600}
+.div{height:1px;background:var(--bdr);margin:14px 0}
+/* bundle grid */
+.bsec{margin-bottom:20px}
+.dbadge{background:var(--p);color:#fff;border-radius:7px;padding:3px 13px;font-weight:700;font-size:14px;display:inline-block;margin-right:8px}
+.dshdr{display:flex;align-items:center;margin-bottom:9px}
+.sgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
+.sc{border-radius:11px;padding:11px 12px;text-align:left;width:100%;border:2px solid;cursor:pointer;transition:all .15s;box-shadow:var(--ss)}
+.sc:active{transform:scale(.97)}
+.sc-e{background:#fff;border-color:var(--bdr)}.sc-h{background:#fffbf0;border-color:#d9770680}.sc-f{background:#fff5f5;border-color:#e0303080}.sc-m{background:#fff0f0;border-color:var(--dan)}
+.sc.rm{border-color:var(--amb)!important}
+.sc-e .scol{color:var(--mu)}.sc-h .scol{color:var(--ambh)}.sc-f .scol,.sc-m .scol{color:var(--dan)}
+.scol{font-weight:800;font-size:22px;line-height:1}
+.ssub{color:var(--inf);font-size:10px;margin-top:2px;font-weight:600}
+.scnt{font-size:11px;margin-top:4px;color:var(--mu)}
+.smiss{color:var(--dan);font-size:10px;font-weight:700;margin-top:2px}
+.rmfb{display:block;width:100%;background:#d9770612;border:1px solid #d9770640;color:var(--ambh);border-radius:5px;padding:4px 7px;font-size:10px;margin-top:4px;text-align:left;font-weight:600;cursor:pointer}
+.bfc{background:#fff;border:1.5px solid var(--bdr);border-radius:10px;padding:11px 13px;margin-bottom:9px;box-shadow:var(--ss)}
+.bfc.miss{border-color:var(--dan);background:#fff5f5}
+.bfch{display:flex;justify-content:space-between;align-items:center}
+.bfid{color:var(--p);font-weight:700;font-size:15px}
+.mbadge{color:var(--dan);font-size:11px;background:rgba(239,68,68,.1);padding:2px 8px;border-radius:5px;font-weight:700}
+.bloc{color:var(--mu);font-size:12px;margin-top:4px}
+.bact{display:flex;gap:7px;margin-top:9px;flex-wrap:wrap}
+.smb{border-radius:6px;padding:5px 11px;font-size:11px;font-weight:600;cursor:pointer;border:none}
+.bgtbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.rtog{background:#f7f8fc;color:var(--mu);border:1.5px solid var(--bdr);border-radius:7px;padding:6px 13px;font-size:12px;font-weight:600;cursor:pointer}
+.rtog.on{background:rgba(217,119,6,.1);color:var(--ambh);border-color:var(--amb)}
+.legend{display:flex;gap:10px;margin-bottom:12px;font-size:11px;color:var(--mu);flex-wrap:wrap}
+.ld{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:3px;vertical-align:middle}
+.bview{display:none}.bview.on{display:block}
+.bnav{display:flex;background:var(--sur);border-bottom:1px solid var(--bdr);padding:0 6px}
+.bnb{background:none;color:var(--mu);font-size:13px;padding:11px 12px;border-bottom:2px solid transparent;font-weight:500;cursor:pointer}
+.bnb.on{color:var(--p);border-bottom:2px solid var(--p);font-weight:700}
+.nloc{background:#e8eeff;border:1.5px solid var(--p);border-radius:8px;padding:9px 13px;font-size:13px;color:var(--mu);margin:12px 0}
+.nloc strong{color:var(--p)}
+.bempty{color:var(--mu);font-size:13px;text-align:center;margin-top:40px}
+.bswrap{position:relative}
+.bsico{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--mu);font-size:16px;pointer-events:none}
+.bswrap input{padding-left:36px}
+.nores{background:#fff;border:1.5px solid var(--dan);border-radius:10px;padding:18px;color:var(--dan);text-align:center}
+.etags{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+.etag{display:inline-block;border-radius:5px;padding:3px 9px;font-size:11px;font-weight:600;background:#f7f8fc;border:1px solid var(--bdr);color:var(--txt);margin:1px}
+.etag.miss{background:#fff5f5;border-color:rgba(239,68,68,.4);color:var(--dan)}
+/* mismatch warning box */
+.mm-warn{background:#fff7ed;border:1.5px solid #f59e0b;border-radius:10px;padding:12px 14px;font-size:13px;margin-bottom:12px}
+.mm-warn .mw-title{color:#92400e;font-weight:700;font-size:14px;margin-bottom:4px}
+.mm-warn .mw-body{color:#78350f}
+/* toast */
+#toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);border-radius:10px;padding:10px 22px;font-size:13px;font-weight:700;z-index:900;white-space:nowrap;max-width:92vw;overflow:hidden;text-overflow:ellipsis;display:none;color:#fff;box-shadow:0 4px 20px rgba(0,0,0,.3)}
+/* backup sections */
+.bk-sec{border-color:#7c3aed!important;background:#faf5ff!important}
+.dz-sec{border-color:var(--dan)!important;background:#fef2f2!important}
+/* LOGIN */
+#loginScreen{position:fixed;inset:0;background:linear-gradient(135deg,#4f46e5,#7c3aed);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px}
+.lbox{background:#fff;border-radius:20px;padding:32px 24px;width:100%;max-width:340px;box-shadow:0 20px 60px rgba(0,0,0,.35);text-align:center}
+.lbox .ico{font-size:52px}.lbox .ttl{font-size:21px;font-weight:800;color:var(--p);margin-bottom:3px}
+.lbox .sub{font-size:13px;color:var(--mu);margin-bottom:22px}
+#lid,#lpwd{width:100%;padding:13px 16px;margin-bottom:12px;font-size:15px;border:1.5px solid var(--bdr);border-radius:12px;font-family:inherit;outline:none;background:#f8fafc;display:block}
+#lid:focus,#lpwd:focus{border-color:var(--p)}
+#lbtn{width:100%;padding:14px;background:var(--p);color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer}
+#lerr{color:#e03030;font-size:13px;font-weight:600;margin-top:10px;min-height:18px}
+/* SYNC DOT */
+#syncDot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-left:7px;vertical-align:middle}
+#syncDot.ok{background:#4ade80}#syncDot.busy{background:#fbbf24;animation:pulse 1s infinite}
+#syncDot.err{background:#f87171}#syncDot.off{background:#94a3b840}
+/* OVERDUE */
+.ov-item{background:#fff;border:1.5px solid #fca5a5;border-radius:10px;padding:12px 14px;margin-bottom:9px}
+.ov-hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:3px}
+.ov-cn{font-weight:700;color:var(--p);font-size:15px}
+.ov-days{color:#ef4444;font-size:12px;font-weight:700;background:#fee2e2;padding:2px 8px;border-radius:5px}
+.ov-pt{color:var(--mu);font-size:12px;margin-bottom:8px}
+.ov-rem{width:100%;padding:9px 12px;border:1.5px solid var(--bdr);border-radius:8px;font-size:13px;font-family:inherit;resize:none;background:#f8fafc}
+.ov-rem:focus{border-color:var(--p);outline:none}
+.ov-rdiv{margin-top:9px;border-top:1px solid var(--bdr);padding-top:9px}
+.ov-rlbl{font-size:11px;font-weight:700;color:var(--mu);text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px}
+.ov-ropts{display:flex;gap:6px;flex-wrap:wrap}
+.ropt{padding:6px 12px;border-radius:7px;border:1.5px solid var(--bdr);background:#f8fafc;color:var(--mu);font-size:12px;font-weight:600;cursor:pointer}
+.ropt.on{background:#ede9fe;border-color:var(--p);color:var(--p)}
+.ropt.cx{border-color:#fca5a5;color:#ef4444}.ropt.cx.on{background:#fee2e2;border-color:#ef4444}
+.ov-save{width:100%;padding:11px;background:var(--suc);color:#fff;border:none;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;margin-top:10px}
+/* JO BUTTONS */
+.jo-row{display:flex;gap:10px;margin-top:14px}
+.jo-btn{flex:1;padding:14px 10px;border:2.5px solid;border-radius:12px;font-size:16px;font-weight:800;cursor:pointer;background:#fff;transition:all .15s}
+.jo-btn.j{border-color:#ef4444;color:#ef4444}.jo-btn.j.on{background:#ef4444;color:#fff}
+.jo-btn.o{border-color:#7c3aed;color:#7c3aed}.jo-btn.o.on{background:#7c3aed;color:#fff}
+.jo-lbl{font-size:11px;font-weight:700;color:var(--mu);text-transform:uppercase;letter-spacing:.5px;margin-top:14px;display:block}
+/* FIREBASE SECTION */
+.fb-sec{border-color:#f59e0b!important;background:#fffbeb!important}
+</style>
 </head>
 <body>
+<!-- LOGIN -->
+<div id="loginScreen">
+  <div class="lbox">
+    <div class="ico">⚖️</div>
+    <div class="ttl">Court Manager</div>
+    <div class="sub">Baghpat District Court</div>
+    <input type="text" id="lid" placeholder="User ID" autocomplete="off" onkeydown="if(event.key==='Enter')document.getElementById('lpwd').focus()">
+    <input type="password" id="lpwd" placeholder="Password" onkeydown="if(event.key==='Enter')doLogin()">
+    <button id="lbtn" onclick="doLogin()">🔐 Login</button>
+    <div id="lerr"></div>
+  </div>
+</div>
 
-<h2>Court File Entry</h2>
+<!-- ══ APP HEADER ══ -->
+<div id="app-hdr">
+  <div id="app-hdr-title">⚖️ Court Manager + 📁 Bundle Tracker <span id="syncDot" class="off" title="Firebase Sync Status"></span></div>
+  <div id="tab-bar">
+    <button class="tab-btn on" onclick="switchTab('cfm')">⚖️ Court Files</button>
+    <button class="tab-btn"   onclick="switchTab('bundle')">📁 Bundle</button>
+  </div>
+</div>
 
-<form id="form">
-  <input id="party" placeholder="Party Name" required>
-  <input id="section" placeholder="Section" required>
-  <input id="ps" placeholder="Police Station">
-  <input type="date" id="receive">
-  <input type="date" id="next">
-  <button type="submit">Save</button>
-</form>
+<!-- ══════════════════════════════════════
+     TAB 1 — COURT FILE MANAGER
+══════════════════════════════════════ -->
+<div class="tab-c on" id="cfm-tab">
+<div class="cnt">
+  <div class="sec">
+    <h3>📅 Working Date &amp; Version</h3>
+    <input type="date" id="workDate">
+    <select id="versionSelect"></select>
+  </div>
+  <div class="dash">
+    <div class="card">📁 Total<br><span id="totalCount">0</span></div>
+    <div class="card">📤 Sent<br><span id="sentCount">0</span></div>
+    <div class="card">📥 Received<br><span id="receivedCount">0</span></div>
+    <div class="card" onclick="openOverdueModal()" style="cursor:pointer" id="ovCard">⏰ Overdue (10+d)<br><span id="overdueCount" style="color:#ef4444">0</span></div>
+    <div class="card" style="grid-column:span 4">💾 Storage<br><span id="storageUsage" style="font-size:12px;color:var(--mu)">...</span></div>
+  </div>
+  <div class="sec">
+    <h3>📥 Excel Upload</h3>
+    <input type="file" id="excelFile" accept=".xlsx,.xls">
+    <button class="btn" onclick="uploadExcel()">📤 Upload Excel</button>
+  </div>
+  <div class="sec">
+    <h3>🔍 Search &amp; Filter</h3>
+    <input type="text" id="searchBox" placeholder="Case No, Party Name...">
+    <div class="ftabs">
+      <button class="ftab ft-all" id="tab-all" onclick="setFilter('all')">🗂️ All<br><span class="tc" id="tabAllCount">0</span></button>
+      <button class="ftab" id="tab-psent" onclick="setFilter('psent')">⏳ Pending Sent<br><span class="tc" id="tabPSentCount">0</span></button>
+      <button class="ftab" id="tab-precvd" onclick="setFilter('precvd')">🕐 Pending Recv.<br><span class="tc" id="tabPRecvdCount">0</span></button>
+    </div>
+  </div>
+  <div class="sec">
+    <h3>✍️ Manual Entry</h3>
+    <div class="dwrap">
+      <input type="text" id="manualCaseInput" placeholder="Case No likhein..." autocomplete="off"
+        oninput="onManualInput()" onkeydown="onManualKeyDown(event)">
+      <div id="caseDD"></div>
+    </div>
+    <div class="g2">
+      <button class="btn btn-a" onclick="manualAction('SENT')">📤 Mark SENT</button>
+      <button class="btn btn-s" onclick="manualAction('RECEIVED')">📥 Mark RECEIVED</button>
+    </div>
+    <div id="manualStatus" class="smsg"></div>
+  </div>
+  <div class="sec" style="padding:12px">
+    <button class="btn btn-s" onclick="downloadExcel()" style="margin-top:0">📊 Download Excel</button>
+  </div>
+  <div class="twrap"><table id="cfmTable"></table></div>
+  <div class="sec fb-sec">
+    <h3 style="color:#d97706">🔥 Firebase Sync</h3>
+    <div id="fbMsg" style="font-size:12px;padding:8px 12px;border-radius:7px;display:none;margin-bottom:8px"></div>
+    <input type="text" id="fbKey" placeholder="apiKey (AIzaSy...)" style="margin-bottom:8px">
+    <input type="text" id="fbMid" placeholder="messagingSenderId" style="margin-bottom:8px">
+    <input type="text" id="fbAid" placeholder="appId (1:xxx:web:xxx)">
+    <div class="g2" style="margin-top:10px">
+      <button class="btn btn-a" onclick="fbSaveConfig()" style="margin-top:0">💾 Connect</button>
+      <button class="btn btn-g" onclick="fbReset()" style="margin-top:0">🗑 Reset</button>
+    </div>
+    <div style="color:var(--mu);font-size:11px;margin-top:8px">Firebase Console → Project Settings → Web App → Config</div>
+  </div>
+  <div class="sec bk-sec">
+    <h3 style="color:#7c3aed">🗄️ Backup &amp; Restore</h3>
+    <div class="g2">
+      <button class="btn btn-pu" onclick="exportBackup()">⬇️ Export</button>
+      <button class="btn btn-opu" onclick="document.getElementById('restoreFile').click()">⬆️ Restore</button>
+    </div>
+    <input type="file" id="restoreFile" accept=".json" style="display:none" onchange="importBackup(event)">
+    <div id="backupStatus" class="smsg"></div>
+  </div>
+  <div class="sec dz-sec">
+    <h3 style="color:var(--dan)">⚠️ Danger Zone</h3>
+    <button class="btn btn-d" onclick="deleteOldData()">🧹 Delete Data &gt; 60 Days</button>
+  </div>
+</div>
+<!-- Floating scan buttons -->
+<div class="flt" id="cfmFlt">
+  <button class="btn btn-a" onclick="startCFMScan('SENT')">📤 Scan SENT</button>
+  <button class="btn btn-s" onclick="startCFMScan('RECEIVED')">📥 Scan RECEIVED</button>
+</div>
+</div>
 
-<table border="1">
-  <thead>
-    <tr>
-      <th>Party</th><th>Section</th><th>PS</th>
-      <th>Receive</th><th>Next</th>
-    </tr>
-  </thead>
-  <tbody id="data"></tbody>
-</table>
-<input id="search" placeholder="Search Party / Section">
-<script src="script.js"></script>
+<!-- ══════════════════════════════════════
+     TAB 2 — BUNDLE TRACKER
+══════════════════════════════════════ -->
+<div class="tab-c" id="bundle-tab">
+<div class="bnav">
+  <button class="bnb on" data-bv="add"    onclick="swBV('add')">➕ Add</button>
+  <button class="bnb"    data-bv="search" onclick="swBV('search')">🔍 Find</button>
+  <button class="bnb"    data-bv="grid"   onclick="swBV('grid')">🗂 Grid</button>
+</div>
+<div class="cnt" style="padding-top:14px">
+
+  <!-- ADD VIEW -->
+  <div class="bview on" id="bview-add">
+    <div style="font-weight:700;font-size:15px;margin-bottom:14px">📥 Files Add Karo</div>
+    <span class="blbl mt0">Main Date (1–31)</span>
+    <div class="dgrid" id="b-mdg"></div>
+    <div style="display:flex;align-items:center;margin-top:12px">
+      <span class="blbl" style="margin:0">Sub-Date <span style="font-weight:400;text-transform:none">(optional)</span></span>
+      <button class="clrbtn" id="b-sdc" onclick="bClearSD()" style="display:none">✕ Clear</button>
+    </div>
+    <div id="b-sds"><button class="sdadd" onclick="bEnableSD()">+ Sub-Date add karo (overflow)</button></div>
+    <span class="blbl">Column</span>
+    <div id="b-cr-wrap"></div>
+    <div class="sprev">Slot → <strong id="b-sp-t">—</strong> <span id="b-sp-c" style="font-size:12px"></span></div>
+    <div class="div"></div>
+    <span class="blbl mt0">Manually type karo <span style="font-weight:400;text-transform:none;font-size:11px">(no validation)</span></span>
+    <input type="text" id="b-mi" placeholder="File number, Enter dabao..." onkeydown="bMKey(event)">
+    <div style="color:var(--mu);font-size:11px;margin-top:4px">↵ Enter — comma se multiple</div>
+    <button class="btn" onclick="bMAdd()" style="margin-top:10px">✓ Add Karo</button>
+    <div id="b-exbox" style="display:none;margin-top:14px">
+      <span class="blbl">Is slot mein pehle se:</span>
+      <div id="b-extags" class="etags"></div>
+    </div>
+  </div>
+
+  <!-- SEARCH VIEW -->
+  <div class="bview" id="bview-search">
+    <div style="font-weight:700;font-size:15px;margin-bottom:14px">🔍 File Dhundo</div>
+    <div class="bswrap"><span class="bsico">🔎</span>
+      <input type="text" id="b-si" placeholder="File number type karo..." oninput="bRenderSearch()">
+    </div>
+    <div style="margin-top:14px" id="b-sr"></div>
+  </div>
+
+  <!-- GRID: date list -->
+  <div class="bview" id="bview-grid">
+    <div class="bgtbar">
+      <div style="color:var(--mu);font-size:12px">Date tap → files dekho</div>
+      <button class="rtog" id="rbtn" onclick="toggleRM()">⇄ Rearrange</button>
+    </div>
+    <div class="legend">
+      <span><span class="ld" style="background:#d97706"></span>Half (25–39)</span>
+      <span><span class="ld" style="background:#e03030"></span>Full (40+)</span>
+      <span><span class="ld" style="background:#e03030;opacity:.6"></span>Missing</span>
+    </div>
+    <div id="bgc"></div>
+  </div>
+
+  <!-- GRID: date detail (columns of that date) -->
+  <div class="bview" id="bview-date">
+    <button class="btn btn-g btn-sm" style="margin-bottom:14px" onclick="swBV('grid')">← Dates</button>
+    <div style="color:var(--p);font-weight:700;font-size:22px;margin-bottom:2px" id="bdd-title"></div>
+    <div style="color:var(--mu);font-size:12px;margin-bottom:14px" id="bdd-sub"></div>
+    <div id="bdd-cols"></div>
+  </div>
+
+  <!-- SLOT DETAIL (col → files list) -->
+  <div class="bview" id="bview-slot">
+    <button class="btn btn-g btn-sm" style="margin-bottom:14px" id="bsd-back">← Wapas</button>
+    <div style="color:var(--p);font-weight:700;font-size:18px;margin-bottom:3px" id="bsd-t"></div>
+    <div style="color:var(--mu);font-size:12px;margin-bottom:14px" id="bsd-s"></div>
+    <div id="bsd-c"></div>
+  </div>
+
+</div>
+</div>
+
+<!-- Floating Bundle Scan button -->
+<div class="flt" id="bundleFlt" style="display:none">
+  <button class="btn" style="width:155px;background:#4f46e5;box-shadow:0 6px 18px rgba(0,0,0,.25);margin-top:0;font-size:13px;padding:12px 10px" onclick="startBundleScan()">📷 Bundle Scan</button>
+</div>
+<!-- ══ SHARED SCANNER OVERLAY ══ -->
+<div id="scan-ov">
+  <div id="scan-box">
+    <video id="scan-vid" playsinline muted></video>
+    <div class="cr"><div class="cr2"></div></div>
+    <div class="sline"></div>
+    <div id="qr-hl"></div>
+    <div id="scan-flash"></div>
+    <div id="scan-sb">📷 Camera shuru ho rahi hai...</div>
+  </div>
+  <div id="scan-card"></div>
+  <div id="scan-ctrl">
+    <div id="scan-ml">—</div>
+    <button id="cont-btn" onclick="toggleCont()">🔁 Continuous: OFF</button>
+    <button id="scan-close" onclick="closeScan()">✕ Band Karo</button>
+  </div>
+</div>
+
+<!-- ══ CFM: NEXT DATE MODAL ══ -->
+<div class="modal center" id="ndModal">
+  <div class="msh">
+    <div class="mt">📅 Next Hearing Date</div>
+    <div class="msub" id="nd-lbl"></div>
+    <input type="date" id="ndInput">
+    <span class="jo-lbl">📋 Case Type (optional)</span>
+    <div class="jo-row">
+      <button class="jo-btn j" id="jBtn" onclick="toggleJO('J')">🔒 J — Jail</button>
+      <button class="jo-btn o" id="oBtn" onclick="toggleJO('O')">📂 O — Old</button>
+    </div>
+    <button class="btn btn-s" onclick="saveNextDate()" style="margin-top:14px">✅ Save Date</button>
+    <button class="btn btn-g" onclick="closeNDModal()" style="margin-top:8px">❌ Skip</button>
+  </div>
+</div>
+
+<!-- ══ BUNDLE: MOVE MODAL ══ -->
+<div class="modal" id="bmModal">
+  <div class="msh">
+    <div class="mt">⇄ Move / Rearrange</div>
+    <div class="msub" id="bm-fid"></div>
+    <span class="blbl mt0" style="display:block">Naya Main Date</span>
+    <div class="dgrid" id="bm-mdg"></div>
+    <div style="display:flex;align-items:center;margin-top:10px">
+      <span class="blbl" style="margin:0">Sub-Date <span style="font-weight:400">(optional)</span></span>
+      <button class="clrbtn" id="bm-sdc" onclick="bmClearSD()" style="display:none">✕ Clear</button>
+    </div>
+    <div id="bm-sds"><button class="sdadd" onclick="bmEnableSD()">+ Sub-Date add karo</button></div>
+    <span class="blbl" style="display:block">Naya Column</span>
+    <div class="crow" id="bm-cr"></div>
+    <div class="nloc" style="margin-top:10px">New → <strong id="bm-prev">—</strong></div>
+    <div class="g2" style="margin-top:4px">
+      <button class="btn" onclick="doBundleMove()">✓ Move Karo</button>
+      <button class="btn btn-g" onclick="closeBMModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ MISMATCH MODAL (scan date ≠ CFM next date) ══ -->
+<div class="modal center" id="mmModal">
+  <div class="msh">
+    <div class="mt">⚠️ Date Mismatch!</div>
+    <div class="mm-warn">
+      <div class="mw-title" id="mm-title">—</div>
+      <div class="mw-body" id="mm-body">—</div>
+    </div>
+    <div style="font-size:13px;color:var(--mu);margin-bottom:10px">
+      Agar ye overflow case hai (same date pe files zyada hain), to <strong>Sub-Date fill karo:</strong>
+    </div>
+    <span class="blbl mt0" style="display:block">Sub-Date (mandatory to proceed)</span>
+    <div class="dgrid" id="mm-sdg"></div>
+    <div class="nloc">Location → <strong id="mm-prev">—</strong></div>
+    <div class="g2" style="margin-top:4px">
+      <button class="btn" id="mm-confirm-btn" onclick="confirmMismatch()">✓ Sub-Date ke saath Add Karo</button>
+      <button class="btn btn-d" onclick="cancelMismatch()">❌ Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<!-- ══ CASE DETAIL / UNDO MODAL ══ -->
+<div class="modal center" id="caseDetailModal">
+  <div class="msh" style="max-width:440px;width:94%">
+    <div class="mt" id="cd-title">📁 Case Details</div>
+    <div class="msub" id="cd-sub"></div>
+
+    <!-- Info Grid -->
+    <div id="cd-info" style="background:#f8fafc;border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:13px;line-height:2"></div>
+
+    <!-- Undo Section -->
+    <div style="font-size:11px;font-weight:700;color:var(--mu);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">🔓 Undo Actions</div>
+    <div id="cd-undo-btns" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px"></div>
+
+    <!-- Password Row (hidden until undo clicked) -->
+    <div id="cd-pwd-row" style="display:none;background:#fff7ed;border:1.5px solid #f59e0b;border-radius:10px;padding:12px 14px;margin-bottom:10px">
+      <div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:8px">🔐 Password confirm karo</div>
+      <input type="password" id="cd-pwd" placeholder="Password..." style="width:100%;padding:10px 12px;border:1.5px solid var(--bdr);border-radius:8px;font-size:14px;font-family:inherit;outline:none"
+        onkeydown="if(event.key==='Enter')confirmUndo()">
+      <div id="cd-pwd-err" style="color:#e03030;font-size:12px;font-weight:600;margin-top:6px;display:none">❌ Galat password!</div>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button class="btn btn-d" onclick="confirmUndo()" style="margin-top:0;flex:1">✓ Confirm Undo</button>
+        <button class="btn btn-g" onclick="cancelUndoPwd()" style="margin-top:0;flex:1">Cancel</button>
+      </div>
+    </div>
+
+    <button class="btn btn-g" onclick="closeCaseDetail()" style="margin-top:0">✕ Band Karo</button>
+  </div>
+</div>
+
+<!-- OVERDUE MODAL -->
+<div class="modal" id="ovModal">
+  <div class="msh" style="max-height:92vh;overflow-y:auto">
+    <div class="mt">⏰ Overdue Files (10+ Din Sent, Received Nahi)</div>
+    <div class="msub">In files pe follow-up karein</div>
+    <div id="ovList"></div>
+    <button class="btn btn-g" onclick="document.getElementById('ovModal').classList.remove('on')" style="margin-top:6px">✕ Band Karo</button>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════
+// DOM ELEMENT REFERENCES (safe getElementById)
+// ════════════════════════════════════════
+const workDate       = document.getElementById('workDate');
+const versionSelect  = document.getElementById('versionSelect');
+const searchBox      = document.getElementById('searchBox');
+const storageUsage   = document.getElementById('storageUsage');
+const totalCount     = document.getElementById('totalCount');
+const sentCount      = document.getElementById('sentCount');
+const receivedCount  = document.getElementById('receivedCount');
+const excelFile      = document.getElementById('excelFile');
+const manualCaseInput= document.getElementById('manualCaseInput');
+
+// ════════════════════════════════════════
+// IndexedDB
+// ════════════════════════════════════════
+const DB_NAME='CourtFileManagerDB', DB_VER=2;
+const SV='versions', SM='metadata', SB='bundles';
+let db;
+function openDB(){
+  return new Promise((res,rej)=>{
+    if(db)return res(db);
+    const r=indexedDB.open(DB_NAME,DB_VER);
+    r.onupgradeneeded=e=>{
+      const d=e.target.result;
+      if(!d.objectStoreNames.contains(SV))  d.createObjectStore(SV,{keyPath:'workDate'});
+      if(!d.objectStoreNames.contains(SM))  d.createObjectStore(SM,{keyPath:'key'});
+      if(!d.objectStoreNames.contains(SB))  d.createObjectStore(SB,{keyPath:'id'});
+    };
+    r.onsuccess=e=>{db=e.target.result;res(db);};
+    r.onerror=e=>rej(e.target.errorCode);
+  });
+}
+function idbTx(store,mode,fn){
+  return new Promise((res,rej)=>{
+    const tx=db.transaction(store,mode),s=tx.objectStore(store),r=fn(s);
+    r.onsuccess=()=>res(r.result);r.onerror=e=>rej(e.target.error);
+  });
+}
+const idbGV  = d=>idbTx(SV,'readonly',s=>s.get(d)).then(r=>r?r.versions:[]);
+const idbSV  = (d,v)=>idbTx(SV,'readwrite',s=>s.put({workDate:d,versions:v}));
+const idbDV  = d=>idbTx(SV,'readwrite',s=>s.delete(d));
+const idbAVK = ()=>idbTx(SV,'readonly',s=>s.getAllKeys());
+const idbGM  = k=>idbTx(SM,'readonly',s=>s.get(k)).then(r=>r?r.value:null);
+const idbSM  = (k,v)=>idbTx(SM,'readwrite',s=>s.put({key:k,value:v}));
+const idbDM  = k=>idbTx(SM,'readwrite',s=>s.delete(k));
+const idbAMK = ()=>idbTx(SM,'readonly',s=>s.getAllKeys());
+const idbGB  = id=>idbTx(SB,'readonly',s=>s.get(id));
+const idbSBn = obj=>idbTx(SB,'readwrite',s=>s.put(obj));
+const idbDB  = id=>idbTx(SB,'readwrite',s=>s.delete(id));
+const idbAB  = ()=>idbTx(SB,'readonly',s=>s.getAll());
+
+// ════════════════════════════════════════
+// SHARED HELPERS
+// ════════════════════════════════════════
+const COLS=['A','B','C','D','E','F'];
+const DATES=Array.from({length:31},(_,i)=>i+1);
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+let toastT;
+function showToast(msg,type){
+  const t=document.getElementById('toast');
+  t.textContent=msg;t.style.background=type==='w'?'#d97706':type==='d'?'#e03030':'#18a558';
+  t.style.display='block';clearTimeout(toastT);toastT=setTimeout(()=>t.style.display='none',2800);
+}
+function speak(msg,lang){
+  try{const u=new SpeechSynthesisUtterance(msg);u.lang=lang||'en-IN';u.rate=1;speechSynthesis.cancel();speechSynthesis.speak(u);}catch(e){}
+}
+let activeTab='cfm';
+function switchTab(t){
+  activeTab=t;
+  document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('on',['cfm','bundle'][i]===t));
+  document.getElementById('cfm-tab').classList.toggle('on',t==='cfm');
+  document.getElementById('bundle-tab').classList.toggle('on',t==='bundle');
+  document.getElementById('cfmFlt').style.display=t==='cfm'?'flex':'none';
+  document.getElementById('bundleFlt').style.display=t==='bundle'?'flex':'none';
+  if(t==='bundle'){bRenderGrid();bUpdateST();}
+}
+
+// ════════════════════════════════════════
+// CFM STATE
+// ════════════════════════════════════════
+const DK=["srno","caseno","partyname","section","ps","sent","received","receiveddate","nextdate","remark"];
+let cData=[], upV=1, aFilter='all', lastRcvCase=null, dropIdx=-1;
+let sDeb;
+const rTimers = {}; // per-case debounce timers
+function sId(id){return String(id||"").replace(/[^a-zA-Z0-9-_]/g,'_');}
+function gSrch(r){return DK.map(k=>r[k]||"").join(' ').toLowerCase();}
+function dKey(){return workDate.value+"_"+upV;}
+function fmtD(iso){if(!iso)return"";const p=iso.split("-");return p.length===3?p[2]+"-"+p[1]+"-"+p[0]:iso;}
+// Get CFM next date day number for a case
+function getCFMDay(caseNo){
+  const r=cData.find(x=>x.caseno===String(caseNo).toUpperCase()||x.caseno===String(caseNo));
+  if(!r||!r.nextdate)return null;
+  return parseInt(r.nextdate.split('-')[2]);
+}
+function getCFMRecord(caseNo){
+  return cData.find(x=>x.caseno===String(caseNo));
+}
+
+// ════════════════════════════════════════
+// CFM INIT
+// ════════════════════════════════════════
+window.onload=async()=>{
+  // Login
+  if(sessionStorage.getItem('crtLogin')!=='1'){
+    document.getElementById('loginScreen').style.display='flex';
+  } else {
+    document.getElementById('loginScreen').style.display='none';
+  }
+  // Firebase config load
+  fbLoadConfig();
+  try{
+    await openDB();
+    workDate.value=new Date().toISOString().split("T")[0];
+    await loadVersions();await loadCurV();await loadLocal();
+    updateSU();bInit();
+    checkReminders();
+  }catch(e){console.error("Init:",e);}
+};
+
+// ── Reminder checker — app open hone par check karo ──
+function checkReminders(){
+  const today=new Date().toISOString().split('T')[0];
+  const due=cData.filter(r=>r._reminder&&r._reminder<=today&&r.sent==="Sent"&&r.received!=="Received");
+  if(!due.length)return;
+  // Highlight overdue card
+  const ovCard=document.getElementById('ovCard');
+  if(ovCard)ovCard.style.animation='pulse 0.8s 4';
+  // Show toast after small delay
+  setTimeout(()=>{
+    showToast('🔔 '+due.length+' file(s) ka reminder aaj hai! Overdue card tap karo.','w');
+  },1200);
+}
+async function updateSU(){
+  try{
+    if(navigator.storage&&navigator.storage.estimate){
+      const e=await navigator.storage.estimate();
+      const u=(e.usage/1048576).toFixed(2),t=(e.quota/1048576).toFixed(0),p=((e.usage/e.quota)*100).toFixed(1);
+      storageUsage.innerText=u+"MB/"+t+"MB ("+p+"%)";
+    }else storageUsage.innerText="IndexedDB";
+  }catch(e){storageUsage.innerText="IndexedDB";}
+}
+async function loadVersions(){
+  versionSelect.innerHTML="";
+  const vs=await idbGV(workDate.value);
+  if(!vs||!vs.length){versionSelect.innerHTML='<option value="1">Upload 1</option>';return;}
+  vs.forEach(v=>{const o=document.createElement("option");o.value=v;o.text="Upload "+v;versionSelect.appendChild(o);});
+}
+async function saveCurV(){await idbSM('cv_'+workDate.value,upV);}
+async function loadCurV(){const v=await idbGM('cv_'+workDate.value);upV=parseInt(v)||1;versionSelect.value=upV;}
+async function saveLocal(){try{await idbSM(dKey(),cData);fbPush();}catch(e){console.error(e);}}
+async function loadLocal(){
+  try{const s=await idbGM(dKey());if(s&&Array.isArray(s)){cData=s;cData.forEach(r=>r.searchableText=gSrch(r));}else cData=[];}
+  catch(e){cData=[];}
+  drawTable(getFiltered());updateDash();
+}
+workDate.addEventListener("change",async()=>{await loadVersions();await loadCurV();await loadLocal();fbStartListen();});
+versionSelect.addEventListener("change",async()=>{upV=parseInt(versionSelect.value);await saveCurV();await loadLocal();fbStartListen();});
+
+// ════════════════════════════════════════
+// CFM DASHBOARD
+// ════════════════════════════════════════
+function updateDash(){
+  const t=cData.length,sn=cData.filter(x=>x.sent==="Sent").length,rc=cData.filter(x=>x.received==="Received").length;
+  const ps=cData.filter(x=>x.sent!=="Sent").length,pr=cData.filter(x=>x.sent==="Sent"&&x.received!=="Received").length;
+  totalCount.innerText=t;sentCount.innerText=sn;receivedCount.innerText=rc;
+  document.getElementById("tabAllCount").innerText=t;
+  document.getElementById("tabPSentCount").innerText=ps;
+  document.getElementById("tabPRecvdCount").innerText=pr;
+  // Overdue count
+  const today=new Date();today.setHours(0,0,0,0);
+  const od=cData.filter(r=>{
+    if(r.sent!=="Sent"||r.received==="Received")return false;
+    // Agar sentdate nahi hai purane data mein — tab bhi check karo
+    if(!r.sentdate)return true;
+    const sd=new Date(r.sentdate);sd.setHours(0,0,0,0);
+    return Math.floor((today-sd)/86400000)>=10;
+  });
+  const oc=document.getElementById("overdueCount");
+  if(oc)oc.innerText=od.length;
+  const ovCard=document.getElementById("ovCard");
+  if(ovCard){ovCard.style.borderColor=od.length>0?'#fca5a5':'var(--bdr)';ovCard.style.background=od.length>0?'#fff5f5':'var(--sur)';}
+}
+function setFilter(f){
+  aFilter=f;
+  const m={all:'ft-all',psent:'ft-ps',precvd:'ft-pr'};
+  ['all','psent','precvd'].forEach(k=>{
+    const el=document.getElementById("tab-"+k);
+    el.className="ftab"+(k===f?" "+m[k]:"");
+  });
+  searchBox.value="";drawTable(getFiltered());
+}
+function getFiltered(){
+  let d=cData;
+  if(aFilter==='psent') d=d.filter(r=>r.sent!=="Sent");
+  else if(aFilter==='precvd') d=d.filter(r=>r.sent==="Sent"&&r.received!=="Received");
+  const q=searchBox.value.trim().toLowerCase();
+  if(q) d=d.filter(r=>r.searchableText&&r.searchableText.includes(q));
+  return d;
+}
+
+// ════════════════════════════════════════
+// CFM EXCEL UPLOAD
+// ════════════════════════════════════════
+async function uploadExcel(){
+  const file=excelFile.files[0];if(!file){alert("Excel file select karo");return;}
+  try{
+    const vs=await idbGV(workDate.value);upV=(vs&&vs.length?vs.length:0)+1;
+    const reader=new FileReader();
+    reader.onload=async e=>{
+      try{
+        const wb=XLSX.read(e.target.result,{type:"binary"});
+        const sheet=wb.Sheets[wb.SheetNames[0]];
+        let rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:""});
+        if(rows.length>0)rows.shift();
+        cData=rows.map(r=>{
+          const rec={srno:r[0]||"",caseno:String(r[1]||"").trim(),partyname:r[2]||"",section:r[3]||"",ps:r[4]||"",sent:"",received:"",receiveddate:"",nextdate:"",remark:""};
+          rec.searchableText=gSrch(rec);return rec;
+        }).filter(r=>r.caseno!=="");
+        const opt=document.createElement("option");opt.value=upV;opt.text="Upload "+upV;versionSelect.appendChild(opt);versionSelect.value=upV;
+        const nv=vs?[...vs,upV]:[upV];
+        await idbSV(workDate.value,nv);await saveCurV();await saveLocal();
+        drawTable(getFiltered());updateDash();updateSU();
+        speak("Excel uploaded");alert("Upload ho gaya! ("+cData.length+" records)");excelFile.value="";
+      }catch(err){alert("Excel error: "+err.message);}
+    };
+    reader.readAsBinaryString(file);
+  }catch(err){alert("Upload fail: "+err);}
+}
+
+// ════════════════════════════════════════
+// CFM TABLE
+// ════════════════════════════════════════
+function drawTable(data){
+  const tbl=document.getElementById("cfmTable");
+  if(!data||!data.length){tbl.innerHTML="";return;}
+  const H=["srno","caseno","partyname","section","ps","sent","received","receiveddate","nextdate","remark"];
+  const L=["Sr.No","Case No","Party Name","Section","PS","Sent","Received","Recv.Date","Next Date","Remark"];
+  let h="<tr>"+L.map(x=>"<th>"+x+"</th>").join("")+"</tr>";
+  data.forEach(r=>{
+    let row='<tr id="row_'+sId(r.caseno)+'">';
+    H.forEach(k=>{
+      if(k==="caseno"){
+        const cj=String(r.caseno).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+        row+=`<td><span style="color:var(--p);font-weight:700;cursor:pointer;text-decoration:underline dotted" onclick="openCaseDetail('${cj}')">${esc(r.caseno)}</span></td>`;
+      } else if(k==="remark"){
+        const ca=String(r.caseno).replace(/"/g,'&quot;'),cj=String(r.caseno).replace(/\\/g,'\\\\').replace(/'/g,"\\'"),va=String(r[k]||"").replace(/"/g,'&quot;');
+        row+='<td><input data-caseno="'+ca+'" value="'+va+'" oninput="updateRemark(\''+cj+'\',this.value)" placeholder="Remark..."></td>';
+      } else if(k==="receiveddate"||k==="nextdate"){
+        row+='<td>'+fmtD(r[k])+'</td>';
+      } else if(k==="sent"&&r.sent==="Sent"){
+        row+='<td style="background:#fff3cd">'+esc(r[k]||"")+'</td>';
+      } else if(k==="received"&&r.received==="Received"){
+        row+='<td style="background:#c8e6c9">'+esc(r[k]||"")+'</td>';
+      } else {
+        row+='<td>'+esc(r[k]||"")+'</td>';
+      }
+    });
+    row+="</tr>";h+=row;
+  });
+  tbl.innerHTML=h;
+  setTimeout(()=>{
+    const ac=document.activeElement,acc=ac&&ac.dataset&&ac.dataset.caseno?ac.dataset.caseno:null,cp=acc?ac.selectionStart:null;
+    const rm=new Map(cData.map(r=>[r.caseno,r.remark||""]));
+    document.querySelectorAll('input[data-caseno]').forEach(inp=>{
+      const val=rm.get(inp.dataset.caseno);if(val===undefined)return;
+      if(acc&&inp.dataset.caseno===acc){if(inp.value!==val)inp.value=val;if(cp!=null)try{inp.setSelectionRange(cp,cp);}catch(e){}inp.focus();}
+      else inp.value=val;
+    });
+  },0);
+}
+searchBox.addEventListener("input",()=>{clearTimeout(sDeb);sDeb=setTimeout(()=>drawTable(getFiltered()),150);});
+async function updateRemark(cn,val){
+  clearTimeout(rTimers[cn]);
+  rTimers[cn]=setTimeout(async()=>{
+    const i=cData.findIndex(r=>r.caseno===cn);
+    if(i!==-1){cData[i].remark=val;cData[i].searchableText=gSrch(cData[i]);await saveLocal();}
+    delete rTimers[cn];
+  },400);
+}
+
+// ════════════════════════════════════════
+// CASE DETAIL + UNDO (password protected)
+// ════════════════════════════════════════
+let _cdCN=null, _undoAction=null;
+
+function openCaseDetail(cn){
+  _cdCN=cn; _undoAction=null;
+  const r=cData.find(x=>x.caseno===cn);
+  if(!r)return;
+
+  document.getElementById('cd-title').textContent='📁 '+cn;
+  document.getElementById('cd-sub').textContent=r.partyname||'';
+
+  // Info grid
+  const rows=[
+    ['Party',r.partyname||'—'],['Section',r.section||'—'],['PS',r.ps||'—'],
+    ['Sent',r.sent==='Sent'?'✅ Sent ('+fmtD(r.sentdate)+')':'⏳ Pending'],
+    ['Received',r.received==='Received'?'✅ Received ('+fmtD(r.receiveddate)+')':'⏳ Pending'],
+    ['Next Date',r.nextdate?fmtD(r.nextdate):'—'],
+    ['Remark',r.remark||'—'],
+  ];
+  document.getElementById('cd-info').innerHTML=rows.map(([k,v])=>
+    `<div><span style="color:var(--mu);min-width:80px;display:inline-block">${k}:</span> <strong>${esc(String(v))}</strong></div>`
+  ).join('');
+
+  // Undo buttons — only show relevant ones
+  let btns='';
+  if(r.sent==='Sent')
+    btns+=`<button class="btn btn-d" style="margin-top:0" onclick="initUndo('unsent')">↩ SENT Undo karo</button>`;
+  if(r.received==='Received')
+    btns+=`<button class="btn btn-d" style="margin-top:0" onclick="initUndo('unreceived')">↩ RECEIVED Undo karo</button>`;
+  if(r.nextdate)
+    btns+=`<button class="btn btn-a" style="margin-top:0" onclick="initUndo('unnextdate')">↩ Next Date Clear karo</button>`;
+  if(!btns)
+    btns='<div style="color:var(--mu);font-size:13px;text-align:center;padding:8px">Koi action available nahi hai</div>';
+
+  document.getElementById('cd-undo-btns').innerHTML=btns;
+  document.getElementById('cd-pwd-row').style.display='none';
+  document.getElementById('cd-pwd').value='';
+  document.getElementById('cd-pwd-err').style.display='none';
+  document.getElementById('caseDetailModal').classList.add('on');
+}
+
+function initUndo(action){
+  _undoAction=action;
+  document.getElementById('cd-pwd-row').style.display='block';
+  document.getElementById('cd-pwd-err').style.display='none';
+  document.getElementById('cd-pwd').value='';
+  setTimeout(()=>document.getElementById('cd-pwd').focus(),80);
+}
+
+function cancelUndoPwd(){
+  _undoAction=null;
+  document.getElementById('cd-pwd-row').style.display='none';
+  document.getElementById('cd-pwd').value='';
+  document.getElementById('cd-pwd-err').style.display='none';
+}
+
+async function confirmUndo(){
+  const pwd=document.getElementById('cd-pwd').value;
+  if(pwd!=='27031994'){
+    document.getElementById('cd-pwd-err').style.display='block';
+    document.getElementById('cd-pwd').value='';
+    document.getElementById('cd-pwd').focus();
+    return;
+  }
+  // Password sahi — action perform karo
+  const idx=cData.findIndex(r=>r.caseno===_cdCN);
+  if(idx===-1){closeCaseDetail();return;}
+
+  if(_undoAction==='unsent'){
+    cData[idx].sent=''; cData[idx].sentdate='';
+    // Agar received bhi tha toh woh bhi clear
+    cData[idx].received=''; cData[idx].receiveddate='';
+    cData[idx].nextdate='';
+    showToast('↩ SENT undo ho gaya: '+_cdCN);
+  } else if(_undoAction==='unreceived'){
+    cData[idx].received=''; cData[idx].receiveddate='';
+    cData[idx].nextdate='';
+    showToast('↩ RECEIVED undo ho gaya: '+_cdCN);
+  } else if(_undoAction==='unnextdate'){
+    cData[idx].nextdate='';
+    showToast('↩ Next Date clear ho gaya: '+_cdCN);
+  }
+
+  cData[idx].searchableText=gSrch(cData[idx]);
+  await saveLocal();
+  drawTable(getFiltered());updateDash();
+  closeCaseDetail();
+}
+
+function closeCaseDetail(){
+  document.getElementById('caseDetailModal').classList.remove('on');
+  _cdCN=null; _undoAction=null;
+}
+document.getElementById('caseDetailModal').addEventListener('click',function(e){
+  if(e.target===this)closeCaseDetail();
+});
+
+// ════════════════════════════════════════
+// CFM MANUAL ENTRY
+// ════════════════════════════════════════
+function showMS(msg,type){
+  const el=document.getElementById("manualStatus");
+  el.textContent=msg;el.className="smsg s-"+type;
+  clearTimeout(el._t);if(type==="ok")el._t=setTimeout(()=>el.className="smsg",3000);
+}
+function onManualInput(){
+  const v=manualCaseInput.value.trim().toLowerCase();dropIdx=-1;
+  if(!v||!cData.length){closeDD();return;}
+  const m=cData.filter(r=>String(r.caseno).toLowerCase().includes(v)||String(r.partyname).toLowerCase().includes(v)).slice(0,20);
+  if(!m.length){closeDD();return;}
+  const dd=document.getElementById("caseDD");
+  dd.innerHTML=m.map(r=>{
+    const cn=String(r.caseno).replace(/"/g,'&quot;'),cj=String(r.caseno).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    return`<div class="di" data-caseno="${cn}" onmousedown="selDD('${cj}')"><div class="di-cn">${esc(r.caseno)}</div><div class="di-pt">${esc(r.partyname||"")}${r.section?" | "+esc(r.section):""}</div></div>`;
+  }).join("");
+  dd.style.display="block";
+}
+function onManualKeyDown(e){
+  const dd=document.getElementById("caseDD"),items=dd.querySelectorAll(".di");if(!items.length)return;
+  if(e.key==="ArrowDown"){e.preventDefault();dropIdx=Math.min(dropIdx+1,items.length-1);updDDHL(items);}
+  else if(e.key==="ArrowUp"){e.preventDefault();dropIdx=Math.max(dropIdx-1,0);updDDHL(items);}
+  else if(e.key==="Enter"){e.preventDefault();if(dropIdx>=0&&items[dropIdx])selDD(items[dropIdx].dataset.caseno);}
+  else if(e.key==="Escape")closeDD();
+}
+function updDDHL(items){items.forEach((el,i)=>{el.classList.toggle("act",i===dropIdx);if(i===dropIdx)el.scrollIntoView({block:"nearest"});});}
+function selDD(cn){manualCaseInput.value=cn;closeDD();document.getElementById("manualStatus").className="smsg";}
+function closeDD(){document.getElementById("caseDD").style.display="none";dropIdx=-1;}
+document.addEventListener("click",e=>{if(!e.target.closest(".dwrap"))closeDD();});
+
+async function manualAction(mode){
+  const cn=manualCaseInput.value.trim();
+  if(!cn){showMS("⚠️ Case No enter karo","err");return;}
+  if(!cData.length){showMS("⚠️ Data nahi. Excel upload karo","err");return;}
+  const idx=cData.findIndex(r=>String(r.caseno).trim()===cn);
+  if(idx===-1){showMS("❌ Not Found: "+cn,"err");speak("Case not found");return;}
+  const rec=cData[idx];
+  if(mode==="SENT"){
+    if(rec.sent==="Sent"){showMS("ℹ️ Already SENT: "+cn,"info");speak("Already sent");return;}
+    cData[idx].sent="Sent";cData[idx].sentdate=new Date().toISOString().split("T")[0];cData[idx].searchableText=gSrch(cData[idx]);
+    showMS("✅ SENT: "+cn,"ok");speak("File sent");manualCaseInput.value="";
+    // Hide bundle entry
+    await hideBundleEntry(cn);
+  } else {
+    if(rec.sent!=="Sent"){showMS("❌ Pehle SENT karo","err");speak("File not sent yet");return;}
+    if(rec.received==="Received"){showMS("ℹ️ Already RECEIVED: "+cn,"info");speak("Already received");return;}
+    cData[idx].received="Received";
+    cData[idx].receiveddate=new Date().toISOString().split("T")[0];
+    lastRcvCase=cn;cData[idx].searchableText=gSrch(cData[idx]);
+    showMS("✅ RECEIVED: "+cn,"ok");speak("File received");manualCaseInput.value="";
+    openNDModal(cn);
+  }
+  drawTable(getFiltered());scrollToFile(cn);updateDash();await saveLocal();
+}
+
+// ════════════════════════════════════════
+// CFM SCROLL HIGHLIGHT
+// ════════════════════════════════════════
+function scrollToFile(cn){
+  const row=document.getElementById("row_"+sId(cn));
+  if(!row)return;
+  row.scrollIntoView({behavior:"smooth",block:"center"});
+  row.classList.add("hl");setTimeout(()=>row.classList.remove("hl"),4000);
+}
+
+// ════════════════════════════════════════
+// CFM NEXT DATE MODAL
+// ════════════════════════════════════════
+// J/O state
+let ndJO=null;
+function toggleJO(t){
+  ndJO=ndJO===t?null:t;
+  document.getElementById('jBtn').classList.toggle('on',ndJO==='J');
+  document.getElementById('oBtn').classList.toggle('on',ndJO==='O');
+}
+function resetJO(){ndJO=null;const j=document.getElementById('jBtn'),o=document.getElementById('oBtn');if(j)j.classList.remove('on');if(o)o.classList.remove('on');}
+
+function openNDModal(cn){
+  resetJO();
+  const rec=cData.find(r=>r.caseno===cn);
+  document.getElementById("nd-lbl").textContent=(rec?rec.partyname+" — ":"")+cn;
+  document.getElementById("ndInput").value="";
+  document.getElementById("ndModal").classList.add("on");
+}
+function closeNDModal(){resetJO();document.getElementById("ndModal").classList.remove("on");lastRcvCase=null;}
+document.getElementById("ndModal").addEventListener("click",function(e){if(e.target===this)closeNDModal();});
+
+async function saveNextDate(){
+  if(!lastRcvCase)return;
+  const d=document.getElementById("ndInput").value;
+  if(!d){alert("Date select karo");return;}
+  const idx=cData.findIndex(r=>r.caseno===lastRcvCase);
+  if(idx!==-1){
+    cData[idx].nextdate=d;
+    if(ndJO){
+      const tag=ndJO==='J'?'Jail':'Old';
+      cData[idx].remark=((cData[idx].remark||'').trim()+(cData[idx].remark?' | ':'')+tag).trim();
+    }
+    cData[idx].searchableText=gSrch(cData[idx]);
+  }
+  document.getElementById("ndModal").classList.remove("on");
+  const dt=new Date(d);
+  speak("Next date "+dt.getUTCDate()+" "+dt.toLocaleDateString("en-IN",{month:"long",timeZone:"UTC"}));
+  drawTable(getFiltered());updateDash();await saveLocal();
+  resetJO();lastRcvCase=null;
+}
+
+// ════════════════════════════════════════
+// CFM DOWNLOAD
+// ════════════════════════════════════════
+function downloadExcel(){
+  if(!cData.length){alert("Data nahi hai");return;}
+  const ed=cData.map(r=({"Sr.No":r.srno,"Case No":r.caseno,"Party Name":r.partyname,"Section":r.section,"PS":r.ps,"Sent":r.sent,"Received":r.received,"Recv.Date":r.receiveddate,"Next Date":r.nextdate,"Remark":r.remark}));
+  const ws=XLSX.utils.json_to_sheet(ed),wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Court Data");
+  XLSX.writeFile(wb,"Court_"+workDate.value+"_v"+upV+".xlsx");
+}
+
+// ════════════════════════════════════════
+// CFM DELETE OLD / BACKUP
+// ════════════════════════════════════════
+async function deleteOldData(){
+  if(!confirm("60 din se purana data delete karein?"))return;
+  const today=new Date();let count=0;
+  try{
+    const mk=await idbAMK();
+    for(const key of mk){if(key.startsWith('cv_'))continue;const fd=new Date(key.substring(0,10));if(!isNaN(fd)&&(today-fd)/86400000>60){await idbDM(key);count++;}}
+    const dk=await idbAVK();for(const d of dk){const fd=new Date(d);if(!isNaN(fd)&&(today-fd)/86400000>60)await idbDV(d);}
+    alert(count+" records delete ho gaye.");updateSU();
+  }catch(err){alert("Delete fail: "+err);}
+}
+async function exportBackup(){
+  const stEl=document.getElementById("backupStatus");
+  try{
+    const avk=await idbAVK(),vd={};for(const d of avk){const r=await idbTx(SV,'readonly',s=>s.get(d));if(r)vd[d]=r.versions;}
+    const amk=await idbAMK(),md={};for(const k of amk){const v=await idbGM(k);if(v!==null)md[k]=v;}
+    const allB=await idbAB();
+    const bk={exportedAt:new Date().toISOString(),appVersion:"3.0",versionsStore:vd,metadataStore:md,bundlesStore:allB};
+    const blob=new Blob([JSON.stringify(bk,null,2)],{type:"application/json"});
+    const url=URL.createObjectURL(blob),a=document.createElement("a");
+    a.href=url;a.download="CourtBundleBackup_"+new Date().toISOString().split("T")[0]+".json";
+    document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+    stEl.textContent="✅ Backup export ho gaya!";stEl.className="smsg s-ok";clearTimeout(stEl._t);stEl._t=setTimeout(()=>stEl.className="smsg",3000);
+  }catch(err){stEl.textContent="❌ Export fail: "+err;stEl.className="smsg s-err";}
+}
+async function importBackup(event){
+  const stEl=document.getElementById("backupStatus"),file=event.target.files[0];event.target.value="";
+  if(!file)return;
+  if(!confirm("⚠️ Restore karne se SAARA data replace hoga. Sure?"))return;
+  const reader=new FileReader();
+  reader.onload=async e=>{
+    try{
+      const bk=JSON.parse(e.target.result);
+      if(!bk.versionsStore||!bk.metadataStore){stEl.textContent="❌ Invalid backup";stEl.className="smsg s-err";return;}
+      for(const[k,v] of Object.entries(bk.versionsStore))await idbTx(SV,'readwrite',s=>s.put({workDate:k,versions:v}));
+      for(const[k,v] of Object.entries(bk.metadataStore))await idbSM(k,v);
+      if(bk.bundlesStore)for(const b of bk.bundlesStore)await idbSBn(b);
+      stEl.textContent="✅ Restore ho gaya!";stEl.className="smsg s-ok";setTimeout(()=>location.reload(),1500);
+    }catch(err){stEl.textContent="❌ Restore fail: "+err.message;stEl.className="smsg s-err";}
+  };
+  reader.readAsText(file);
+}
+
+// ════════════════════════════════════════
+// SHARED SCANNER (BarcodeDetector)
+// ════════════════════════════════════════
+let scanStream=null,scanActive=false,scanCtx='',scanDetector=null,scanCool=false,scanLast='',contMode=false;
+function initDet(){
+  if(scanDetector)return true;
+  if(!('BarcodeDetector' in window))return false;
+  try{scanDetector=new BarcodeDetector({formats:['qr_code']});return true;}catch(e){return false;}
+}
+function setSS(msg){document.getElementById('scan-sb').textContent=msg;}
+function showSC(msg,bg){
+  const c=document.getElementById('scan-card');c.textContent=msg;c.style.background=bg;c.style.display='block';
+  setTimeout(()=>c.style.display='none',2200);
+}
+function openScan(ctx,lbl,allowCont){
+  if(!initDet()){showToast('BarcodeDetector support nahi hai. Chrome update karo','d');return;}
+  scanCtx=ctx;scanActive=true;scanCool=false;scanLast='';
+  document.getElementById('cont-btn').style.display=allowCont?'block':'none';
+  if(allowCont){document.getElementById('cont-btn').textContent='🔁 Continuous: '+(contMode?'ON':'OFF');document.getElementById('cont-btn').className=contMode?'on':'';}
+  document.getElementById('scan-ml').textContent=lbl;
+  document.getElementById('scan-card').style.display='none';
+  document.getElementById('scan-ov').classList.add('on');
+  setSS('📷 Camera shuru ho rahi hai...');
+  navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}}})
+  .then(stream=>{
+    scanStream=stream;const vid=document.getElementById('scan-vid');vid.srcObject=stream;
+    vid.onloadedmetadata=()=>{vid.play();setSS('📷 QR code frame ke saamne laao');schedDet();};
+    if(vid.readyState>=2){vid.play();setSS('📷 QR code frame ke saamne laao');schedDet();}
+  }).catch(err=>setSS('❌ Camera: '+err.message));
+}
+function schedDet(){if(!scanActive)return;setTimeout(doDet,80);}
+async function doDet(){
+  if(!scanActive)return;
+  const vid=document.getElementById('scan-vid');
+  if(!vid||vid.readyState<2||vid.paused||vid.videoWidth===0){schedDet();return;}
+  try{
+    const bs=await scanDetector.detect(vid);
+    if(bs&&bs.length&&!scanCool){
+      const dec=bs[0].rawValue.trim();
+      if(dec&&(!contMode||dec!==scanLast)){
+        scanLast=dec;scanCool=true;
+        showQRBox(bs[0].boundingBox,vid);
+        const fl=document.getElementById('scan-flash');fl.classList.remove('go');void fl.offsetWidth;fl.classList.add('go');
+        handleScanResult(dec);
+        if(!contMode){setTimeout(closeScan,700);return;}
+        else{setTimeout(()=>{scanCool=false;hideQRBox();},2200);schedDet();return;}
+      }
+    }
+  }catch(e){}
+  schedDet();
+}
+function showQRBox(rect,vid){
+  const b=document.getElementById('qr-hl'),w=document.getElementById('scan-box');
+  const sx=w.offsetWidth/vid.videoWidth,sy=w.offsetHeight/vid.videoHeight;
+  b.style.left=Math.round(rect.x*sx)+'px';b.style.top=Math.round(rect.y*sy)+'px';
+  b.style.width=Math.round(rect.width*sx)+'px';b.style.height=Math.round(rect.height*sy)+'px';b.style.display='block';
+}
+function hideQRBox(){document.getElementById('qr-hl').style.display='none';}
+function closeScan(){
+  scanActive=false;
+  if(scanStream){scanStream.getTracks().forEach(t=>t.stop());scanStream=null;}
+  document.getElementById('scan-vid').srcObject=null;hideQRBox();
+  document.getElementById('scan-ov').classList.remove('on');
+}
+function toggleCont(){
+  contMode=!contMode;scanLast='';scanCool=false;
+  const b=document.getElementById('cont-btn');b.textContent='🔁 Continuous: '+(contMode?'ON':'OFF');b.className=contMode?'on':'';
+}
+function handleScanResult(dec){
+  if(scanCtx==='cfm_sent')      handleCFMScan(dec,'SENT');
+  else if(scanCtx==='cfm_rcv')  handleCFMScan(dec,'RECEIVED');
+  else if(scanCtx==='bundle')   handleBundleScan(dec);
+}
+
+// ════════════════════════════════════════
+// CFM SCANNER
+// ════════════════════════════════════════
+function startCFMScan(mode){
+  openScan(mode==='SENT'?'cfm_sent':'cfm_rcv',
+    mode==='SENT'?'📤 Scanning for SENT...':'📥 Scanning for RECEIVED...',false);
+}
+async function handleCFMScan(code,mode){
+  const idx=cData.findIndex(r=>r.caseno===code);
+  if(idx===-1){showSC('❌ Not Found: '+code,'#e03030');speak("File not found");return;}
+  if(mode==='SENT'){
+    if(cData[idx].sent==="Sent"){showSC('ℹ️ Already Sent: '+code,'#d97706');speak("Already sent");return;}
+    cData[idx].sent="Sent";cData[idx].sentdate=new Date().toISOString().split("T")[0];cData[idx].searchableText=gSrch(cData[idx]);
+    showSC('✅ SENT: '+code,'#18a558');speak("File sent");
+    await hideBundleEntry(code); // ← AUTO HIDE FROM BUNDLE
+  } else {
+    if(cData[idx].sent!=="Sent"){showSC('❌ Pehle SENT karo: '+code,'#e03030');speak("File not sent yet");return;}
+    if(cData[idx].received==="Received"){showSC('ℹ️ Already Received: '+code,'#d97706');speak("Already received");return;}
+    cData[idx].received="Received";cData[idx].receiveddate=new Date().toISOString().split("T")[0];
+    cData[idx].searchableText=gSrch(cData[idx]);lastRcvCase=code;
+    showSC('✅ RECEIVED: '+code,'#18a558');speak("File received");
+    setTimeout(()=>{closeScan();openNDModal(code);},800);
+    drawTable(getFiltered());scrollToFile(code);updateDash();await saveLocal();
+    return;
+  }
+  drawTable(getFiltered());scrollToFile(code);updateDash();await saveLocal();
+}
+
+// ════════════════════════════════════════
+// BUNDLE: AUTO-HIDE when SENT
+// ════════════════════════════════════════
+async function hideBundleEntry(caseNo){
+  const id=String(caseNo).toUpperCase();
+  if(bFiles[id]){
+    bFiles[id].hidden=true;
+    await idbSBn(bFiles[id]);
+    if(activeTab==='bundle')bRenderGrid();
+    showToast('📁 '+id+' bundle se hide ho gaya (SENT)');
+  }
+}
+// Bundle state below
+
+// ════════════════════════════════════════
+// BUNDLE STATE + COLUMN SYSTEM
+// ════════════════════════════════════════
+// Use COLS and DATES already declared above
+const COLS_NORMAL = COLS; // COLS = ['A','B','C','D','E','F'] from CFM section
+
+function getColsForDate(md) {
+  if(SPECIAL_DATES.includes(md)) {
+    return [
+      ...SHELF_LETTERS.map(l=>'S1'+l),
+      ...SHELF_LETTERS.map(l=>'S2'+l)
+    ];
+  }
+  return COLS_NORMAL;
+}
+function dispCol(col) {
+  // S1A → S1-A, S2O → S2-O, A → A
+  if(col && col.length === 3 && (col.startsWith('S1') || col.startsWith('S2'))) {
+    return col.slice(0,2)+'-'+col.slice(2);
+  }
+  return col;
+}
+
+// DATES already declared above (Array 1-31)
+const SHELF_LETTERS = ['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O'];
+const SPECIAL_DATES = [29,30,31];
+let bFiles={}, bRM=false, bMoveId=null, bSlot=null, bActiveDate=null;
+let bAMD=1, bASD=null, bAC='A';
+let bMMD=1, bMSD=null, bMC='A';
+let mmPending={id:'',cfmDay:0}, mmSD=1;
+
+async function bInit(){
+  const all=await idbAB(); bFiles={};
+  all.forEach(b=>bFiles[b.id]=b);
+  bBDG('b-mdg', bAMD, d=>{ bAMD=d; bRenderColButtons(); bRenderAdd(); });
+  function rebuildMoveMDG(){ bBDG('bm-mdg',bMMD, d=>{ bMMD=d; bUpdateMP(); bBuildMoveCR(); rebuildMoveMDG(); }); }
+  rebuildMoveMDG();
+  bBuildMoveCR();
+  bRenderColButtons();
+  bUpdateSP(); bUpdateMP(); bUpdateST();
+}
+
+function swBV(v){
+  document.querySelectorAll('.bnb').forEach(b=>b.classList.toggle('on',b.dataset.bv===v));
+  document.querySelectorAll('.bview').forEach(el=>el.classList.remove('on'));
+  const id = v==='date'?'bview-date': v==='slot'?'bview-slot':'bview-'+v;
+  document.getElementById(id).classList.add('on');
+  if(v==='grid') bRenderGrid();
+  if(v==='search') setTimeout(()=>document.getElementById('b-si').focus(),80);
+}
+
+function bBDG(id,sel,cb){
+  const el=document.getElementById(id); if(!el)return;
+  el.innerHTML=DATES.map(d=>`<button class="db${sel===d?' on':''}" onclick="(${cb})(${d})">${d}</button>`).join('');
+}
+
+// ── Column buttons (changes based on selected date) ──
+function bRenderColButtons() {
+  const wrap = document.getElementById('b-cr-wrap');
+  const cols = getColsForDate(bAMD);
+  const isSpecial = SPECIAL_DATES.includes(bAMD);
+
+  if(!isSpecial) {
+    // Simple row
+    wrap.innerHTML = `<div class="crow" id="b-cr">`+
+      cols.map(c=>`<button class="cb${bAC===c?' on':''}" onclick="bSetCol('${c}')">${c}</button>`).join('')+
+      `</div>`;
+  } else {
+    // Two safes, 5 shelves each, 3 cols per shelf
+    let h = '';
+    ['S1','S2'].forEach(safe=>{
+      h += `<div style="margin-bottom:10px">
+        <div style="color:var(--mu);font-size:11px;font-weight:600;letter-spacing:.5px;margin-bottom:6px;text-transform:uppercase">
+          🗄 Safe ${safe.slice(1)}
+        </div>`;
+      for(let shelf=0;shelf<5;shelf++){
+        h += `<div class="crow" style="margin-bottom:5px">`;
+        for(let ci=0;ci<3;ci++){
+          const letter = SHELF_LETTERS[shelf*3+ci];
+          const col = safe+letter;
+          h += `<button class="cb${bAC===col?' on':''}" onclick="bSetCol('${col}')" style="min-width:52px">${safe.slice(1)}-${letter}</button>`;
+        }
+        h += `</div>`;
+      }
+      h += `</div>`;
+    });
+    wrap.innerHTML = h;
+  }
+  // If current bAC not valid for new date, reset
+  if(!getColsForDate(bAMD).includes(bAC)){
+    bAC = getColsForDate(bAMD)[0];
+    bRenderColButtons();
+  }
+}
+
+function bSetCol(c){ bAC=c; bRenderColButtons(); bUpdateSP(); bUpdateST(); }
+
+function bBuildMoveCR(){
+  const cols = getColsForDate(bMMD);
+  const isSpecial = SPECIAL_DATES.includes(bMMD);
+  const wrap = document.getElementById('bm-cr');
+  if(!wrap) return;
+  if(!isSpecial){
+    wrap.innerHTML = cols.map(c=>`<button class="cb${bMC===c?' on':''}" onclick="bMSetCol('${c}')">${c}</button>`).join('');
+    wrap.className = 'crow';
+  } else {
+    wrap.className = '';
+    let h='';
+    ['S1','S2'].forEach(safe=>{
+      h+=`<div style="margin-bottom:8px"><div style="color:var(--mu);font-size:11px;font-weight:600;margin-bottom:5px">🗄 Safe ${safe.slice(1)}</div>`;
+      for(let sh=0;sh<5;sh++){
+        h+=`<div class="crow" style="margin-bottom:4px">`;
+        for(let ci=0;ci<3;ci++){
+          const l=SHELF_LETTERS[sh*3+ci], col=safe+l;
+          h+=`<button class="cb${bMC===col?' on':''}" onclick="bMSetCol('${col}')" style="min-width:52px">${safe.slice(1)}-${l}</button>`;
+        }
+        h+=`</div>`;
+      }
+      h+=`</div>`;
+    });
+    wrap.innerHTML=h;
+  }
+}
+function bMSetCol(c){ bMC=c; bBuildMoveCR(); bUpdateMP(); }
+
+function bSK(md,sd,c){ return md+'|'+(sd==null?'-':sd)+'|'+c; }
+function bPK(k){ const p=k.split('|'); return{md:+p[0],sd:p[1]==='-'?null:+p[1],col:p[2]}; }
+function bSM(){
+  const m={};
+  Object.values(bFiles).filter(f=>!f.hidden).forEach(f=>{
+    const k=bSK(f.md,f.sd,f.col); if(!m[k])m[k]=[]; m[k].push(f);
+  });
+  return m;
+}
+function bCC(arr){
+  if(!arr||!arr.length) return 'sc-e';
+  if(arr.some(f=>f.st==='missing')) return 'sc-m';
+  return arr.length>=40?'sc-f': arr.length>=25?'sc-h':'sc-e';
+}
+
+// ── GRID: date list ──
+function bRenderGrid(){
+  const m = bSM();
+  const dates = [...new Set(Object.values(bFiles).filter(f=>!f.hidden).map(f=>f.md))].sort((a,b)=>a-b);
+  const gc = document.getElementById('bgc');
+  if(!dates.length){ gc.innerHTML='<div class="bempty">Koi file nahi. Add tab se shuru karo.</div>'; return; }
+
+  let h='';
+  dates.forEach(date=>{
+    const allInDate = Object.values(bFiles).filter(f=>!f.hidden && f.md===date);
+    const tot = allInDate.length;
+    const missCount = allInDate.filter(f=>f.st==='missing').length;
+    const maxSlotFiles = Math.max(0,...Object.entries(m)
+      .filter(([k])=>+k.split('|')[0]===date)
+      .map(([,arr])=>arr.length));
+    const cls = maxSlotFiles>=40?'sc-f': maxSlotFiles>=25?'sc-h':'sc-e';
+
+    h += `<button class="sc ${cls}" style="width:100%;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;padding:14px 16px"
+      onclick="bOpenDate(${date})">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:28px;font-weight:800;color:${cls==='sc-e'?'var(--mu)':cls==='sc-h'?'var(--ambh)':'var(--dan)'}">${date}</span>
+        <div style="text-align:left">
+          <div style="font-size:13px;font-weight:600;color:var(--txt)">${tot} files</div>
+          ${missCount>0?`<div style="font-size:11px;color:var(--dan);font-weight:700">⚠ ${missCount} missing</div>`:''}
+          ${SPECIAL_DATES.includes(date)?'<div style="font-size:10px;color:var(--inf);font-weight:600">🗄 S1 + S2 Safe</div>':''}
+        </div>
+      </div>
+      <span style="color:var(--mu);font-size:18px">›</span>
+    </button>`;
+
+    // Rearrange mode: show files inline
+    if(bRM){
+      allInDate.forEach(f=>{
+        h+=`<div style="margin:-6px 0 8px 14px"><button class="rmfb" onclick="bOpenMove('${esc(f.id)}')" style="display:inline-block;width:auto;margin-right:4px">⇄ ${esc(f.id)} (${dispCol(f.col)})</button></div>`;
+      });
+    }
+  });
+  gc.innerHTML = h;
+}
+
+function toggleRM(){
+  bRM=!bRM;
+  const b=document.getElementById('rbtn');
+  b.textContent=bRM?'✓ Done':'⇄ Rearrange';
+  b.classList.toggle('on',bRM);
+  bRenderGrid();
+}
+
+// ── Date detail: columns of that date ──
+function bOpenDate(date){
+  bActiveDate = date;
+  const m = bSM();
+  const isSpecial = SPECIAL_DATES.includes(date);
+  const allCols = getColsForDate(date);
+
+  // Get all slots for this date
+  const slotsForDate = Object.entries(m)
+    .filter(([k])=>+k.split('|')[0]===date)
+    .map(([k,arr])=>({...bPK(k),arr}));
+
+  document.getElementById('bdd-title').textContent = `📅 Date ${date}`;
+  const tot = slotsForDate.reduce((s,x)=>s+x.arr.length,0);
+  document.getElementById('bdd-sub').textContent = `${tot} files — Slot tap karo files dekhne ke liye`;
+
+  let h = '';
+  if(isSpecial){
+    ['S1','S2'].forEach(safe=>{
+      const safeSlots = slotsForDate.filter(s=>s.col.startsWith(safe));
+      if(!safeSlots.length) return;
+      h += `<div style="background:#f1f5f9;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:12px;font-weight:700;color:var(--p)">🗄 Safe ${safe.slice(1)}</div>`;
+      h += `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:14px">`;
+      safeSlots.forEach(({md,sd,col,arr})=>{
+        const cls=bCC(arr), ic=cls==='sc-e'?'⚪':cls==='sc-h'?'🟡':'🔴';
+        const ms=arr.filter(f=>f.st==='missing').length;
+        h+=`<button class="sc ${cls}" onclick="bOSlot(${md},${sd==null?'null':sd},'${esc(col)}','date')" style="padding:10px 8px">
+          <div style="display:flex;align-items:center;gap:3px"><span class="scol" style="font-size:18px">${dispCol(col)}</span><span style="font-size:12px">${ic}</span></div>
+          <div class="scnt">${arr.length}</div>
+          ${ms>0?`<div class="smiss">⚠${ms}</div>`:''}
+        </button>`;
+      });
+      h += `</div>`;
+    });
+  } else {
+    h += `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:7px">`;
+    slotsForDate.forEach(({md,sd,col,arr})=>{
+      const cls=bCC(arr), ic=cls==='sc-e'?'⚪':cls==='sc-h'?'🟡':'🔴';
+      const ms=arr.filter(f=>f.st==='missing').length;
+      h+=`<button class="sc ${cls}" onclick="bOSlot(${md},${sd==null?'null':sd},'${esc(col)}','date')">
+        <div style="display:flex;align-items:center;gap:4px"><div class="scol">${col}</div><span>${ic}</span></div>
+        ${sd!=null?`<div class="ssub">sub:${sd}</div>`:''}
+        <div class="scnt">${arr.length} files</div>
+        ${ms>0?`<div class="smiss">⚠ ${ms} missing</div>`:''}
+      </button>`;
+    });
+    h += `</div>`;
+  }
+  if(!slotsForDate.length) h='<div class="bempty">Is date mein koi slot nahi.</div>';
+  document.getElementById('bdd-cols').innerHTML = h;
+
+  // Show date view
+  document.querySelectorAll('.bnb').forEach(b=>b.classList.remove('on'));
+  document.querySelectorAll('.bview').forEach(el=>el.classList.remove('on'));
+  document.getElementById('bview-date').classList.add('on');
+}
+
+// ── Slot detail (files in col) ──
+function bOSlot(md,sd,col,backView){
+  bSlot={md,sd,col};
+  document.getElementById('bsd-back').onclick = ()=>{ if(backView==='date') bOpenDate(md); else swBV('grid'); };
+  bRenderSlot();
+  document.querySelectorAll('.bview').forEach(el=>el.classList.remove('on'));
+  document.getElementById('bview-slot').classList.add('on');
+}
+function bRenderSlot(){
+  if(!bSlot)return;
+  const arr=(bSM()[bSK(bSlot.md,bSlot.sd,bSlot.col)]||[]);
+  document.getElementById('bsd-t').textContent=`Date ${bSlot.md}${bSlot.sd!=null?'/'+bSlot.sd:''} — Col ${dispCol(bSlot.col)}`;
+  document.getElementById('bsd-s').textContent=arr.length+' files';
+  document.getElementById('bsd-c').innerHTML=arr.length?arr.map(f=>bFCHTML(f,false)).join(''):'<div class="bempty">Koi file nahi.</div>';
+}
+
+// ── Add form ──
+function bRenderAdd(){
+  bBDG('b-mdg', bAMD, d=>{ bAMD=d; bRenderColButtons(); bRenderAdd(); });
+  if(bASD!==null){ const el=document.getElementById('b-sdg'); if(el) bBDG('b-sdg',bASD,d=>{ bASD=d; bRenderAdd(); }); }
+  bUpdateSP(); bUpdateST();
+}
+function bEnableSD(){
+  bASD=1;
+  document.getElementById('b-sds').innerHTML='<div class="dgrid" id="b-sdg"></div>';
+  document.getElementById('b-sdc').style.display='inline-block';
+  bBDG('b-sdg',bASD,d=>{ bASD=d; bRenderAdd(); });
+  bUpdateSP(); bUpdateST();
+}
+function bClearSD(){
+  bASD=null;
+  document.getElementById('b-sds').innerHTML='<button class="sdadd" onclick="bEnableSD()">+ Sub-Date add karo (overflow)</button>';
+  document.getElementById('b-sdc').style.display='none';
+  bUpdateSP(); bUpdateST();
+}
+function bUpdateSP(){
+  const ex=(bSM()[bSK(bAMD,bASD,bAC)]||[]);
+  document.getElementById('b-sp-t').textContent=`Date ${bAMD}${bASD!=null?'/'+bASD:''} — Col ${dispCol(bAC)}`;
+  document.getElementById('b-sp-c').textContent=`(${ex.length} files)`;
+  const eb=document.getElementById('b-exbox'),et=document.getElementById('b-extags');
+  if(ex.length){
+    eb.style.display='block';
+    et.innerHTML=ex.map(f=>`<span class="etag${f.st==='missing'?' miss':''}">${esc(f.id)}${f.st==='missing'?' ⚠':''}</span>`).join('');
+  } else eb.style.display='none';
+}
+function bUpdateST(){
+  const el=document.getElementById('scan-ml');
+  if(el&&scanCtx==='bundle') el.textContent=`📷 Bundle → Date ${bAMD}${bASD!=null?'/'+bASD:''} ${dispCol(bAC)}`;
+}
+
+// ── Add file (all 3 rules) ──
+async function bAddFile(rawId, fromScan){
+  const id=rawId.trim().toUpperCase(); if(!id) return false;
+
+  if(fromScan){
+    const rec=getCFMRecord(id);
+    if(!rec){ showSC('❌ CFM mein nahi hai: '+id,'#e03030'); speak("File CFM mein nahi hai"); return false; }
+  }
+
+  if(bFiles[id]&&!bFiles[id].hidden){
+    const ex=bFiles[id];
+    const msg=`"${id}" pehle se: Date ${ex.md}${ex.sd!=null?'/'+ex.sd:''} — ${dispCol(ex.col)}. Pehle hatao.`;
+    fromScan?showSC(msg,'#e03030'):showToast(msg,'d');
+    speak("File pehle se hai"); return false;
+  }
+
+  if(fromScan){
+    const cfmDay=getCFMDay(id);
+    if(cfmDay!==null && cfmDay!==bAMD && bASD===null){
+      openMismatchModal(id, cfmDay); return false;
+    }
+  }
+
+  const obj={id,md:bAMD,sd:bASD,col:bAC,at:Date.now(),st:'placed',hidden:false};
+  bFiles[id]=obj; await idbSBn(obj);
+  const sl=`${bAMD}${bASD!=null?'/'+bASD:''}-${dispCol(bAC)}`;
+  if(fromScan){ showSC('✅ '+id+' → Date '+sl,'#18a558'); speak(bAMD+' '+dispCol(bAC),'hi-IN'); }
+  else showToast('✅ '+id+' → '+sl);
+  bUpdateSP(); bRenderGrid();
+  return true;
+}
+
+function bMKey(e){
+  if(e.key==='Enter'){
+    e.preventDefault();
+    document.getElementById('b-mi').value.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean).forEach(p=>bAddFile(p,false));
+    document.getElementById('b-mi').value='';
+  }
+}
+function bMAdd(){
+  document.getElementById('b-mi').value.split(/,/).map(s=>s.trim()).filter(Boolean).forEach(p=>bAddFile(p,false));
+  document.getElementById('b-mi').value='';
+}
+
+// ── Scanner ──
+function startBundleScan(){
+  bUpdateST();
+  openScan('bundle',`📷 Bundle → Date ${bAMD}${bASD!=null?'/'+bASD:''} ${dispCol(bAC)}`,true);
+}
+function handleBundleScan(dec){ bAddFile(dec,true); if(scanActive) bUpdateST(); }
+
+// ── Mismatch modal ──
+function openMismatchModal(id, cfmDay){
+  mmPending={id,cfmDay}; mmSD=1;
+  document.getElementById('mm-title').textContent=`⚠ Case: ${id}`;
+  document.getElementById('mm-body').textContent=`CFM next date day = ${cfmDay}, aap Date ${bAMD} mein rakh rahe ho. Mismatch!`;
+  function rebuildMMSDG(){ bBDG('mm-sdg',mmSD,d=>{ mmSD=d; document.getElementById('mm-prev').textContent=`Date ${bAMD}/${d} — ${dispCol(bAC)}`; rebuildMMSDG(); }); }
+  rebuildMMSDG();
+  document.getElementById('mm-prev').textContent=`Date ${bAMD}/${mmSD} — ${dispCol(bAC)}`;
+  document.getElementById('mmModal').classList.add('on');
+}
+async function confirmMismatch(){
+  const id=mmPending.id, prevSD=bASD;
+  bASD=mmSD;
+  const obj={id,md:bAMD,sd:bASD,col:bAC,at:Date.now(),st:'placed',hidden:false};
+  bFiles[id]=obj; await idbSBn(obj);
+  showSC('✅ '+id+` → Date ${bAMD}/${bASD}-${dispCol(bAC)}`,'#18a558');
+  speak(bAMD+' '+dispCol(bAC),'hi-IN');
+  bUpdateSP(); bRenderGrid();
+  bASD=prevSD;
+  document.getElementById('mmModal').classList.remove('on');
+  mmPending={id:'',cfmDay:0};
+}
+function cancelMismatch(){
+  document.getElementById('mmModal').classList.remove('on');
+  mmPending={id:'',cfmDay:0};
+  showSC('❌ Scan reject: date mismatch','#e03030');
+}
+
+// ── File actions ──
+async function bSetStatus(id,st){
+  if(!bFiles[id])return;
+  bFiles[id].st=st; await idbSBn(bFiles[id]);
+  showToast(st==='missing'?'⚠ Missing: '+id:'✅ Restored: '+id, st==='missing'?'w':'');
+  bRenderGrid(); if(bSlot)bRenderSlot(); bRenderSearch();
+}
+async function bUnhide(id){
+  if(!bFiles[id])return;
+  bFiles[id].hidden=false; await idbSBn(bFiles[id]);
+  showToast('✅ '+id+' wapas dikhaya'); bRenderGrid(); bRenderSearch();
+}
+async function bDelFile(id){
+  delete bFiles[id]; await idbDB(id);
+  showToast('Hata diya: '+id,'d');
+  bRenderGrid(); if(bSlot)bRenderSlot(); bRenderSearch();
+}
+
+// ── Move modal ──
+function bOpenMove(id){
+  bMoveId=id; const f=bFiles[id];
+  bMMD=f.md; bMSD=f.sd!=null?f.sd:null; bMC=f.col;
+  document.getElementById('bm-fid').textContent=id;
+  bRenderMoveForm();
+  document.getElementById('bmModal').classList.add('on');
+}
+function closeBMModal(){ document.getElementById('bmModal').classList.remove('on'); bMoveId=null; }
+document.getElementById('bmModal').addEventListener('click',function(e){ if(e.target===this)closeBMModal(); });
+
+function bRenderMoveForm(){
+  bBDG('bm-mdg',bMMD,d=>{ bMMD=d; bBuildMoveCR(); bRenderMoveForm(); });
+  bBuildMoveCR();
+  const sec=document.getElementById('bm-sds');
+  if(bMSD!==null){
+    if(!document.getElementById('bm-sdg')){
+      sec.innerHTML='<div class="dgrid" id="bm-sdg"></div>';
+      document.getElementById('bm-sdc').style.display='inline-block';
+    }
+    bBDG('bm-sdg',bMSD,d=>{ bMSD=d; bRenderMoveForm(); });
+  } else {
+    sec.innerHTML='<button class="sdadd" onclick="bmEnableSD()">+ Sub-Date add karo</button>';
+    document.getElementById('bm-sdc').style.display='none';
+  }
+  bUpdateMP();
+}
+function bmEnableSD(){ bMSD=1; document.getElementById('bm-sds').innerHTML='<div class="dgrid" id="bm-sdg"></div>'; document.getElementById('bm-sdc').style.display='inline-block'; bBDG('bm-sdg',bMSD,d=>{ bMSD=d; bRenderMoveForm(); }); bUpdateMP(); }
+function bmClearSD(){ bMSD=null; document.getElementById('bm-sds').innerHTML='<button class="sdadd" onclick="bmEnableSD()">+ Sub-Date add karo</button>'; document.getElementById('bm-sdc').style.display='none'; bUpdateMP(); }
+function bUpdateMP(){ document.getElementById('bm-prev').textContent=`Date ${bMMD}${bMSD!=null?'/'+bMSD:''} — ${dispCol(bMC)}`; }
+
+async function doBundleMove(){
+  if(!bMoveId)return;
+  bFiles[bMoveId].md=bMMD; bFiles[bMoveId].sd=bMSD; bFiles[bMoveId].col=bMC;
+  await idbSBn(bFiles[bMoveId]);
+  showToast(`✅ Moved → Date ${bMMD}${bMSD!=null?'/'+bMSD:''}-${dispCol(bMC)}`);
+  closeBMModal(); bRenderGrid();
+  if(bSlot){ bSlot=null; swBV('grid'); }
+  bRenderSearch();
+}
+
+// ── Search ──
+function bRenderSearch(){
+  const q=document.getElementById('b-si').value.trim().toLowerCase();
+  const res=document.getElementById('b-sr');
+  const allV=Object.values(bFiles);
+  // Missing: only files with missing tag (not hidden)
+  const miss=allV.filter(f=>f.st==='missing'&&!f.hidden);
+  const tot=allV.filter(f=>!f.hidden).length;
+
+  if(q){
+    const r=allV.filter(f=>f.id.toLowerCase().includes(q));
+    res.innerHTML=r.length?r.map(f=>bFCHTML(f,true)).join(''):'<div class="nores">❌ "'+esc(q)+'" nahi mili</div>';
+    return;
+  }
+  if(miss.length){
+    res.innerHTML='<div style="color:var(--dan);font-weight:700;margin-bottom:10px">⚠ Missing Files ('+miss.length+')</div>'+miss.map(f=>bFCHTML(f,true)).join('');
+    return;
+  }
+  res.innerHTML=tot?'<div style="color:var(--suc);font-size:13px;text-align:center;margin-top:30px;font-weight:600">✅ Koi missing nahi</div>':'<div class="bempty">Koi file add nahi ki abhi.</div>';
+}
+
+// ── File card HTML ──
+function bFCHTML(f,showLoc){
+  const id=esc(f.id), isHidden=f.hidden;
+  return `<div class="bfc${f.st==='missing'?' miss':''}">
+    <div class="bfch">
+      <span class="bfid">${id}</span>
+      <div style="display:flex;gap:5px;align-items:center">
+        ${isHidden?'<span style="background:#dcfce7;color:#15803d;font-size:10px;padding:2px 7px;border-radius:4px;font-weight:700">SENT ✓</span>':''}
+        ${f.st==='missing'?'<span class="mbadge">⚠ MISSING</span>':''}
+      </div>
+    </div>
+    ${showLoc?`<div class="bloc">📍 Date ${f.md}${f.sd!=null?'/'+f.sd:''} — Col <strong>${dispCol(f.col)}</strong>${isHidden?' <em style="color:var(--suc);font-size:11px">(SENT)</em>':''}</div>`:''}
+    <div class="bact">
+      ${isHidden
+        ?`<button class="smb" style="background:#e8eeff;color:var(--p);border:1px solid #c4b5fd" onclick="bUnhide('${id}')">👁 Wapas Dikhao</button>`
+        :f.st!=='missing'
+          ?`<button class="smb" style="background:#d9770614;color:var(--ambh);border:1px solid #d9770640" onclick="bSetStatus('${id}','missing')">Missing</button>`
+          :`<button class="smb" style="background:#10b98114;color:var(--suc);border:1px solid #10b98140" onclick="bSetStatus('${id}','placed')">Wapas Mili</button>`
+      }
+      ${!isHidden?`<button class="smb" style="background:#0e7ac414;color:var(--inf);border:1px solid #0e7ac440" onclick="bOpenMove('${id}')">⇄ Move</button>`:''}
+      <button class="smb" style="background:#ef444414;color:var(--dan);border:1px solid #ef444440" onclick="bDelFile('${id}')">Hatao</button>
+    </div>
+  </div>`;
+}
+
+// ══════════════════════════════════════
+// LOGIN
+// ══════════════════════════════════════
+function doLogin(){
+  const id=document.getElementById('lid').value.trim();
+  const pw=document.getElementById('lpwd').value.trim();
+  if(id==='baghpatcourtstaff'&&pw==='27031994'){
+    sessionStorage.setItem('crtLogin','1');
+    document.getElementById('loginScreen').style.display='none';
+  } else {
+    document.getElementById('lerr').textContent='❌ Wrong ID ya Password!';
+    document.getElementById('lpwd').value='';
+  }
+}
+
+// ══════════════════════════════════════
+// FIREBASE SYNC
+// ══════════════════════════════════════
+let _fbDb=null;
+const FB_KEY='crtFBCfg';
+
+function setSyncDot(s){const d=document.getElementById('syncDot');if(d)d.className=s;}
+function fbMsg(msg,cls){const el=document.getElementById('fbMsg');if(!el)return;el.textContent=msg;el.className=cls;el.style.display='block';if(cls==='s-ok')setTimeout(()=>el.style.display='none',4000);}
+
+function fbLoadConfig(){
+  try{
+    const cfg=JSON.parse(localStorage.getItem(FB_KEY)||'null');
+    if(cfg&&cfg.apiKey){
+      if(document.getElementById('fbKey'))document.getElementById('fbKey').value=cfg.apiKey||'';
+      if(document.getElementById('fbMid'))document.getElementById('fbMid').value=cfg.messagingSenderId||'';
+      if(document.getElementById('fbAid'))document.getElementById('fbAid').value=cfg.appId||'';
+      fbInit(cfg);
+    }
+  }catch(e){}
+}
+
+function fbSaveConfig(){
+  const apiKey=(document.getElementById('fbKey').value||'').trim();
+  const mid=(document.getElementById('fbMid').value||'').trim();
+  const aid=(document.getElementById('fbAid').value||'').trim();
+  if(!apiKey||!aid){fbMsg('❌ API Key aur App ID zaroori hain','s-err');return;}
+  const cfg={apiKey,messagingSenderId:mid,appId:aid,projectId:'court-file-system',authDomain:'court-file-system.firebaseapp.com',storageBucket:'court-file-system.appspot.com'};
+  localStorage.setItem(FB_KEY,JSON.stringify(cfg));
+  fbInit(cfg);
+}
+
+function fbReset(){
+  localStorage.removeItem(FB_KEY);_fbDb=null;setSyncDot('off');fbMsg('Firebase reset ho gaya','s-info');
+}
+
+let _fbUnsub=null;
+async function fbInit(cfg){
+  try{
+    if(firebase.apps.length){
+      await Promise.all(firebase.apps.map(a=>a.delete()));
+    }
+    firebase.initializeApp(cfg);
+    _fbDb=firebase.firestore();
+    setSyncDot('ok');
+    fbMsg('✅ Firebase connected!','s-ok');
+    fbStartListen();
+  }catch(e){_fbDb=null;setSyncDot('err');fbMsg('❌ '+e.message,'s-err');}
+}
+
+function fbStartListen(){
+  if(!_fbDb)return;
+  if(_fbUnsub)_fbUnsub();
+  const docId=dKey();
+  _fbUnsub=_fbDb.collection('cfm').doc(docId).onSnapshot(snap=>{
+    if(!snap.exists)return;
+    const rem=snap.data();
+    if(!rem||!rem.data)return;
+    const active=document.activeElement;
+    if(active&&active.dataset&&active.dataset.caseno)return;
+    cData=rem.data;cData.forEach(r=>r.searchableText=gSrch(r));
+    drawTable(getFiltered());updateDash();setSyncDot('ok');
+  },()=>setSyncDot('err'));
+}
+
+async function fbPush(){
+  if(!_fbDb||!cData.length)return;
+  try{
+    setSyncDot('busy');
+    await _fbDb.collection('cfm').doc(dKey()).set({data:cData,at:Date.now()});
+    setSyncDot('ok');
+  }catch(e){setSyncDot('err');}
+}
+
+// ══════════════════════════════════════
+// OVERDUE MODAL
+// ══════════════════════════════════════
+let _ovRemSel={};
+let _ovData=[];  // stores overdue records by index (fixes caseno special-char bugs)
+
+function openOverdueModal(){
+  const today=new Date();today.setHours(0,0,0,0);
+  const od=cData.filter(r=>{
+    if(r.sent!=="Sent"||r.received==="Received")return false;
+    if(!r.sentdate)return true;
+    const sd=new Date(r.sentdate);sd.setHours(0,0,0,0);
+    return Math.floor((today-sd)/86400000)>=10;
+  }).map(r=>{
+    if(!r.sentdate)return{...r,daysOld:'?'};
+    const sd=new Date(r.sentdate);sd.setHours(0,0,0,0);
+    return{...r,daysOld:Math.floor((today-sd)/86400000)};
+  }).sort((a,b)=>{
+    if(a.daysOld==='?')return-1;if(b.daysOld==='?')return 1;
+    return b.daysOld-a.daysOld;
+  });
+
+  if(!od.length){showToast('✅ Koi overdue file nahi!');return;}
+  _ovRemSel={};
+  _ovData=od;  // store by index — safe for any caseno format
+
+  document.getElementById('ovList').innerHTML=od.map((r,i)=>{
+    const today=new Date().toISOString().split('T')[0];
+    const hasReminder=r._reminder&&r._reminder>today;
+    const reminderDue=r._reminder&&r._reminder<=today;
+    return`<div class="ov-item" id="ovi-${i}" style="${reminderDue?'border-color:#f59e0b;background:#fffbeb':''}">
+      <div class="ov-hd">
+        <span class="ov-cn">${esc(r.caseno)}</span>
+        <div style="display:flex;gap:6px;align-items:center">
+          ${reminderDue?'<span style="background:#fef3c7;color:#92400e;font-size:10px;padding:2px 7px;border-radius:4px;font-weight:700">🔔 Reminder Aaj</span>':''}
+          ${hasReminder?`<span style="background:#ede9fe;color:var(--p);font-size:10px;padding:2px 7px;border-radius:4px;font-weight:700">📅 ${r._reminder}</span>`:''}
+          <span class="ov-days">${r.daysOld==='?'?'📅 Date Unknown':r.daysOld+' din'}</span>
+        </div>
+      </div>
+      <div class="ov-pt">👤 ${esc(r.partyname||'')}${r.section?' | '+esc(r.section):''}${r.ps?' | '+esc(r.ps):''}</div>
+      <textarea class="ov-rem" id="ovr-${i}" rows="2" placeholder="Remark...">${esc(r.remark||'')}</textarea>
+      <div class="ov-rdiv">
+        <div class="ov-rlbl">🔔 Reminder — Kitne din baad?</div>
+        <div class="ov-ropts" id="rops-${i}">
+          <button class="ropt" onclick="selR(${i},3)">3 Din</button>
+          <button class="ropt" onclick="selR(${i},7)">7 Din</button>
+          <button class="ropt" onclick="selR(${i},10)">10 Din</button>
+          <button class="ropt cx" onclick="selR(${i},0)">❌ Cancel</button>
+        </div>
+      </div>
+      <button class="ov-save" onclick="ovSave(${i})">💾 Save</button>
+    </div>`;
+  }).join('');
+  document.getElementById('ovModal').classList.add('on');
+}
+
+// Bug 4 fix: use getElementById instead of querySelectorAll with CSS selector
+// (caseno ke special chars jaise / & ' CSS selector tod dete the)
+function selR(i,days){
+  const cn=_ovData[i]?_ovData[i].caseno:null;
+  if(cn)_ovRemSel[cn]=days;
+  const container=document.getElementById('rops-'+i);
+  if(!container)return;
+  const btns=container.querySelectorAll('.ropt');
+  btns.forEach((b,bi)=>{
+    b.classList.remove('on');
+    if(days===0&&bi===3)b.classList.add('on');
+    else if(days===3&&bi===0)b.classList.add('on');
+    else if(days===7&&bi===1)b.classList.add('on');
+    else if(days===10&&bi===2)b.classList.add('on');
+  });
+}
+
+// Bug 5 fix: use index to get caseno — no encoding mismatch possible
+async function ovSave(i){
+  const r=_ovData[i]; if(!r)return;
+  const cn=r.caseno;
+  const remark=(document.getElementById('ovr-'+i)||{}).value||'';
+  const days=_ovRemSel[cn]??null;
+  // Update remark in cData
+  const idx=cData.findIndex(x=>x.caseno===cn);
+  if(idx!==-1){
+    if(remark)cData[idx].remark=remark;
+    // Store reminder info
+    if(days!==null){
+      if(days===0){
+        delete cData[idx]._reminder;
+      } else {
+        const rd=new Date();rd.setDate(rd.getDate()+days);
+        cData[idx]._reminder=rd.toISOString().split('T')[0];
+      }
+    }
+    cData[idx].searchableText=gSrch(cData[idx]);
+    await saveLocal();
+  }
+  const msg=days===0?'❌ Reminder cancel hua':'✅ Saved'+(days?' | '+days+' din mein reminder':'');
+  showToast(msg);
+  const el=document.getElementById('ovi-'+i);
+  if(el){el.style.opacity='0.4';el.style.pointerEvents='none';}
+}
+
+
+</script>
 </body>
 </html>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<th>Action</th>
-<button onclick="todayReceive()">Today Receive</button>
-<button onclick="downloadExcel()">Download Excel</button>
-<th>Action</th>
-<button onclick="todayNext()">Today Next</button>
-<button onclick="startScanner()">Scan Barcode</button>
-<button onclick="startScanner()">Scan Barcode</button>
-
-<div id="scanner" style="width:300px;"></div>
-<script src="https://unpkg.com/html5-qrcode"></script>
-<input id="fileno" placeholder="File / Case Number" required>
-<th>File No</th>
-<div id="dashboard">
-  <div>Total Files: <span id="total"></span></div>
-  <div>Today Receive: <span id="todayR"></span></div>
-  <div>Today Next: <span id="todayN"></span></div>
-</div>
