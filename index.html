@@ -786,8 +786,12 @@ function drawTable(data){
       } else if(k==="remark"){
         const ca=String(r.caseno).replace(/"/g,'&quot;'),cj=String(r.caseno).replace(/\\/g,'\\\\').replace(/'/g,"\\'"),va=String(r[k]||"").replace(/"/g,'&quot;');
         row+='<td><input data-caseno="'+ca+'" value="'+va+'" oninput="updateRemark(\''+cj+'\',this.value)" placeholder="Remark..."></td>';
-      } else if(k==="receiveddate"||k==="nextdate"){
+      } else if(k==="receiveddate"){
         row+='<td>'+fmtD(r[k])+'</td>';
+      } else if(k==="nextdate"){
+        const cj=String(r.caseno).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+        const nd=r.nextdate||'';
+        row+=`<td><input type="date" value="${nd}" style="border:none;background:transparent;font-size:13px;color:${nd?'var(--txt)':'var(--mu)'};width:120px;cursor:pointer;padding:4px 2px;font-family:inherit" onchange="updateNextDate('${cj}',this.value)" title="Click karke date change karo"></td>`;
       } else if(k==="sent"&&r.sent==="Sent"){
         row+='<td style="background:#fff3cd">'+esc(r[k]||"")+'</td>';
       } else if(k==="received"&&r.received==="Received"){
@@ -810,6 +814,21 @@ function drawTable(data){
   },0);
 }
 searchBox.addEventListener("input",()=>{clearTimeout(sDeb);sDeb=setTimeout(()=>drawTable(getFiltered()),150);});
+async function updateNextDate(cn,val){
+  const idx=cData.findIndex(r=>r.caseno===cn);
+  if(idx===-1)return;
+  cData[idx].nextdate=val;
+  cData[idx].searchableText=gSrch(cData[idx]);
+  await saveLocal();
+  updateDash();
+  if(val){
+    const dt=new Date(val);
+    speak("Next date "+dt.getUTCDate()+" "+dt.toLocaleDateString("en-IN",{month:"long",timeZone:"UTC"}));
+    showToast('📅 Next date save: '+fmtD(val));
+  } else {
+    showToast('📅 Next date clear ho gaya','w');
+  }
+}
 async function updateRemark(cn,val){
   clearTimeout(rTimers[cn]);
   rTimers[cn]=setTimeout(async()=>{
@@ -837,7 +856,7 @@ function openCaseDetail(cn){
     ['Party',r.partyname||'—'],['Section',r.section||'—'],['PS',r.ps||'—'],
     ['Sent',r.sent==='Sent'?'✅ Sent ('+fmtD(r.sentdate)+')':'⏳ Pending'],
     ['Received',r.received==='Received'?'✅ Received ('+fmtD(r.receiveddate)+')':'⏳ Pending'],
-    ['Next Date',r.nextdate?fmtD(r.nextdate):'—'],
+    ['Next Date',r.nextdate?fmtD(r.nextdate)+' (table se edit karo)':'— (table se set karo)'],
     ['Remark',r.remark||'—'],
   ];
   document.getElementById('cd-info').innerHTML=rows.map(([k,v])=>
@@ -850,8 +869,6 @@ function openCaseDetail(cn){
     btns+=`<button class="btn btn-d" style="margin-top:0" onclick="initUndo('unsent')">↩ SENT Undo karo</button>`;
   if(r.received==='Received')
     btns+=`<button class="btn btn-d" style="margin-top:0" onclick="initUndo('unreceived')">↩ RECEIVED Undo karo</button>`;
-  if(r.nextdate)
-    btns+=`<button class="btn btn-a" style="margin-top:0" onclick="initUndo('unnextdate')">↩ Next Date Clear karo</button>`;
   if(!btns)
     btns='<div style="color:var(--mu);font-size:13px;text-align:center;padding:8px">Koi action available nahi hai</div>';
 
@@ -891,7 +908,6 @@ async function confirmUndo(){
 
   if(_undoAction==='unsent'){
     cData[idx].sent=''; cData[idx].sentdate='';
-    // Agar received bhi tha toh woh bhi clear
     cData[idx].received=''; cData[idx].receiveddate='';
     cData[idx].nextdate='';
     showToast('↩ SENT undo ho gaya: '+_cdCN);
@@ -899,9 +915,6 @@ async function confirmUndo(){
     cData[idx].received=''; cData[idx].receiveddate='';
     cData[idx].nextdate='';
     showToast('↩ RECEIVED undo ho gaya: '+_cdCN);
-  } else if(_undoAction==='unnextdate'){
-    cData[idx].nextdate='';
-    showToast('↩ Next Date clear ho gaya: '+_cdCN);
   }
 
   cData[idx].searchableText=gSrch(cData[idx]);
