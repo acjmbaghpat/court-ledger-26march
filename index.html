@@ -1045,7 +1045,7 @@ async function saveNextDate(){
 // ════════════════════════════════════════
 function downloadExcel(){
   if(!cData.length){alert("Data nahi hai");return;}
-  const ed=cData.map(r=({"Sr.No":r.srno,"Case No":r.caseno,"Party Name":r.partyname,"Section":r.section,"PS":r.ps,"Sent":r.sent,"Received":r.received,"Recv.Date":r.receiveddate,"Next Date":r.nextdate,"Remark":r.remark}));
+  const ed=cData.map(r=>({"Sr.No":r.srno,"Case No":r.caseno,"Party Name":r.partyname,"Section":r.section,"PS":r.ps,"Sent":r.sent,"Received":r.received,"Recv.Date":r.receiveddate,"Next Date":r.nextdate,"Remark":r.remark}));
   const ws=XLSX.utils.json_to_sheet(ed),wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Court Data");
   XLSX.writeFile(wb,"Court_"+workDate.value+"_v"+upV+".xlsx");
 }
