@@ -1766,6 +1766,7 @@ function fbStartListen(){
     if(active&&active.dataset&&active.dataset.caseno)return;
     cData=rem.data;cData.forEach(r=>r.searchableText=gSrch(r));
     drawTable(getFiltered());updateDash();setSyncDot('ok');
+    checkReminders();
   },()=>setSyncDot('err'));
 }
 
@@ -1872,6 +1873,7 @@ async function ovSave(i){
     }
     cData[idx].searchableText=gSrch(cData[idx]);
     await saveLocal();
+    checkReminders();
   }
   const msg=days===0?'❌ Reminder cancel hua':'✅ Saved'+(days?' | '+days+' din mein reminder':'');
   showToast(msg);
