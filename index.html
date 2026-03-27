@@ -711,8 +711,8 @@ function updateDash(){
   const today=new Date();today.setHours(0,0,0,0);
   const od=cData.filter(r=>{
     if(r.sent!=="Sent"||r.received==="Received")return false;
-    // Agar sentdate nahi hai purane data mein — tab bhi check karo
-    if(!r.sentdate)return true;
+    // Agar sentdate nahi hai toh overdue count nahi karenge
+    if(!r.sentdate)return false;
     const sd=new Date(r.sentdate);sd.setHours(0,0,0,0);
     return Math.floor((today-sd)/86400000)>=10;
   });
@@ -1800,17 +1800,13 @@ function openOverdueModal(){
   const today=new Date();today.setHours(0,0,0,0);
   const od=cData.filter(r=>{
     if(r.sent!=="Sent"||r.received==="Received")return false;
-    if(!r.sentdate)return true;
+    if(!r.sentdate)return false;
     const sd=new Date(r.sentdate);sd.setHours(0,0,0,0);
     return Math.floor((today-sd)/86400000)>=10;
   }).map(r=>{
-    if(!r.sentdate)return{...r,daysOld:'?'};
     const sd=new Date(r.sentdate);sd.setHours(0,0,0,0);
     return{...r,daysOld:Math.floor((today-sd)/86400000)};
-  }).sort((a,b)=>{
-    if(a.daysOld==='?')return-1;if(b.daysOld==='?')return 1;
-    return b.daysOld-a.daysOld;
-  });
+  }).sort((a,b)=>b.daysOld-a.daysOld);
 
   if(!od.length){showToast('✅ Koi overdue file nahi!');return;}
   _ovRemSel={};
@@ -1826,7 +1822,7 @@ function openOverdueModal(){
         <div style="display:flex;gap:6px;align-items:center">
           ${reminderDue?'<span style="background:#fef3c7;color:#92400e;font-size:10px;padding:2px 7px;border-radius:4px;font-weight:700">🔔 Reminder Aaj</span>':''}
           ${hasReminder?`<span style="background:#ede9fe;color:var(--p);font-size:10px;padding:2px 7px;border-radius:4px;font-weight:700">📅 ${r._reminder}</span>`:''}
-          <span class="ov-days">${r.daysOld==='?'?'📅 Date Unknown':r.daysOld+' din'}</span>
+          <span class="ov-days">${r.daysOld} din</span>
         </div>
       </div>
       <div class="ov-pt">👤 ${esc(r.partyname||'')}${r.section?' | '+esc(r.section):''}${r.ps?' | '+esc(r.ps):''}</div>
