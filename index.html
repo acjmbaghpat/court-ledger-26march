@@ -754,7 +754,7 @@ async function uploadExcel(){
         let rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:""});
         if(rows.length>0)rows.shift();
         cData=rows.map(r=>{
-          const rec={srno:r[0]||"",caseno:String(r[1]||"").trim(),partyname:r[2]||"",section:r[3]||"",ps:r[4]||"",sent:"",received:"",receiveddate:"",nextdate:"",remark:""};
+          const rec={srno:r[0]||"",caseno:String(r[1]||"").trim().toUpperCase(),partyname:r[2]||"",section:r[3]||"",ps:r[4]||"",sent:"",received:"",receiveddate:"",nextdate:"",remark:""};
           rec.searchableText=gSrch(rec);return rec;
         }).filter(r=>r.caseno!=="");
         const opt=document.createElement("option");opt.value=upV;opt.text="Upload "+upV;versionSelect.appendChild(opt);versionSelect.value=upV;
@@ -910,6 +910,13 @@ async function confirmUndo(){
     cData[idx].sent=''; cData[idx].sentdate='';
     cData[idx].received=''; cData[idx].receiveddate='';
     cData[idx].nextdate='';
+    // Bundle mein bhi wapas dikhao
+    const bid=_cdCN.toUpperCase();
+    if(bFiles[bid]&&bFiles[bid].hidden){
+      bFiles[bid].hidden=false;
+      await idbSBn(bFiles[bid]);
+      if(activeTab==='bundle')bRenderGrid();
+    }
     showToast('↩ SENT undo ho gaya: '+_cdCN);
   } else if(_undoAction==='unreceived'){
     cData[idx].received=''; cData[idx].receiveddate='';
@@ -964,7 +971,7 @@ function closeDD(){document.getElementById("caseDD").style.display="none";dropId
 document.addEventListener("click",e=>{if(!e.target.closest(".dwrap"))closeDD();});
 
 async function manualAction(mode){
-  const cn=manualCaseInput.value.trim();
+  const cn=manualCaseInput.value.trim().toUpperCase();
   if(!cn){showMS("⚠️ Case No enter karo","err");return;}
   if(!cData.length){showMS("⚠️ Data nahi. Excel upload karo","err");return;}
   const idx=cData.findIndex(r=>String(r.caseno).trim()===cn);
@@ -1029,7 +1036,11 @@ async function saveNextDate(){
     cData[idx].nextdate=d;
     if(ndJO){
       const tag=ndJO==='J'?'Jail':'Old';
-      cData[idx].remark=((cData[idx].remark||'').trim()+(cData[idx].remark?' | ':'')+tag).trim();
+      const existingRemark=(cData[idx].remark||'').trim();
+      // Duplicate tag add mat karo
+      if(!existingRemark.split(' | ').includes(tag)){
+        cData[idx].remark=(existingRemark+(existingRemark?' | ':'')+tag).trim();
+      }
     }
     cData[idx].searchableText=gSrch(cData[idx]);
   }
@@ -1177,7 +1188,7 @@ function startCFMScan(mode){
     mode==='SENT'?'📤 Scanning for SENT...':'📥 Scanning for RECEIVED...',false);
 }
 async function handleCFMScan(code,mode){
-  const idx=cData.findIndex(r=>r.caseno===code);
+  const idx=cData.findIndex(r=>r.caseno===code.trim().toUpperCase());
   if(idx===-1){showSC('❌ Not Found: '+code,'#e03030');speak("File not found");return;}
   if(mode==='SENT'){
     if(cData[idx].sent==="Sent"){showSC('ℹ️ Already Sent: '+code,'#d97706');speak("Already sent");return;}
