@@ -232,6 +232,19 @@ tr:hover{background:#f8fafc}
 .jo-lbl{font-size:11px;font-weight:700;color:var(--mu);text-transform:uppercase;letter-spacing:.5px;margin-top:14px;display:block}
 /* FIREBASE SECTION */
 .fb-sec{border-color:#f59e0b!important;background:#fffbeb!important}
+/* DRAG & DROP */
+.bfc{transition:opacity .15s,box-shadow .15s}
+.bfc.dragging{opacity:.4;box-shadow:none}
+.bfc.dd-selected{border-color:var(--p)!important;background:#ede9fe!important}
+.drag-handle{cursor:grab;color:var(--mu);font-size:18px;padding:2px 6px;touch-action:none;user-select:none}
+.drag-handle:active{cursor:grabbing}
+.drop-zone{border:2.5px dashed var(--bdr);border-radius:10px;background:#f8fafc;min-height:48px;display:flex;align-items:center;justify-content:center;color:var(--mu);font-size:12px;font-weight:600;transition:all .15s;margin-top:8px}
+.drop-zone.over{border-color:var(--p);background:#ede9fe;color:var(--p)}
+.sc.drop-over{border-color:var(--p)!important;background:#ede9fe!important;transform:scale(1.03)}
+/* BULK SELECT */
+.bulk-bar{background:#4f46e5;color:#fff;border-radius:10px;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;font-size:13px;font-weight:600}
+.bulk-bar button{background:#ffffff25;border:1.5px solid #ffffff60;color:#fff;border-radius:7px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer}
+.cb-sel{width:18px;height:18px;accent-color:var(--p);cursor:pointer;margin-right:6px;flex-shrink:0}
 </style>
 </head>
 <body>
@@ -292,7 +305,8 @@ tr:hover{background:#f8fafc}
     <h3>✍️ Manual Entry</h3>
     <div class="dwrap">
       <input type="text" id="manualCaseInput" placeholder="Case No likhein..." autocomplete="off"
-        oninput="onManualInput()" onkeydown="onManualKeyDown(event)">
+        oninput="onManualInput()" onkeydown="onManualKeyDown(event)"
+        onpaste="setTimeout(()=>{manualCaseInput.value=manualCaseInput.value.replace(/[\n\r\t]+/g,' ').trim();onManualInput();},0)">
       <div id="caseDD"></div>
     </div>
     <div class="g2">
@@ -407,8 +421,18 @@ tr:hover{background:#f8fafc}
   <!-- SLOT DETAIL (col → files list) -->
   <div class="bview" id="bview-slot">
     <button class="btn btn-g btn-sm" style="margin-bottom:14px" id="bsd-back">← Wapas</button>
-    <div style="color:var(--p);font-weight:700;font-size:18px;margin-bottom:3px" id="bsd-t"></div>
-    <div style="color:var(--mu);font-size:12px;margin-bottom:14px" id="bsd-s"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px">
+      <div style="color:var(--p);font-weight:700;font-size:18px" id="bsd-t"></div>
+      <button class="rtog" id="bsd-sel-btn" onclick="toggleBulkSel()">☑ Select</button>
+    </div>
+    <div style="color:var(--mu);font-size:12px;margin-bottom:10px" id="bsd-s"></div>
+    <div id="bsd-bulk-bar" style="display:none" class="bulk-bar">
+      <span id="bsd-sel-count">0 selected</span>
+      <div style="display:flex;gap:8px">
+        <button onclick="bulkMoveSelected()">⇄ Move</button>
+        <button onclick="clearBulkSel()">✕ Clear</button>
+      </div>
+    </div>
     <div id="bsd-c"></div>
   </div>
 
@@ -573,8 +597,13 @@ function openDB(){
 }
 function idbTx(store,mode,fn){
   return new Promise((res,rej)=>{
-    const tx=db.transaction(store,mode),s=tx.objectStore(store),r=fn(s);
-    r.onsuccess=()=>res(r.result);r.onerror=e=>rej(e.target.error);
+    if(!db){rej(new Error('DB not open'));return;}
+    let tx,s,r;
+    try{tx=db.transaction(store,mode);s=tx.objectStore(store);r=fn(s);}
+    catch(e){rej(e);return;}
+    r.onsuccess=()=>res(r.result);
+    r.onerror=e=>rej(e.target.error);
+    tx.onerror=e=>rej(e.target.error);
   });
 }
 const idbGV  = d=>idbTx(SV,'readonly',s=>s.get(d)).then(r=>r?r.versions:[]);
@@ -634,7 +663,8 @@ function getCFMDay(caseNo){
   return parseInt(r.nextdate.split('-')[2]);
 }
 function getCFMRecord(caseNo){
-  return cData.find(x=>x.caseno===String(caseNo));
+  const cn=String(caseNo).toUpperCase();
+  return cData.find(x=>String(x.caseno).toUpperCase()===cn);
 }
 
 // ════════════════════════════════════════
@@ -659,14 +689,15 @@ window.onload=async()=>{
 };
 
 // ── Reminder checker — app open hone par check karo ──
+let _reminderShownToday=false;
 function checkReminders(){
+  if(_reminderShownToday)return; // Ek baar se zyada toast mat dikhao
   const today=new Date().toISOString().split('T')[0];
   const due=cData.filter(r=>r._reminder&&r._reminder<=today&&r.sent==="Sent"&&r.received!=="Received");
   if(!due.length)return;
-  // Highlight overdue card
+  _reminderShownToday=true;
   const ovCard=document.getElementById('ovCard');
   if(ovCard)ovCard.style.animation='pulse 0.8s 4';
-  // Show toast after small delay
   setTimeout(()=>{
     showToast('🔔 '+due.length+' file(s) ka reminder aaj hai! Overdue card tap karo.','w');
   },1200);
@@ -688,10 +719,25 @@ async function loadVersions(){
 }
 async function saveCurV(){await idbSM('cv_'+workDate.value,upV);}
 async function loadCurV(){const v=await idbGM('cv_'+workDate.value);upV=parseInt(v)||1;versionSelect.value=upV;}
-async function saveLocal(){try{await idbSM(dKey(),cData);fbPush();}catch(e){console.error(e);}}
+async function saveLocal(){
+  try{
+    await idbSM(dKey(),cData);
+    fbPush();
+  }catch(e){
+    console.error('saveLocal fail:',e);
+    showToast('⚠️ Data save fail! Storage full ho sakta hai.','d');
+  }
+}
 async function loadLocal(){
-  try{const s=await idbGM(dKey());if(s&&Array.isArray(s)){cData=s;cData.forEach(r=>r.searchableText=gSrch(r));}else cData=[];}
-  catch(e){cData=[];}
+  try{
+    const s=await idbGM(dKey());
+    if(s&&Array.isArray(s)){cData=s;cData.forEach(r=>r.searchableText=gSrch(r));}
+    else cData=[];
+  }catch(e){
+    cData=[];
+    showToast('⚠️ Data load fail! Page reload karo.','d');
+    console.error('loadLocal fail:',e);
+  }
   drawTable(getFiltered());updateDash();
 }
 workDate.addEventListener("change",async()=>{await loadVersions();await loadCurV();await loadLocal();fbStartListen();});
@@ -744,12 +790,14 @@ function getFiltered(){
 // ════════════════════════════════════════
 async function uploadExcel(){
   const file=excelFile.files[0];if(!file){alert("Excel file select karo");return;}
+  const btn=document.querySelector('button[onclick="uploadExcel()"]');
+  if(btn){btn.disabled=true;btn.textContent='⏳ Upload ho raha hai...';}
   try{
     const vs=await idbGV(workDate.value);upV=(vs&&vs.length?vs.length:0)+1;
     const reader=new FileReader();
     reader.onload=async e=>{
       try{
-        const wb=XLSX.read(e.target.result,{type:"binary"});
+        const wb=XLSX.read(e.target.result,{type:"array"});
         const sheet=wb.Sheets[wb.SheetNames[0]];
         let rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:""});
         if(rows.length>0)rows.shift();
@@ -757,15 +805,28 @@ async function uploadExcel(){
           const rec={srno:r[0]||"",caseno:String(r[1]||"").trim().toUpperCase(),partyname:r[2]||"",section:r[3]||"",ps:r[4]||"",sent:"",received:"",receiveddate:"",nextdate:"",remark:""};
           rec.searchableText=gSrch(rec);return rec;
         }).filter(r=>r.caseno!=="");
+        if(!cData.length){
+          if(btn){btn.disabled=false;btn.textContent='📤 Upload Excel';}
+          showToast('⚠️ Koi valid data nahi mila! Column order check karo.','d');return;
+        }
         const opt=document.createElement("option");opt.value=upV;opt.text="Upload "+upV;versionSelect.appendChild(opt);versionSelect.value=upV;
         const nv=vs?[...vs,upV]:[upV];
         await idbSV(workDate.value,nv);await saveCurV();await saveLocal();
         drawTable(getFiltered());updateDash();updateSU();
-        speak("Excel uploaded");alert("Upload ho gaya! ("+cData.length+" records)");excelFile.value="";
-      }catch(err){alert("Excel error: "+err.message);}
+        speak("Excel uploaded");
+        if(btn){btn.disabled=false;btn.textContent='📤 Upload Excel';}
+        showToast('✅ Upload ho gaya! ('+cData.length+' records)');
+        excelFile.value="";
+      }catch(err){
+        if(btn){btn.disabled=false;btn.textContent='📤 Upload Excel';}
+        showToast('❌ Excel error: '+err.message,'d');
+      }
     };
-    reader.readAsBinaryString(file);
-  }catch(err){alert("Upload fail: "+err);}
+    reader.readAsArrayBuffer(file);
+  }catch(err){
+    if(btn){btn.disabled=false;btn.textContent='📤 Upload Excel';}
+    alert("Upload fail: "+err);
+  }
 }
 
 // ════════════════════════════════════════
@@ -973,6 +1034,9 @@ document.addEventListener("click",e=>{if(!e.target.closest(".dwrap"))closeDD();}
 async function manualAction(mode){
   const cn=manualCaseInput.value.trim().toUpperCase();
   if(!cn){showMS("⚠️ Case No enter karo","err");return;}
+  // Basic validation - sirf valid characters
+  if(cn.length<2){showMS("⚠️ Case No bahut chhota hai","err");return;}
+  if(cn.length>50){showMS("⚠️ Case No bahut lamba hai","err");return;}
   if(!cData.length){showMS("⚠️ Data nahi. Excel upload karo","err");return;}
   const idx=cData.findIndex(r=>String(r.caseno).trim()===cn);
   if(idx===-1){showMS("❌ Not Found: "+cn,"err");speak("Case not found");return;}
@@ -1057,7 +1121,22 @@ async function saveNextDate(){
 function downloadExcel(){
   if(!cData.length){alert("Data nahi hai");return;}
   const ed=cData.map(r=>({"Sr.No":r.srno,"Case No":r.caseno,"Party Name":r.partyname,"Section":r.section,"PS":r.ps,"Sent":r.sent,"Received":r.received,"Recv.Date":r.receiveddate,"Next Date":r.nextdate,"Remark":r.remark}));
-  const ws=XLSX.utils.json_to_sheet(ed),wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Court Data");
+  const ws=XLSX.utils.json_to_sheet(ed);
+  // Column widths set karo
+  ws['!cols']=[
+    {wch:6},   // Sr.No
+    {wch:18},  // Case No
+    {wch:28},  // Party Name
+    {wch:20},  // Section
+    {wch:16},  // PS
+    {wch:10},  // Sent
+    {wch:12},  // Received
+    {wch:13},  // Recv.Date
+    {wch:13},  // Next Date
+    {wch:30},  // Remark
+  ];
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,"Court Data");
   XLSX.writeFile(wb,"Court_"+workDate.value+"_v"+upV+".xlsx");
 }
 
@@ -1069,7 +1148,16 @@ async function deleteOldData(){
   const today=new Date();let count=0;
   try{
     const mk=await idbAMK();
-    for(const key of mk){if(key.startsWith('cv_'))continue;const fd=new Date(key.substring(0,10));if(!isNaN(fd)&&(today-fd)/86400000>60){await idbDM(key);count++;}}
+    for(const key of mk){
+      // cv_ keys bhi clean karo agar date purani ho
+      if(key.startsWith('cv_')){
+        const fd=new Date(key.substring(3));
+        if(!isNaN(fd)&&(today-fd)/86400000>60){await idbDM(key);}
+        continue;
+      }
+      const fd=new Date(key.substring(0,10));
+      if(!isNaN(fd)&&(today-fd)/86400000>60){await idbDM(key);count++;}
+    }
     const dk=await idbAVK();for(const d of dk){const fd=new Date(d);if(!isNaN(fd)&&(today-fd)/86400000>60)await idbDV(d);}
     alert(count+" records delete ho gaye.");updateSU();
   }catch(err){alert("Delete fail: "+err);}
@@ -1436,7 +1524,10 @@ function bOpenDate(date){
       safeSlots.forEach(({md,sd,col,arr})=>{
         const cls=bCC(arr), ic=cls==='sc-e'?'⚪':cls==='sc-h'?'🟡':'🔴';
         const ms=arr.filter(f=>f.st==='missing').length;
-        h+=`<button class="sc ${cls}" onclick="bOSlot(${md},${sd==null?'null':sd},'${esc(col)}','date')" style="padding:10px 8px">
+        h+=`<button class="sc ${cls}" onclick="bOSlot(${md},${sd==null?'null':sd},'${esc(col)}','date')" style="padding:10px 8px"
+          ondragover="onSlotDragOver(event,this)"
+          ondragleave="onSlotDragLeave(this)"
+          ondrop="onSlotDrop(event,${md},${sd==null?'null':sd},'${esc(col)}',this)">
           <div style="display:flex;align-items:center;gap:3px"><span class="scol" style="font-size:18px">${dispCol(col)}</span><span style="font-size:12px">${ic}</span></div>
           <div class="scnt">${arr.length}</div>
           ${ms>0?`<div class="smiss">⚠${ms}</div>`:''}
@@ -1449,7 +1540,10 @@ function bOpenDate(date){
     slotsForDate.forEach(({md,sd,col,arr})=>{
       const cls=bCC(arr), ic=cls==='sc-e'?'⚪':cls==='sc-h'?'🟡':'🔴';
       const ms=arr.filter(f=>f.st==='missing').length;
-      h+=`<button class="sc ${cls}" onclick="bOSlot(${md},${sd==null?'null':sd},'${esc(col)}','date')">
+      h+=`<button class="sc ${cls}" onclick="bOSlot(${md},${sd==null?'null':sd},'${esc(col)}','date')"
+        ondragover="onSlotDragOver(event,this)"
+        ondragleave="onSlotDragLeave(this)"
+        ondrop="onSlotDrop(event,${md},${sd==null?'null':sd},'${esc(col)}',this)">
         <div style="display:flex;align-items:center;gap:4px"><div class="scol">${col}</div><span>${ic}</span></div>
         ${sd!=null?`<div class="ssub">sub:${sd}</div>`:''}
         <div class="scnt">${arr.length} files</div>
@@ -1480,7 +1574,7 @@ function bRenderSlot(){
   const arr=(bSM()[bSK(bSlot.md,bSlot.sd,bSlot.col)]||[]);
   document.getElementById('bsd-t').textContent=`Date ${bSlot.md}${bSlot.sd!=null?'/'+bSlot.sd:''} — Col ${dispCol(bSlot.col)}`;
   document.getElementById('bsd-s').textContent=arr.length+' files';
-  document.getElementById('bsd-c').innerHTML=arr.length?arr.map(f=>bFCHTML(f,false)).join(''):'<div class="bempty">Koi file nahi.</div>';
+  document.getElementById('bsd-c').innerHTML=arr.length?arr.map(f=>bFCHTML(f,false,true)).join(''):'<div class="bempty">Koi file nahi.</div>';
 }
 
 // ── Add form ──
@@ -1646,6 +1740,25 @@ function bmClearSD(){ bMSD=null; document.getElementById('bm-sds').innerHTML='<b
 function bUpdateMP(){ document.getElementById('bm-prev').textContent=`Date ${bMMD}${bMSD!=null?'/'+bMSD:''} — ${dispCol(bMC)}`; }
 
 async function doBundleMove(){
+  // Bulk move mode
+  if(_bulkMoveMode&&_ddSel.size>0){
+    for(const rawId of _ddSel){
+      if(!bFiles[rawId])continue;
+      bFiles[rawId].md=bMMD; bFiles[rawId].sd=bMSD; bFiles[rawId].col=bMC;
+      await idbSBn(bFiles[rawId]);
+    }
+    showToast(`✅ ${_ddSel.size} files moved → Date ${bMMD}${bMSD!=null?'/'+bMSD:''}-${dispCol(bMC)}`);
+    _ddSel.clear(); _bulkMoveMode=false; _ddSelMode=false;
+    const btn=document.getElementById('bsd-sel-btn');
+    if(btn){btn.textContent='☑ Select';btn.classList.remove('on');}
+    document.getElementById('bsd-bulk-bar').style.display='none';
+    closeBMModal(); bRenderGrid();
+    if(bSlot){bSlot=null;swBV('grid');}
+    bRenderSearch();
+    return;
+  }
+  // Single move mode
+  _bulkMoveMode=false;
   if(!bMoveId)return;
   bFiles[bMoveId].md=bMMD; bFiles[bMoveId].sd=bMSD; bFiles[bMoveId].col=bMC;
   await idbSBn(bFiles[bMoveId]);
@@ -1677,11 +1790,25 @@ function bRenderSearch(){
 }
 
 // ── File card HTML ──
-function bFCHTML(f,showLoc){
-  const id=esc(f.id), isHidden=f.hidden;
-  return `<div class="bfc${f.st==='missing'?' miss':''}">
+function bFCHTML(f, showLoc, inSlot=false){
+  const rawId=f.id;
+  const id=esc(f.id);
+  const isHidden=f.hidden;
+  const isSel=_ddSel.has(rawId);
+  // NOTE: All onclick use data-fileid + _decId — NO direct id interpolation in onclick args
+  // This avoids breakage when file id has special chars like ' " & < >
+  return `<div class="bfc${f.st==='missing'?' miss':''}${isSel?' dd-selected':''}"
+    id="bfc-${id}"
+    draggable="true"
+    ondragstart="onFileDragStart(event,this)"
+    ondragend="onFileDragEnd(event)"
+    data-fileid="${id}">
     <div class="bfch">
-      <span class="bfid">${id}</span>
+      <div style="display:flex;align-items:center;gap:6px">
+        ${inSlot&&_ddSelMode?`<input type="checkbox" class="cb-sel" ${isSel?'checked':''} onchange="toggleFileSel(this)" onclick="event.stopPropagation()" data-fileid="${id}">`:''}
+        ${inSlot?'<span class="drag-handle" title="Drag to move">⠿</span>':''}
+        <span class="bfid">${id}</span>
+      </div>
       <div style="display:flex;gap:5px;align-items:center">
         ${isHidden?'<span style="background:#dcfce7;color:#15803d;font-size:10px;padding:2px 7px;border-radius:4px;font-weight:700">SENT ✓</span>':''}
         ${f.st==='missing'?'<span class="mbadge">⚠ MISSING</span>':''}
@@ -1690,15 +1817,118 @@ function bFCHTML(f,showLoc){
     ${showLoc?`<div class="bloc">📍 Date ${f.md}${f.sd!=null?'/'+f.sd:''} — Col <strong>${dispCol(f.col)}</strong>${isHidden?' <em style="color:var(--suc);font-size:11px">(SENT)</em>':''}</div>`:''}
     <div class="bact">
       ${isHidden
-        ?`<button class="smb" style="background:#e8eeff;color:var(--p);border:1px solid #c4b5fd" onclick="bUnhide('${id}')">👁 Wapas Dikhao</button>`
+        ?`<button class="smb" style="background:#e8eeff;color:var(--p);border:1px solid #c4b5fd" data-fileid="${id}" onclick="bUnhide(_decId(this.dataset.fileid))">👁 Wapas Dikhao</button>`
         :f.st!=='missing'
-          ?`<button class="smb" style="background:#d9770614;color:var(--ambh);border:1px solid #d9770640" onclick="bSetStatus('${id}','missing')">Missing</button>`
-          :`<button class="smb" style="background:#10b98114;color:var(--suc);border:1px solid #10b98140" onclick="bSetStatus('${id}','placed')">Wapas Mili</button>`
+          ?`<button class="smb" style="background:#d9770614;color:var(--ambh);border:1px solid #d9770640" data-fileid="${id}" onclick="bSetStatus(_decId(this.dataset.fileid),'missing')">Missing</button>`
+          :`<button class="smb" style="background:#10b98114;color:var(--suc);border:1px solid #10b98140" data-fileid="${id}" onclick="bSetStatus(_decId(this.dataset.fileid),'placed')">Wapas Mili</button>`
       }
-      ${!isHidden?`<button class="smb" style="background:#0e7ac414;color:var(--inf);border:1px solid #0e7ac440" onclick="bOpenMove('${id}')">⇄ Move</button>`:''}
-      <button class="smb" style="background:#ef444414;color:var(--dan);border:1px solid #ef444440" onclick="bDelFile('${id}')">Hatao</button>
+      ${!isHidden?`<button class="smb" style="background:#0e7ac414;color:var(--inf);border:1px solid #0e7ac440" data-fileid="${id}" onclick="bOpenMove(_decId(this.dataset.fileid))">⇄ Move</button>`:''}
+      <button class="smb" style="background:#ef444414;color:var(--dan);border:1px solid #ef444440" data-fileid="${id}" onclick="bDelFile(_decId(this.dataset.fileid))">Hatao</button>
     </div>
   </div>`;
+}
+
+// ══════════════════════════════════════
+// DRAG & DROP + BULK SELECT
+// ══════════════════════════════════════
+// All declarations at top — no hoisting issues
+let _ddDragIds=[];
+let _ddSel=new Set();
+let _ddSelMode=false;
+let _bulkMoveMode=false;
+
+// Raw ID decode — esc() se encoded HTML entities wapas convert karo
+function _decId(escaped){
+  return escaped.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'");
+}
+
+// ── Bulk select toggle ──
+function toggleBulkSel(){
+  _ddSelMode=!_ddSelMode;
+  _ddSel.clear();
+  const btn=document.getElementById('bsd-sel-btn');
+  if(btn){btn.textContent=_ddSelMode?'✕ Cancel':'☑ Select';btn.classList.toggle('on',_ddSelMode);}
+  document.getElementById('bsd-bulk-bar').style.display='none';
+  bRenderSlot();
+}
+function clearBulkSel(){
+  _ddSel.clear();
+  updateBulkBar();
+  bRenderSlot();
+}
+function toggleFileSel(checkbox){
+  const rawId=_decId(checkbox.dataset.fileid||'');
+  if(checkbox.checked)_ddSel.add(rawId); else _ddSel.delete(rawId);
+  updateBulkBar();
+  const card=checkbox.closest('.bfc');
+  if(card)card.classList.toggle('dd-selected',checkbox.checked);
+}
+function updateBulkBar(){
+  const bar=document.getElementById('bsd-bulk-bar');
+  const cnt=document.getElementById('bsd-sel-count');
+  if(bar)bar.style.display=_ddSel.size>0?'flex':'none';
+  if(cnt)cnt.textContent=_ddSel.size+' file(s) selected';
+}
+async function bulkMoveSelected(){
+  if(!_ddSel.size)return;
+  _bulkMoveMode=true;
+  const first=[..._ddSel][0];
+  const f=bFiles[first];
+  if(f){bMMD=f.md;bMSD=f.sd!=null?f.sd:null;bMC=f.col;}
+  document.getElementById('bm-fid').textContent=_ddSel.size+' files selected';
+  bRenderMoveForm();
+  document.getElementById('bmModal').classList.add('on');
+}
+
+// ── Single/Bulk drag ──
+function onFileDragStart(e, el){
+  const rawId=_decId(el.dataset.fileid||'');
+  if(_ddSelMode&&_ddSel.size>0&&_ddSel.has(rawId)){
+    _ddDragIds=[..._ddSel];
+  } else {
+    _ddDragIds=[rawId];
+  }
+  e.dataTransfer.effectAllowed='move';
+  e.dataTransfer.setData('text/plain',JSON.stringify(_ddDragIds));
+  setTimeout(()=>{
+    _ddDragIds.forEach(fid=>{
+      const card=document.querySelector(`.bfc[data-fileid="${esc(fid)}"]`);
+      if(card)card.classList.add('dragging');
+    });
+  },0);
+}
+function onFileDragEnd(e){
+  document.querySelectorAll('.bfc.dragging').forEach(el=>el.classList.remove('dragging'));
+}
+
+// ── Drop on slot button ──
+function onSlotDragOver(e,btn){
+  e.preventDefault();
+  e.dataTransfer.dropEffect='move';
+  btn.classList.add('drop-over');
+}
+function onSlotDragLeave(btn){
+  btn.classList.remove('drop-over');
+}
+async function onSlotDrop(e,md,sd,col,btn){
+  e.preventDefault();
+  btn.classList.remove('drop-over');
+  let ids=[];
+  try{ids=JSON.parse(e.dataTransfer.getData('text/plain'));}catch(err){return;}
+  if(!ids.length)return;
+  let moved=0;
+  for(const rawId of ids){
+    if(!bFiles[rawId])continue;
+    bFiles[rawId].md=md; bFiles[rawId].sd=sd; bFiles[rawId].col=col;
+    await idbSBn(bFiles[rawId]);
+    moved++;
+  }
+  if(moved){
+    showToast(`✅ ${moved} file(s) → Date ${md}${sd!=null?'/'+sd:''}-${dispCol(col)}`);
+    if(_ddSelMode){_ddSel.clear();_ddSelMode=false;updateBulkBar();}
+    bOpenDate(md);
+    bRenderSearch();
+  }
 }
 
 // ══════════════════════════════════════
@@ -1773,6 +2003,8 @@ function fbStartListen(){
     if(!snap.exists)return;
     const rem=snap.data();
     if(!rem||!rem.data)return;
+    // Scan chal raha ho toh UI overwrite mat karo
+    if(scanActive)return;
     const active=document.activeElement;
     if(active&&active.dataset&&active.dataset.caseno)return;
     cData=rem.data;cData.forEach(r=>r.searchableText=gSrch(r));
