@@ -789,7 +789,7 @@ function getFiltered(){
 // CFM EXCEL UPLOAD
 // ════════════════════════════════════════
 async function uploadExcel(){
-  const file=excelFile.files[0];if(!file){alert("Excel file select karo");return;}
+  const file=excelFile.files[0];if(!file){showToast('⚠️ Excel file select karo','w');return;}
   const btn=document.querySelector('button[onclick="uploadExcel()"]');
   if(btn){btn.disabled=true;btn.textContent='⏳ Upload ho raha hai...';}
   try{
@@ -825,7 +825,7 @@ async function uploadExcel(){
     reader.readAsArrayBuffer(file);
   }catch(err){
     if(btn){btn.disabled=false;btn.textContent='📤 Upload Excel';}
-    alert("Upload fail: "+err);
+    showToast('❌ Upload fail: '+err,'d');
   }
 }
 
@@ -1094,7 +1094,7 @@ document.getElementById("ndModal").addEventListener("click",function(e){if(e.tar
 async function saveNextDate(){
   if(!lastRcvCase)return;
   const d=document.getElementById("ndInput").value;
-  if(!d){alert("Date select karo");return;}
+  if(!d){showToast('⚠️ Date select karo','w');return;}
   const idx=cData.findIndex(r=>r.caseno===lastRcvCase);
   if(idx!==-1){
     cData[idx].nextdate=d;
@@ -1119,7 +1119,7 @@ async function saveNextDate(){
 // CFM DOWNLOAD
 // ════════════════════════════════════════
 function downloadExcel(){
-  if(!cData.length){alert("Data nahi hai");return;}
+  if(!cData.length){showToast('⚠️ Data nahi hai','w');return;}
   const ed=cData.map(r=>({"Sr.No":r.srno,"Case No":r.caseno,"Party Name":r.partyname,"Section":r.section,"PS":r.ps,"Sent":r.sent,"Received":r.received,"Recv.Date":r.receiveddate,"Next Date":r.nextdate,"Remark":r.remark}));
   const ws=XLSX.utils.json_to_sheet(ed);
   // Column widths set karo
@@ -1159,8 +1159,8 @@ async function deleteOldData(){
       if(!isNaN(fd)&&(today-fd)/86400000>60){await idbDM(key);count++;}
     }
     const dk=await idbAVK();for(const d of dk){const fd=new Date(d);if(!isNaN(fd)&&(today-fd)/86400000>60)await idbDV(d);}
-    alert(count+" records delete ho gaye.");updateSU();
-  }catch(err){alert("Delete fail: "+err);}
+    showToast(count+' records delete ho gaye.');updateSU();
+  }catch(err){showToast('❌ Delete fail: '+err,'d');}
 }
 async function exportBackup(){
   const stEl=document.getElementById("backupStatus");
@@ -1480,11 +1480,11 @@ function bRenderGrid(){
 
     // Column pills
     const pillsHTML = colCounts.map(({col,cnt,miss})=>{
-      if(tot===0 && cnt===0) return `<span style="background:#f1f5f9;color:#cbd5e1;border-radius:5px;padding:2px 7px;font-size:11px;font-weight:600">${dispCol(col)}-0</span>`;
+      if(cnt===0) return `<span style="background:#f1f5f9;color:#cbd5e1;border-radius:5px;padding:2px 7px;font-size:11px;font-weight:600">${dispCol(col)}-0</span>`;
       const bg = miss>0?'#fee2e2': cnt>=40?'#fecaca': cnt>=25?'#fef3c7':'#e8eeff';
       const tc = miss>0?'#b91c1c': cnt>=40?'var(--dan)': cnt>=25?'var(--ambh)':'var(--p)';
       return `<span style="background:${bg};color:${tc};border-radius:5px;padding:2px 7px;font-size:11px;font-weight:700;cursor:pointer"
-        onclick="event.stopPropagation();bOSlot(${date},null,'${col}','grid')"
+        onclick="event.stopPropagation();bOpenDate(${date})"
         title="${dispCol(col)}: ${cnt} files${miss>0?' ('+miss+' missing)':''}"
         >${dispCol(col)}-${cnt}${miss>0?'⚠':''}</span>`;
     }).join('');
@@ -1503,7 +1503,7 @@ function bRenderGrid(){
         </div>
         <span style="color:var(--mu);font-size:16px">›</span>
       </div>
-      ${tot>0||true ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px">${pillsHTML}</div>` : ''}
+      <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px">${pillsHTML}</div>
       ${bRM&&tot>0 ? allInDate.map(f=>`<div style="margin-top:4px"><button class="rmfb" data-fileid="${esc(f.id)}" onclick="bOpenMove(_decId(this.dataset.fileid))" style="display:inline-block;width:auto;margin-right:4px">⇄ ${esc(f.id)} (${dispCol(f.col)})</button></div>`).join('') : ''}
     </div>`;
   });
