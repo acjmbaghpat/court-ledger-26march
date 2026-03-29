@@ -1450,43 +1450,64 @@ function bCC(arr){
   return arr.length>=40?'sc-f': arr.length>=25?'sc-h':'sc-e';
 }
 
-// ── GRID: date list ──
+// ── GRID: all 31 dates always visible ──
 function bRenderGrid(){
   const m = bSM();
-  const dates = [...new Set(Object.values(bFiles).filter(f=>!f.hidden).map(f=>f.md))].sort((a,b)=>a-b);
   const gc = document.getElementById('bgc');
-  if(!dates.length){ gc.innerHTML='<div class="bempty">Koi file nahi. Add tab se shuru karo.</div>'; return; }
 
   let h='';
-  dates.forEach(date=>{
+  DATES.forEach(date=>{
     const allInDate = Object.values(bFiles).filter(f=>!f.hidden && f.md===date);
     const tot = allInDate.length;
     const missCount = allInDate.filter(f=>f.st==='missing').length;
-    const maxSlotFiles = Math.max(0,...Object.entries(m)
-      .filter(([k])=>+k.split('|')[0]===date)
-      .map(([,arr])=>arr.length));
-    const cls = maxSlotFiles>=40?'sc-f': maxSlotFiles>=25?'sc-h':'sc-e';
+    const isSpecial = SPECIAL_DATES.includes(date);
+    const cols = getColsForDate(date);
 
-    h += `<button class="sc ${cls}" style="width:100%;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;padding:14px 16px"
-      onclick="bOpenDate(${date})">
-      <div style="display:flex;align-items:center;gap:10px">
-        <span style="font-size:28px;font-weight:800;color:${cls==='sc-e'?'var(--mu)':cls==='sc-h'?'var(--ambh)':'var(--dan)'}">${date}</span>
-        <div style="text-align:left">
-          <div style="font-size:13px;font-weight:600;color:var(--txt)">${tot} files</div>
-          ${missCount>0?`<div style="font-size:11px;color:var(--dan);font-weight:700">⚠ ${missCount} missing</div>`:''}
-          ${SPECIAL_DATES.includes(date)?'<div style="font-size:10px;color:var(--inf);font-weight:600">🗄 S1 + S2 Safe</div>':''}
+    // Per-column counts
+    const colCounts = cols.map(col=>{
+      const key = bSK(date, null, col); // main slot (no subdate)
+      // Count all files in this date+col (any subdate)
+      const cnt = Object.values(bFiles).filter(f=>!f.hidden && f.md===date && f.col===col).length;
+      const miss = Object.values(bFiles).filter(f=>!f.hidden && f.md===date && f.col===col && f.st==='missing').length;
+      return {col, cnt, miss};
+    });
+
+    // Overall color based on max slot
+    const maxCnt = Math.max(0, ...colCounts.map(c=>c.cnt));
+    const hasMiss = missCount > 0;
+    const rowCls = hasMiss ? 'sc-m' : maxCnt>=40 ? 'sc-f' : maxCnt>=25 ? 'sc-h' : 'sc-e';
+    const dateColor = tot===0 ? '#cbd5e1' : rowCls==='sc-e' ? 'var(--p)' : rowCls==='sc-h' ? 'var(--ambh)' : 'var(--dan)';
+
+    // Column pills
+    const pillsHTML = colCounts.map(({col,cnt,miss})=>{
+      if(tot===0 && cnt===0) return `<span style="background:#f1f5f9;color:#cbd5e1;border-radius:5px;padding:2px 7px;font-size:11px;font-weight:600">${dispCol(col)}-0</span>`;
+      const bg = miss>0?'#fee2e2': cnt>=40?'#fecaca': cnt>=25?'#fef3c7':'#e8eeff';
+      const tc = miss>0?'#b91c1c': cnt>=40?'var(--dan)': cnt>=25?'var(--ambh)':'var(--p)';
+      return `<span style="background:${bg};color:${tc};border-radius:5px;padding:2px 7px;font-size:11px;font-weight:700;cursor:pointer"
+        onclick="event.stopPropagation();bOSlot(${date},null,'${col}','grid')"
+        title="${dispCol(col)}: ${cnt} files${miss>0?' ('+miss+' missing)':''}"
+        >${dispCol(col)}-${cnt}${miss>0?'⚠':''}</span>`;
+    }).join('');
+
+    h += `<div style="background:${tot===0?'#f8fafc':'var(--sur)'};border:1.5px solid ${tot===0?'var(--bdr)':rowCls==='sc-m'?'#fca5a5':rowCls==='sc-h'?'#fcd34d':rowCls==='sc-f'?'#fca5a5':'var(--bdr)'};border-radius:12px;padding:11px 14px;margin-bottom:8px;${tot===0?'opacity:0.6':''}">
+      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer" onclick="bOpenDate(${date})">
+        <div style="display:flex;align-items:center;gap:12px">
+          <span style="font-size:26px;font-weight:800;color:${dateColor};min-width:28px">${date}</span>
+          <div>
+            <div style="font-size:13px;font-weight:700;color:${tot===0?'var(--mu)':'var(--txt)'}">
+              ${tot===0 ? 'Koi file nahi' : tot+' files'}
+              ${missCount>0?`<span style="color:var(--dan);font-size:11px;margin-left:4px">⚠ ${missCount} missing</span>`:''}
+            </div>
+            ${isSpecial?'<div style="font-size:10px;color:var(--inf);font-weight:600">🗄 S1+S2 Safe</div>':''}
+          </div>
         </div>
+        <span style="color:var(--mu);font-size:16px">›</span>
       </div>
-      <span style="color:var(--mu);font-size:18px">›</span>
-    </button>`;
-
-    // Rearrange mode: show files inline
-    if(bRM){
-      allInDate.forEach(f=>{
-        h+=`<div style="margin:-6px 0 8px 14px"><button class="rmfb" onclick="bOpenMove('${esc(f.id)}')" style="display:inline-block;width:auto;margin-right:4px">⇄ ${esc(f.id)} (${dispCol(f.col)})</button></div>`;
-      });
-    }
+      ${tot>0||true ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px">${pillsHTML}</div>` : ''}
+      ${bRM&&tot>0 ? allInDate.map(f=>`<div style="margin-top:4px"><button class="rmfb" data-fileid="${esc(f.id)}" onclick="bOpenMove(_decId(this.dataset.fileid))" style="display:inline-block;width:auto;margin-right:4px">⇄ ${esc(f.id)} (${dispCol(f.col)})</button></div>`).join('') : ''}
+    </div>`;
   });
+
   gc.innerHTML = h;
 }
 
