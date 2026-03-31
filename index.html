@@ -189,9 +189,13 @@ tr:last-child td{border-bottom:none}
 tr:hover td{background:#f7f9fc}
 td input{width:100%;border:1px solid transparent;padding:5px 7px;font-size:13px;background:transparent;border-radius:6px;font-family:inherit;font-weight:500;outline:none}
 td input:focus{background:#fff;border-color:var(--blue)}
-.badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:.3px}
-.badge-sent{background:#fef9c3;color:#a16207}
-.badge-recv{background:#dcfce7;color:#15803d}
+/* Table hierarchy */
+.td-caseno{color:var(--blue);font-weight:700;font-size:14px;cursor:pointer;text-decoration:underline dotted}
+.td-party{font-weight:600;font-size:13px;color:var(--txt)}
+.td-meta{font-size:11.5px;color:var(--mu);font-weight:500}
+.td-badge-sent{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;background:#fef9c3;color:#a16207;letter-spacing:.3px}
+.td-badge-recv{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;background:#dcfce7;color:#15803d;letter-spacing:.3px}
+.td-badge-dispose{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;background:#f3f4f6;color:#6b7280;letter-spacing:.3px;border:1px solid #e5e7eb}
 
 /* ═══════════════ FLOATING ACTION ═══════════════ */
 .fab-row{position:fixed;bottom:16px;right:14px;display:flex;flex-direction:column;gap:9px;z-index:100}
@@ -622,6 +626,15 @@ td input:focus{background:#fff;border-color:var(--blue)}
         <div id="b-extags" class="etags"></div>
       </div>
     </div>
+
+    <!-- CFM Import -->
+    <div class="sec" style="border-color:rgba(8,145,178,.25);background:linear-gradient(135deg,#ecfeff,#fff)">
+      <div class="sec-hd">
+        <div class="ico teal">📋</div>
+        <div><div class="lbl">Court Files se Import</div><div class="sub">CFM data se seedha bundle mein add karo</div></div>
+      </div>
+      <button class="btn" style="background:linear-gradient(135deg,var(--teal),#0e7490);box-shadow:0 3px 12px rgba(8,145,178,.3);margin-top:0" onclick="openCFMImportModal()">📋 CFM Files Dekho &amp; Add Karo</button>
+    </div>
   </div>
 
   <!-- SEARCH VIEW -->
@@ -772,6 +785,24 @@ td input:focus{background:#fff;border-color:var(--blue)}
 <!-- TOAST -->
 <div id="toast"></div>
 
+<!-- CFM IMPORT MODAL (Bundle) -->
+<div class="modal" id="cfmImportModal">
+  <div class="msh" style="max-height:90vh;overflow-y:auto">
+    <div class="mt">📋 CFM se Files Import</div>
+    <div class="msub" id="cfmImp-sub">Current slot: —</div>
+    <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+      <button class="chip active-all" id="cimp-f-all"  onclick="cfmImpFilter('all')">Sabhi</button>
+      <button class="chip" id="cimp-f-nd"   onclick="cfmImpFilter('nd')">Next Date Wale</button>
+      <button class="chip" id="cimp-f-nob"  onclick="cfmImpFilter('nob')">Bundle Mein Nahi</button>
+    </div>
+    <div id="cfmImpList"></div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="btn primary" onclick="cfmImpAddSelected()" style="margin-top:0;flex:1">✓ Selected Add Karo</button>
+      <button class="btn neutral" onclick="document.getElementById('cfmImportModal').classList.remove('on')" style="margin-top:0;flex:1">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- CASE DETAIL MODAL -->
 <div class="modal center" id="caseDetailModal">
   <div class="msh" style="max-width:440px;width:94%">
@@ -799,7 +830,7 @@ td input:focus{background:#fff;border-color:var(--blue)}
 <div class="modal" id="ovModal">
   <div class="msh" style="max-height:92vh;overflow-y:auto">
     <div class="mt">⏰ Overdue Files</div>
-    <div class="msub">10+ din Sent, Received nahi — follow-up karein</div>
+    <div class="msub">7+ din Sent, Received nahi — follow-up karein</div>
     <div id="ovList"></div>
     <button class="btn neutral" onclick="document.getElementById('ovModal').classList.remove('on')" style="margin-top:8px">✕ Band Karo</button>
   </div>
@@ -900,6 +931,15 @@ function showToast(msg,type){
 }
 function speak(msg,lang){
   try{const u=new SpeechSynthesisUtterance(msg);u.lang=lang||'en-IN';u.rate=1;speechSynthesis.cancel();speechSynthesis.speak(u);}catch(e){}
+}
+function haptic(type){
+  try{
+    if(!navigator.vibrate)return;
+    if(type==='success')navigator.vibrate(55);
+    else if(type==='scan')navigator.vibrate(30);
+    else if(type==='error')navigator.vibrate([70,40,70]);
+    else if(type==='warn')navigator.vibrate(120);
+  }catch(e){}
 }
 let activeTab='cfm';
 function switchTab(t){
@@ -1010,10 +1050,11 @@ function updateDash(){
   document.getElementById("tabPRecvdCount").innerText=pr;
   const today=new Date();today.setHours(0,0,0,0);
   const od=cData.filter(r=>{
+    if(r._disposed)return false;  // disposed files skip
     if(r.sent!=="Sent"||r.received==="Received")return false;
     if(!r.sentdate)return false;
     const sd=new Date(r.sentdate);sd.setHours(0,0,0,0);
-    return Math.floor((today-sd)/86400000)>=10;
+    return Math.floor((today-sd)/86400000)>=7;
   });
   const oc=document.getElementById("overdueCount");if(oc)oc.innerText=od.length;
   const ovCard=document.getElementById("ovCard");
@@ -1051,10 +1092,17 @@ async function uploadExcel(){
       const ws=wb.Sheets[wb.SheetNames[0]];
       const rows=XLSX.utils.sheet_to_json(ws,{defval:""});
       if(!rows.length)throw new Error("Sheet khali hai");
-      const keyMap={"sr.no":"srno","srno":"srno","case no":"caseno","caseno":"caseno","party name":"partyname","partyname":"partyname","section":"section","ps":"ps","sent":"sent","received":"received","recv.date":"receiveddate","receiveddate":"receiveddate","next date":"nextdate","nextdate":"nextdate","remark":"remark"};
+      function guessCol(raw){
+        const h=String(raw).toLowerCase().replace(/[^a-z0-9]/g,'');
+        const al=[['srno',['srno','serialno','slno','sno','sr','sl']],['caseno',['caseno','casenum','casenumber','caseid','cno','cnno','fileno']],['partyname',['partyname','party','name','parties','accused','applicant','respondent','petitioner','complainant']],['section',['section','sec','offence','ipc','act','charge']],['ps',['ps','policestation','police','thana','station']],['sent',['sent','dispatch','despatched']],['received',['received','recv','rcvd']],['receiveddate',['receiveddate','recvdate','rcvdate','datereceived']],['nextdate',['nextdate','nextdateofhearing','nxtdate','hearingdate','nhdate']],['remark',['remark','remarks','note','notes','comment','obs']]];
+        for(const[k,a]of al){if(a.some(x=>h===x))return k;}
+        for(const[k,a]of al){if(a.some(x=>h.startsWith(x)||x.startsWith(h)))return k;}
+        for(const[k,a]of al){if(a.some(x=>h.includes(x)||x.includes(h)))return k;}
+        return null;
+      }
       cData=rows.map(row=>{
         const out={};
-        Object.keys(row).forEach(k=>{const mk=keyMap[k.toLowerCase().trim()];if(mk)out[mk]=String(row[k]||"").trim();});
+        Object.keys(row).forEach(k=>{const mk=guessCol(k);if(mk)out[mk]=String(row[k]||"").trim();});
         if(!out.caseno)out.caseno=String(row[Object.keys(row)[1]]||"").trim();
         if(!out.srno)out.srno=String(row[Object.keys(row)[0]]||"").trim();
         out.searchableText=gSrch(out);return out;
@@ -1091,22 +1139,27 @@ function drawTable(data){
     H.forEach(k=>{
       if(k==="caseno"){
         const cj=String(r.caseno).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-        row+=`<td><span style="color:var(--blue);font-weight:700;cursor:pointer;text-decoration:underline dotted" onclick="openCaseDetail('${cj}')">${esc(r.caseno)}</span></td>`;
+        row+=`<td><span class="td-caseno" onclick="openCaseDetail('${cj}')">${esc(r.caseno)}</span></td>`;
+      }else if(k==="partyname"){
+        row+=`<td><span class="td-party">${esc(r[k]||"")}</span></td>`;
+      }else if(k==="section"||k==="ps"){
+        row+=`<td><span class="td-meta">${esc(r[k]||"")}</span></td>`;
       }else if(k==="remark"){
         const ca=String(r.caseno).replace(/"/g,'&quot;'),cj=String(r.caseno).replace(/\\/g,'\\\\').replace(/'/g,"\\'"),va=String(r[k]||"").replace(/"/g,'&quot;');
-        row+='<td><input data-caseno="'+ca+'" value="'+va+'" oninput="updateRemark(\''+cj+'\',this.value)" placeholder="Remark..."></td>';
+        const isDisposed=r._disposed;
+        row+=`<td>${isDisposed?'<span class="td-badge-dispose">✓ Disposed</span> ':''}<input data-caseno="${ca}" value="${va}" oninput="updateRemark('${cj}',this.value)" placeholder="Remark..." ${isDisposed?'style="color:var(--mu)"':''}></td>`;
       }else if(k==="receiveddate"){
-        row+='<td>'+fmtD(r[k])+'</td>';
+        row+=`<td><span class="td-meta">${fmtD(r[k])}</span></td>`;
       }else if(k==="nextdate"){
         const cj=String(r.caseno).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
         const nd=r.nextdate||'';
-        row+=`<td><input type="date" value="${nd}" style="border:none;background:transparent;font-size:12px;color:${nd?'var(--txt)':'var(--mu)'};width:115px;cursor:pointer;padding:3px 2px;font-family:inherit" onchange="updateNextDate('${cj}',this.value)"></td>`;
+        row+=`<td><input type="date" value="${nd}" style="border:none;background:transparent;font-size:12px;color:${nd?'var(--txt)':'var(--mu)'};width:115px;cursor:pointer;padding:3px 2px;font-family:inherit" onchange="updateNextDate('${cj}',this.value)" ${r._disposed?'disabled':''} title="${r._disposed?'Disposed file':'Click karke date change karo'}"></td>`;
       }else if(k==="sent"&&r.sent==="Sent"){
-        row+='<td><span class="badge badge-sent">✓ Sent</span></td>';
+        row+='<td><span class="td-badge-sent">✓ Sent</span></td>';
       }else if(k==="received"&&r.received==="Received"){
-        row+='<td><span class="badge badge-recv">✓ Recv.</span></td>';
+        row+='<td><span class="td-badge-recv">✓ Recv.</span></td>';
       }else{
-        row+='<td>'+esc(r[k]||"")+'</td>';
+        row+=`<td><span class="td-meta">${esc(r[k]||"")}</span></td>`;
       }
     });
     row+="</tr>";h+=row;
@@ -1206,19 +1259,19 @@ async function manualAction(mode){
   if(cn.length>50){showMS("⚠️ Case No bahut lamba hai","err");return;}
   if(!cData.length){showMS("⚠️ Data nahi. Excel upload karo","err");return;}
   const idx=cData.findIndex(r=>String(r.caseno).trim()===cn);
-  if(idx===-1){showMS("❌ Not Found: "+cn,"err");speak("Case not found");return;}
+  if(idx===-1){showMS("❌ Not Found: "+cn,"err");speak("Case not found");haptic('error');return;}
   const rec=cData[idx];
   if(mode==="SENT"){
     if(rec.sent==="Sent"){showMS("ℹ️ Already SENT: "+cn,"info");speak("Already sent");return;}
     cData[idx].sent="Sent";cData[idx].sentdate=new Date().toISOString().split("T")[0];cData[idx].searchableText=gSrch(cData[idx]);
-    showMS("✅ SENT: "+cn,"ok");speak("File sent");manualCaseInput.value="";
+    showMS("✅ SENT: "+cn,"ok");speak("File sent");haptic('success');manualCaseInput.value="";
     await hideBundleEntry(cn);
   }else{
     if(rec.sent!=="Sent"){showMS("❌ Pehle SENT karo","err");speak("File not sent yet");return;}
     if(rec.received==="Received"){showMS("ℹ️ Already RECEIVED: "+cn,"info");speak("Already received");return;}
     cData[idx].received="Received";cData[idx].receiveddate=new Date().toISOString().split("T")[0];
     lastRcvCase=cn;cData[idx].searchableText=gSrch(cData[idx]);
-    showMS("✅ RECEIVED: "+cn,"ok");speak("File received");manualCaseInput.value="";openNDModal(cn);
+    showMS("✅ RECEIVED: "+cn,"ok");speak("File received");haptic('success');manualCaseInput.value="";openNDModal(cn);
   }
   drawTable(getFiltered());scrollToFile(cn);updateDash();await saveLocal();
 }
@@ -1368,16 +1421,16 @@ function handleScanResult(dec){
 function startCFMScan(mode){openScan(mode==='SENT'?'cfm_sent':'cfm_rcv',mode==='SENT'?'📤 Scanning for SENT...':'📥 Scanning for RECEIVED...',false);}
 async function handleCFMScan(code,mode){
   const idx=cData.findIndex(r=>r.caseno===code.trim().toUpperCase());
-  if(idx===-1){showSC('❌ Not Found: '+code,'#dc2626');speak("File not found");return;}
+  if(idx===-1){showSC('❌ Not Found: '+code,'#dc2626');speak("File not found");haptic('error');return;}
   if(mode==='SENT'){
     if(cData[idx].sent==="Sent"){showSC('ℹ️ Already Sent: '+code,'#d97706');speak("Already sent");return;}
     cData[idx].sent="Sent";cData[idx].sentdate=new Date().toISOString().split("T")[0];cData[idx].searchableText=gSrch(cData[idx]);
-    showSC('✅ SENT: '+code,'#16a34a');speak("File sent");await hideBundleEntry(code);
+    showSC('✅ SENT: '+code,'#16a34a');speak("File sent");haptic('scan');await hideBundleEntry(code);
   }else{
     if(cData[idx].sent!=="Sent"){showSC('❌ Pehle SENT karo: '+code,'#dc2626');speak("File not sent yet");return;}
     if(cData[idx].received==="Received"){showSC('ℹ️ Already Received: '+code,'#d97706');speak("Already received");return;}
     cData[idx].received="Received";cData[idx].receiveddate=new Date().toISOString().split("T")[0];cData[idx].searchableText=gSrch(cData[idx]);lastRcvCase=code;
-    showSC('✅ RECEIVED: '+code,'#16a34a');speak("File received");
+    showSC('✅ RECEIVED: '+code,'#16a34a');speak("File received");haptic('scan');
     setTimeout(()=>{closeScan();openNDModal(code);},800);
     drawTable(getFiltered());scrollToFile(code);updateDash();await saveLocal();return;
   }
@@ -1564,8 +1617,8 @@ async function bAddFile(rawId,fromScan){
   const obj={id,md:bAMD,sd:bASD,col:bAC,at:Date.now(),st:'placed',hidden:false};
   bFiles[id]=obj;await idbSBn(obj);
   const sl=`${bAMD}${bASD!=null?'/'+bASD:''}-${dispCol(bAC)}`;
-  if(fromScan){showSC('✅ '+id+' → Date '+sl,'#16a34a');speak(bAMD+' '+dispCol(bAC),'hi-IN');}
-  else showToast('✅ '+id+' → '+sl);
+  if(fromScan){showSC('✅ '+id+' → Date '+sl,'#16a34a');speak(bAMD+' '+dispCol(bAC),'hi-IN');haptic('scan');}
+  else{showToast('✅ '+id+' → '+sl);haptic('success');}
   bUpdateSP();bRenderGrid();return true;
 }
 function bMKey(e){if(e.key==='Enter'){e.preventDefault();document.getElementById('b-mi').value.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean).forEach(p=>bAddFile(p,false));document.getElementById('b-mi').value='';}}
@@ -1727,56 +1780,220 @@ async function fbPush(){
 }
 
 // ════ OVERDUE MODAL ════
-let _ovRemSel={},_ovData=[];
+let _ovRemSel={},_ovData=[],_ovCustomDays={};
+
+function isDisposed(r){ return r._disposed===true; }
+
 function openOverdueModal(){
   const today=new Date();today.setHours(0,0,0,0);
-  const od=cData.filter(r=>{if(r.sent!=="Sent"||r.received==="Received")return false;if(!r.sentdate)return false;const sd=new Date(r.sentdate);sd.setHours(0,0,0,0);return Math.floor((today-sd)/86400000)>=10;}).map(r=>{const sd=new Date(r.sentdate);sd.setHours(0,0,0,0);return{...r,daysOld:Math.floor((today-sd)/86400000)};}).sort((a,b)=>b.daysOld-a.daysOld);
+  const od=cData.filter(r=>{
+    if(isDisposed(r))return false;
+    if(r.sent!=="Sent"||r.received==="Received")return false;
+    if(!r.sentdate)return false;
+    const sd=new Date(r.sentdate);sd.setHours(0,0,0,0);
+    return Math.floor((today-sd)/86400000)>=7;
+  }).map(r=>{
+    const sd=new Date(r.sentdate);sd.setHours(0,0,0,0);
+    return{...r,daysOld:Math.floor((today-sd)/86400000)};
+  }).sort((a,b)=>b.daysOld-a.daysOld);
+
   if(!od.length){showToast('✅ Koi overdue file nahi!');return;}
-  _ovRemSel={};_ovData=od;
+  _ovRemSel={};_ovCustomDays={};_ovData=od;
+
+  const todayStr=new Date().toISOString().split('T')[0];
   document.getElementById('ovList').innerHTML=od.map((r,i)=>{
-    const today=new Date().toISOString().split('T')[0];
-    const hasReminder=r._reminder&&r._reminder>today;const reminderDue=r._reminder&&r._reminder<=today;
-    return`<div class="ov-item" id="ovi-${i}" style="${reminderDue?'border-color:#fcd34d;background:#fffbeb':''}">
-      <div class="ov-hd"><span class="ov-cn">${esc(r.caseno)}</span>
-        <div style="display:flex;gap:6px;align-items:center">
-          ${reminderDue?'<span style="background:#fef3c7;color:#92400e;font-size:10px;padding:2px 8px;border-radius:20px;font-weight:700">🔔 Reminder Aaj</span>':''}
-          ${hasReminder?`<span style="background:#eef2ff;color:var(--blue);font-size:10px;padding:2px 8px;border-radius:20px;font-weight:700">📅 ${r._reminder}</span>`:''}
+    const hasReminder=r._reminder&&r._reminder>todayStr;
+    const reminderDue=r._reminder&&r._reminder<=todayStr;
+    const urgency=r.daysOld>=30?'border-color:#dc2626;background:#fef2f2':r.daysOld>=15?'border-color:#f59e0b;background:#fffbeb':'';
+    return`<div class="ov-item" id="ovi-${i}" style="${reminderDue?'border-color:#fcd34d;background:#fffbeb':urgency}">
+      <div class="ov-hd">
+        <div>
+          <span class="ov-cn">${esc(r.caseno)}</span>
+          <div class="ov-pt" style="margin-top:2px;margin-bottom:0">👤 ${esc(r.partyname||'')}${r.section?' · '+esc(r.section):''}${r.ps?' · '+esc(r.ps):''}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
           <span class="ov-days">${r.daysOld} din</span>
+          ${reminderDue?'<span style="background:#fef3c7;color:#92400e;font-size:10px;padding:1px 7px;border-radius:20px;font-weight:700">🔔 Aaj</span>':''}
+          ${hasReminder?`<span style="background:#eef2ff;color:var(--blue);font-size:10px;padding:1px 7px;border-radius:20px;font-weight:700">📅 ${r._reminder}</span>`:''}
         </div>
       </div>
-      <div class="ov-pt">👤 ${esc(r.partyname||'')}${r.section?' | '+esc(r.section):''}${r.ps?' | '+esc(r.ps):''}</div>
-      <textarea class="ov-rem" id="ovr-${i}" rows="2" placeholder="Remark...">${esc(r.remark||'')}</textarea>
-      <div class="ov-rdiv"><div class="ov-rlbl">🔔 Reminder — Kitne din baad?</div>
+
+      <textarea class="ov-rem" id="ovr-${i}" rows="2" placeholder="Remark likho (optional)...">${esc(r.remark||'')}</textarea>
+
+      <div class="ov-rdiv">
+        <div class="ov-rlbl">🔔 Reminder — Kitne din baad?</div>
         <div class="ov-ropts" id="rops-${i}">
-          <button class="ropt" onclick="selR(${i},3)">3 Din</button>
-          <button class="ropt" onclick="selR(${i},7)">7 Din</button>
-          <button class="ropt" onclick="selR(${i},10)">10 Din</button>
-          <button class="ropt cx" onclick="selR(${i},0)">❌ Cancel</button>
+          <button class="ropt" onclick="selR(${i},1)">1</button>
+          <button class="ropt" onclick="selR(${i},2)">2</button>
+          <button class="ropt" onclick="selR(${i},3)">3</button>
+          <button class="ropt" onclick="selR(${i},5)">5</button>
+          <button class="ropt" onclick="selR(${i},7)">7</button>
+          <button class="ropt" onclick="selR(${i},14)">14</button>
+          <button class="ropt cx" onclick="selR(${i},0)">✕</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:7px">
+          <span style="font-size:11px;color:var(--mu);font-weight:600">Ya custom:</span>
+          <input type="number" id="ovc-${i}" min="1" max="90" placeholder="Days" 
+            style="width:70px;padding:5px 8px;font-size:13px;border:1.5px solid var(--bdr);border-radius:8px;outline:none;background:#f7f9fc"
+            oninput="selRCustom(${i},this.value)">
         </div>
       </div>
-      <button class="ov-save" onclick="ovSave(${i})">💾 Save</button>
+
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button class="ov-save" style="flex:1" onclick="ovSave(${i})">💾 Save</button>
+        <button onclick="ovDispose(${i})" style="flex:1;padding:11px;background:rgba(107,114,128,.12);border:1.5px solid #9ca3af;border-radius:9px;font-size:13px;font-weight:700;color:#4b5563;cursor:pointer">🗂 Dispose</button>
+      </div>
     </div>`;
   }).join('');
   document.getElementById('ovModal').classList.add('on');
 }
+
+// Reminder select
 function selR(i,days){
-  const cn=_ovData[i]?_ovData[i].caseno:null;if(cn)_ovRemSel[cn]=days;
-  const container=document.getElementById('rops-'+i);if(!container)return;
-  const btns=container.querySelectorAll('.ropt');
-  btns.forEach((b,bi)=>{b.classList.remove('on');if(days===0&&bi===3)b.classList.add('on');else if(days===3&&bi===0)b.classList.add('on');else if(days===7&&bi===1)b.classList.add('on');else if(days===10&&bi===2)b.classList.add('on');});
+  const cn=_ovData[i]?_ovData[i].caseno:null;if(!cn)return;
+  _ovRemSel[cn]=days;_ovCustomDays[cn]=null;
+  // Clear custom input
+  const ci=document.getElementById('ovc-'+i);if(ci)ci.value='';
+  const btns=document.getElementById('rops-'+i);if(!btns)return;
+  const all=btns.querySelectorAll('.ropt');
+  const vals=[1,2,3,5,7,14,0];
+  all.forEach((b,bi)=>b.classList.toggle('on',vals[bi]===days));
 }
+function selRCustom(i,val){
+  const cn=_ovData[i]?_ovData[i].caseno:null;if(!cn)return;
+  const d=parseInt(val);
+  if(d>0&&d<=90){
+    _ovRemSel[cn]=d;
+    // Deselect preset buttons
+    const btns=document.getElementById('rops-'+i);
+    if(btns)btns.querySelectorAll('.ropt').forEach(b=>b.classList.remove('on'));
+  }
+}
+
 async function ovSave(i){
-  const r=_ovData[i];if(!r)return;const cn=r.caseno;
-  const remark=(document.getElementById('ovr-'+i)||{}).value||'';const days=_ovRemSel[cn]??null;
+  const r=_ovData[i];if(!r)return;
+  const cn=r.caseno;
+  const remark=(document.getElementById('ovr-'+i)||{}).value||'';
+  const days=_ovRemSel[cn]??null;
   const idx=cData.findIndex(x=>x.caseno===cn);
   if(idx!==-1){
     if(remark)cData[idx].remark=remark;
-    if(days!==null){if(days===0)delete cData[idx]._reminder;else{const rd=new Date();rd.setDate(rd.getDate()+days);cData[idx]._reminder=rd.toISOString().split('T')[0];}}
-    cData[idx].searchableText=gSrch(cData[idx]);await saveLocal();checkReminders();
+    if(days!==null){
+      if(days===0){delete cData[idx]._reminder;}
+      else{const rd=new Date();rd.setDate(rd.getDate()+days);cData[idx]._reminder=rd.toISOString().split('T')[0];}
+    }
+    cData[idx].searchableText=gSrch(cData[idx]);
+    await saveLocal();checkReminders();
   }
-  const msg=days===0?'❌ Reminder cancel hua':'✅ Saved'+(days?' | '+days+' din mein reminder':'');showToast(msg);
-  const el=document.getElementById('ovi-'+i);if(el){el.style.opacity='0.4';el.style.pointerEvents='none';}
+  const msg=days===0?'❌ Reminder cancel hua':`✅ Saved${days?' | '+days+' din mein reminder':''}`;
+  showToast(msg);haptic('success');
+  const el=document.getElementById('ovi-'+i);
+  if(el){el.style.opacity='0.45';el.style.pointerEvents='none';}
 }
+
+async function ovDispose(i){
+  const r=_ovData[i];if(!r)return;
+  const cn=r.caseno;
+  const remark=(document.getElementById('ovr-'+i)||{}).value||'';
+  if(!confirm(`"${cn}" ko Disposed mark karein? Ye file overdue list se permanently hatt jaayegi.`))return;
+  const idx=cData.findIndex(x=>x.caseno===cn);
+  if(idx!==-1){
+    cData[idx]._disposed=true;
+    if(remark)cData[idx].remark=(cData[idx].remark?cData[idx].remark+' | ':'')+remark;
+    delete cData[idx]._reminder;
+    cData[idx].searchableText=gSrch(cData[idx]);
+    await saveLocal();updateDash();drawTable(getFiltered());
+  }
+  showToast('🗂 Disposed: '+cn,'w');haptic('warn');
+  const el=document.getElementById('ovi-'+i);
+  if(el){el.style.opacity='0.35';el.style.pointerEvents='none';}
+}
+
+// ════ CFM → BUNDLE IMPORT ════
+let _cfmImpFilter='all';
+let _cfmImpSel=new Set();
+
+function openCFMImportModal(){
+  if(!cData.length){showToast('⚠️ Pehle Court Files tab mein Excel upload karo','w');return;}
+  _cfmImpSel.clear();_cfmImpFilter='all';
+  document.getElementById('cfmImp-sub').textContent=`Slot: Date ${bAMD}${bASD!=null?'/'+bASD:''} — Col ${dispCol(bAC)}`;
+  // Reset filter chips
+  ['all','nd','nob'].forEach(f=>document.getElementById('cimp-f-'+f).className='chip'+(f==='all'?' active-all':''));
+  cfmImpRender();
+  document.getElementById('cfmImportModal').classList.add('on');
+}
+
+function cfmImpFilter(f){
+  _cfmImpFilter=f;_cfmImpSel.clear();
+  ['all','nd','nob'].forEach(x=>document.getElementById('cimp-f-'+x).className='chip'+(x===f?' active-all':''));
+  cfmImpRender();
+}
+
+function cfmImpRender(){
+  const list=document.getElementById('cfmImpList');
+  let rows=cData.filter(r=>!r._disposed);
+  if(_cfmImpFilter==='nd') rows=rows.filter(r=>r.nextdate);
+  if(_cfmImpFilter==='nob') rows=rows.filter(r=>!bFiles[String(r.caseno).toUpperCase()]||bFiles[String(r.caseno).toUpperCase()].hidden);
+
+  if(!rows.length){list.innerHTML='<div class="bempty">Is filter mein koi case nahi</div>';return;}
+
+  // Group by nextdate day
+  const grouped={};
+  rows.forEach(r=>{
+    const day=r.nextdate?parseInt(r.nextdate.split('-')[2])||'—':'—';
+    if(!grouped[day])grouped[day]=[];
+    grouped[day].push(r);
+  });
+
+  const sortedKeys=Object.keys(grouped).sort((a,b)=>{
+    if(a==='—')return 1;if(b==='—')return -1;return +a-+b;
+  });
+
+  let h='';
+  sortedKeys.forEach(day=>{
+    const grp=grouped[day];
+    const isCurrentDay=+day===bAMD;
+    h+=`<div style="font-size:11px;font-weight:700;color:${isCurrentDay?'var(--blue)':'var(--mu)'};text-transform:uppercase;letter-spacing:.6px;margin:12px 0 6px;${isCurrentDay?'background:#eef2ff;padding:4px 8px;border-radius:6px':''}">
+      📅 Next Date: ${day==='—'?'Set Nahi':day}${isCurrentDay?' ← Current Slot':''}
+    </div>`;
+    grp.forEach(r=>{
+      const id=String(r.caseno).toUpperCase();
+      const inBundle=bFiles[id]&&!bFiles[id].hidden;
+      const isSel=_cfmImpSel.has(id);
+      h+=`<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;border:1.5px solid ${isSel?'var(--blue)':'var(--bdr)'};background:${isSel?'#eef2ff':'#fff'};margin-bottom:6px;cursor:${inBundle?'default':'pointer'};opacity:${inBundle?'.5':'1'}"
+          onclick="${inBundle?'':'cfmImpToggle(\''+esc(id)+'\')'}">
+        <input type="checkbox" ${isSel?'checked':''} ${inBundle?'disabled':''} style="accent-color:var(--blue);width:17px;height:17px;flex-shrink:0;cursor:pointer" onchange="cfmImpToggle('${esc(id)}')" onclick="event.stopPropagation()">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700;font-size:14px;color:var(--navy)">${esc(r.caseno)}</div>
+          <div style="font-size:12px;color:var(--mu);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.partyname||'')}${r.section?' · '+esc(r.section):''}</div>
+        </div>
+        ${inBundle?'<span style="background:#dcfce7;color:#15803d;font-size:10px;padding:2px 8px;border-radius:20px;font-weight:700">Bundle ✓</span>':r.sent==='Sent'?'<span style="background:#fef9c3;color:#a16207;font-size:10px;padding:2px 8px;border-radius:20px;font-weight:700">Sent</span>':''}
+      </div>`;
+    });
+  });
+  list.innerHTML=h||'<div class="bempty">Koi case nahi</div>';
+}
+
+function cfmImpToggle(id){
+  const clean=id.replace(/&#39;/g,"'").replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"');
+  if(_cfmImpSel.has(clean))_cfmImpSel.delete(clean);
+  else _cfmImpSel.add(clean);
+  cfmImpRender();
+}
+
+async function cfmImpAddSelected(){
+  if(!_cfmImpSel.size){showToast('⚠️ Koi case select nahi kiya','w');return;}
+  let added=0;
+  for(const id of _cfmImpSel){
+    const r=await bAddFile(id,false);
+    if(r)added++;
+  }
+  _cfmImpSel.clear();
+  document.getElementById('cfmImportModal').classList.remove('on');
+  if(added)showToast(`✅ ${added} file${added>1?'s':''} bundle mein add ho gayi!`);
+  bUpdateSP();
+}
+
 </script>
 </body>
 </html>
