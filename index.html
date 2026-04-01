@@ -72,6 +72,18 @@ button{cursor:pointer}
 .hdr-actions{display:flex;align-items:center;gap:8px}
 .hdr-btn{width:38px;height:38px;border-radius:var(--r8);background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);color:#fff;font-size:17px;display:flex;align-items:center;justify-content:center;transition:background .15s;cursor:pointer}
 .hdr-btn:active{background:rgba(255,255,255,.2)}
+.hdr-btn-urg{width:38px;height:38px;border-radius:var(--r8);background:rgba(239,68,68,.3);border:1px solid rgba(239,68,68,.6);color:#fff;font-size:17px;display:flex;align-items:center;justify-content:center;transition:background .15s;cursor:pointer}
+.hdr-btn-urg:active{background:rgba(239,68,68,.5)}
+/* urgent log */
+.ulog-row{background:#fff;border:1.5px solid var(--bdr);border-radius:10px;padding:10px 12px;margin-bottom:7px}
+.ulog-top{display:flex;justify-content:space-between;align-items:center}
+.ulog-cn{font-weight:700;font-size:14px;color:var(--navy)}
+.ulog-meta{font-size:11px;color:var(--mu);font-weight:500;margin-top:3px}
+/* urgent log */
+.ulog-row{background:#fff;border:1.5px solid var(--bdr);border-radius:10px;padding:10px 12px;margin-bottom:7px}
+.ulog-top{display:flex;justify-content:space-between;align-items:center}
+.ulog-cn{font-weight:700;font-size:14px;color:var(--navy)}
+.ulog-meta{font-size:11px;color:var(--mu);font-weight:500;margin-top:3px}
 .sync-pill{display:flex;align-items:center;gap:5px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);border-radius:20px;padding:5px 10px;font-size:11px;color:rgba(255,255,255,.75);font-weight:600;cursor:default}
 #syncDot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
 #syncDot.ok{background:#4ade80}
@@ -449,7 +461,10 @@ td input:focus{background:#fff;border-color:var(--blue)}
           Current working date (<span id="addcase-dateLabel" style="color:var(--blue);font-weight:700">—</span>) ke liye naya case manually add karo.
         </p>
         <div class="field"><label>Case No *</label>
-          <input type="text" id="ac-caseno" placeholder="Jaise: CC/123/2024" autocomplete="off" style="text-transform:uppercase">
+          <div style="display:flex;gap:8px;align-items:flex-end">
+            <input type="text" id="ac-caseno" placeholder="Jaise: CC/123/2024" autocomplete="off" style="text-transform:uppercase;flex:1;margin-top:5px">
+            <button onclick="acScan()" style="height:44px;width:44px;border-radius:var(--r8);border:1.5px solid var(--bdr);background:#f7f9fc;font-size:18px;cursor:pointer;flex-shrink:0" title="QR Scan se Case No scan karo">📷</button>
+          </div>
         </div>
         <div class="field"><label>Party Name</label>
           <input type="text" id="ac-party" placeholder="Muddai / Mulzim ka naam">
@@ -545,6 +560,7 @@ td input:focus{background:#fff;border-color:var(--blue)}
         <span id="syncDot" class="off"></span>
         <span id="syncLbl">Offline</span>
       </div>
+      <button class="hdr-btn-urg" onclick="openUrgentModal()" title="⚡ Urgent Scan">⚡</button>
       <button class="hdr-btn" onclick="openDrawer()" title="Tools & Settings">⚙️</button>
     </div>
   </div>
@@ -565,7 +581,7 @@ td input:focus{background:#fff;border-color:var(--blue)}
     <div class="stat-card"><span class="stat-icon">📁</span><span class="stat-val" id="totalCount">0</span><span class="stat-lbl">Total Files</span></div>
     <div class="stat-card"><span class="stat-icon">📤</span><span class="stat-val" id="sentCount">0</span><span class="stat-lbl">Sent</span></div>
     <div class="stat-card"><span class="stat-icon">📥</span><span class="stat-val" id="receivedCount">0</span><span class="stat-lbl">Received</span></div>
-    <div class="stat-card danger clickable" onclick="openOverdueModal()" id="ovCard"><span class="stat-icon">⏰</span><span class="stat-val" id="overdueCount">0</span><span class="stat-lbl">Overdue 10d+</span></div>
+    <div class="stat-card danger clickable" onclick="openOverdueModal()" id="ovCard"><span class="stat-icon">⏰</span><span class="stat-val" id="overdueCount">0</span><span class="stat-lbl">Overdue 7d+</span></div>
   </div>
 
   <!-- Search + Filter -->
@@ -625,6 +641,7 @@ td input:focus{background:#fff;border-color:var(--blue)}
   <button class="bnb on" data-bv="add"    onclick="swBV('add')">➕ Add Files</button>
   <button class="bnb"    data-bv="search" onclick="swBV('search')">🔍 Find</button>
   <button class="bnb"    data-bv="grid"   onclick="swBV('grid')">🗂 Grid View</button>
+  <button class="bnb"    data-bv="check"  onclick="swBV('check');runBundleCheck()">⚠️ Check</button>
 </div>
 <div class="cnt" style="padding-top:14px">
 
@@ -717,6 +734,19 @@ td input:focus{background:#fff;border-color:var(--blue)}
         </div>
       </div>
       <div id="bsd-c"></div>
+    </div>
+  </div>
+
+  <!-- CHECK VIEW -->
+  <div class="bview" id="bview-check">
+    <div class="sec" style="border-color:rgba(217,119,6,.3)">
+      <div class="sec-hd">
+        <div class="ico amber">⚠️</div>
+        <div><div class="lbl">Bundle vs CFM Check</div><div class="sub">Working date ki sent files jo bundle mein abhi bhi hain</div></div>
+      </div>
+      <p style="font-size:12px;color:var(--mu);margin-bottom:12px;font-weight:500">CFM mein <strong>Sent</strong> ho chuki files lekin Bundle mein abhi bhi rakhi hain — check karo koi almari mein toh nahi reh gayi.</p>
+      <button class="btn amber" onclick="runBundleCheck()" style="margin-top:0">🔍 Abhi Check Karo</button>
+      <div id="bchk-inline" style="margin-top:14px"></div>
     </div>
   </div>
 
@@ -862,6 +892,48 @@ td input:focus{background:#fff;border-color:var(--blue)}
   </div>
 </div>
 
+<!-- ════ URGENT SCAN MODAL ════ -->
+<div class="modal center" id="urgentModal">
+  <div class="msh" style="max-width:420px;width:95%;max-height:88vh;overflow-y:auto">
+    <div class="mt">⚡ Urgent Scan</div>
+    <div class="msub">Kisi bhi file ko turant track karo — 90 din ka log save hoga</div>
+    <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:10px">
+      <div class="field" style="flex:1;margin-bottom:0">
+        <label>Case No</label>
+        <input type="text" id="urg-cn" placeholder="Type ya QR scan karo..." style="text-transform:uppercase" autocomplete="off">
+      </div>
+      <button onclick="urgScan()" style="height:46px;width:46px;border-radius:var(--r8);border:1.5px solid var(--bdr);background:#f7f9fc;font-size:20px;cursor:pointer;flex-shrink:0;margin-bottom:0" title="QR Scan">📷</button>
+    </div>
+    <div class="field" style="margin-bottom:8px">
+      <label>Remark (optional)</label>
+      <input type="text" id="urg-rem" placeholder="Jaise: Judge ne manga, urgent sunwai...">
+    </div>
+    <div id="urg-msg" class="smsg"></div>
+    <div class="g2" style="margin-top:8px">
+      <button class="btn amber" onclick="urgAction('SENT')" style="margin-top:0">📤 Sent Karo</button>
+      <button class="btn success" onclick="urgAction('RECEIVED')" style="margin-top:0">📥 Received</button>
+    </div>
+    <div style="margin-top:18px;border-top:1px solid var(--bdr);padding-top:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <span style="font-size:11px;font-weight:700;color:var(--mu);text-transform:uppercase;letter-spacing:.6px">Recent Urgent Log</span>
+        <button onclick="loadUrgLog()" style="background:none;border:none;color:var(--blue);font-size:12px;font-weight:600;cursor:pointer">🔄 Refresh</button>
+      </div>
+      <div id="urg-log-list" style="max-height:200px;overflow-y:auto"></div>
+    </div>
+    <button class="btn neutral" onclick="document.getElementById('urgentModal').classList.remove('on')" style="margin-top:12px">✕ Band Karo</button>
+  </div>
+</div>
+
+<!-- ════ BUNDLE MISMATCH CHECK MODAL ════ -->
+<div class="modal" id="bCheckModal">
+  <div class="msh" style="max-height:88vh;overflow-y:auto">
+    <div class="mt">⚠️ Bundle vs CFM Check</div>
+    <div class="msub" id="bchk-sub">—</div>
+    <div id="bchk-list"></div>
+    <button class="btn neutral" onclick="document.getElementById('bCheckModal').classList.remove('on')" style="margin-top:8px">✕ Band Karo</button>
+  </div>
+</div>
+
 <script>
 // ════ DOM REFS ════
 const workDate       = document.getElementById('workDate');
@@ -900,8 +972,8 @@ function openDrawerOn(panelId){
 }
 
 // ════ INDEXEDDB ════
-const DB_NAME='CourtFileManagerDB',DB_VER=2;
-const SV='versions',SM='metadata',SB='bundles';
+const DB_NAME='CourtFileManagerDB',DB_VER=3;
+const SV='versions',SM='metadata',SB='bundles',SUL='urgent_logs';
 let db;
 function openDB(){
   return new Promise((res,rej)=>{
@@ -912,6 +984,7 @@ function openDB(){
       if(!d.objectStoreNames.contains(SV))d.createObjectStore(SV,{keyPath:'workDate'});
       if(!d.objectStoreNames.contains(SM))d.createObjectStore(SM,{keyPath:'key'});
       if(!d.objectStoreNames.contains(SB))d.createObjectStore(SB,{keyPath:'id'});
+      if(!d.objectStoreNames.contains(SUL))d.createObjectStore(SUL,{keyPath:'id',autoIncrement:true});
     };
     r.onsuccess=e=>{db=e.target.result;res(db);};
     r.onerror=e=>rej(e.target.errorCode);
@@ -1075,12 +1148,13 @@ function updateDash(){
   document.getElementById("tabPSentCount").innerText=ps;
   document.getElementById("tabPRecvdCount").innerText=pr;
   const today=new Date();today.setHours(0,0,0,0);
+  // workDate se aaj kitne din ho gaye
+  const wd=workDate.value?new Date(workDate.value+'T00:00:00'):null;
+  const daysSinceWork=wd?Math.floor((today-wd)/86400000):0;
   const od=cData.filter(r=>{
-    if(r._disposed)return false;  // disposed files skip
+    if(r._disposed)return false;
     if(r.sent!=="Sent"||r.received==="Received")return false;
-    if(!r.sentdate)return false;
-    const sd=new Date(r.sentdate);sd.setHours(0,0,0,0);
-    return Math.floor((today-sd)/86400000)>=7;
+    return daysSinceWork>=7; // workDate se 7+ din baad show karo
   });
   const oc=document.getElementById("overdueCount");if(oc)oc.innerText=od.length;
   const ovCard=document.getElementById("ovCard");
@@ -1695,9 +1769,18 @@ function bUpdateSP(){
 function bUpdateST(){const el=document.getElementById('scan-ml');if(el&&scanCtx==='bundle')el.textContent=`📷 Bundle → Date ${bAMD}${bASD!=null?'/'+bASD:''} ${dispCol(bAC)}`;}
 async function bAddFile(rawId,fromScan){
   const id=rawId.trim().toUpperCase();if(!id)return false;
-  if(fromScan){const rec=getCFMRecord(id);if(!rec){showSC('❌ CFM mein nahi hai: '+id,'#dc2626');speak("File CFM mein nahi hai");return false;}}
-  if(bFiles[id]&&!bFiles[id].hidden){const ex=bFiles[id];const msg=`"${id}" pehle se: Date ${ex.md}${ex.sd!=null?'/'+ex.sd:''} — ${dispCol(ex.col)}. Pehle hatao.`;fromScan?showSC(msg,'#dc2626'):showToast(msg,'d');speak("File pehle se hai");return false;}
-  if(fromScan){const cfmDay=getCFMDay(id);if(cfmDay!==null&&cfmDay!==bAMD&&bASD===null){openMismatchModal(id,cfmDay);return false;}}
+  if(fromScan){const rec=getCFMRecord(id);if(!rec){showSC('❌ CFM mein nahi hai: '+id,'#dc2626');speak("File CFM mein nahi hai");haptic('error');return false;}}
+  if(bFiles[id]&&!bFiles[id].hidden){const ex=bFiles[id];const msg=`"${id}" pehle se: Date ${ex.md}${ex.sd!=null?'/'+ex.sd:''} — ${dispCol(ex.col)}`;fromScan?showSC(msg,'#dc2626'):showToast(msg,'d');speak("File pehle se hai");haptic('error');return false;}
+  if(fromScan){
+    const cfmDay=getCFMDay(id);
+    if(cfmDay!==null&&cfmDay!==bAMD&&bASD===null){
+      // Continuous mode mein bhi scanner rok ke mismatch dikhao
+      scanCool=true;
+      if(contMode){scanActive=false;if(scanStream){scanStream.getTracks().forEach(t=>t.stop());scanStream=null;}document.getElementById('scan-vid').srcObject=null;hideQRBox();document.getElementById('scan-ov').classList.remove('on');}
+      openMismatchModal(id,cfmDay);
+      return false;
+    }
+  }
   const obj={id,md:bAMD,sd:bASD,col:bAC,at:Date.now(),st:'placed',hidden:false};
   bFiles[id]=obj;await idbSBn(obj);
   const sl=`${bAMD}${bASD!=null?'/'+bASD:''}-${dispCol(bAC)}`;
@@ -1870,16 +1953,14 @@ function isDisposed(r){ return r._disposed===true; }
 
 function openOverdueModal(){
   const today=new Date();today.setHours(0,0,0,0);
+  const wd=workDate.value?new Date(workDate.value+'T00:00:00'):null;
+  const daysSinceWork=wd?Math.floor((today-wd)/86400000):0;
   const od=cData.filter(r=>{
     if(isDisposed(r))return false;
     if(r.sent!=="Sent"||r.received==="Received")return false;
-    if(!r.sentdate)return false;
-    const sd=new Date(r.sentdate);sd.setHours(0,0,0,0);
-    return Math.floor((today-sd)/86400000)>=7;
-  }).map(r=>{
-    const sd=new Date(r.sentdate);sd.setHours(0,0,0,0);
-    return{...r,daysOld:Math.floor((today-sd)/86400000)};
-  }).sort((a,b)=>b.daysOld-a.daysOld);
+    return daysSinceWork>=7;
+  }).map(r=>({...r,daysOld:daysSinceWork}))
+    .sort((a,b)=>String(a.caseno).localeCompare(String(b.caseno)));
 
   if(!od.length){showToast('✅ Koi overdue file nahi!');return;}
   _ovRemSel={};_ovCustomDays={};_ovData=od;
@@ -2027,22 +2108,257 @@ async function confirmDisposeYes(){
   document.getElementById('disposeModal').classList.remove('on');
 }
 
+// ════ URGENT SCAN / ENTRY ════
+// Urgent log: idbTx on SUL store
+async function ulAdd(entry){
+  return new Promise((res,rej)=>{
+    if(!db){rej(new Error('DB'));return;}
+    const tx=db.transaction(SUL,'readwrite');
+    const s=tx.objectStore(SUL);
+    const r=s.add(entry);
+    r.onsuccess=()=>res(r.result);
+    r.onerror=e=>rej(e.target.error);
+  });
+}
+async function ulGetAll(){
+  return new Promise((res,rej)=>{
+    if(!db){res([]);return;}
+    const tx=db.transaction(SUL,'readonly');
+    const s=tx.objectStore(SUL);
+    const r=s.getAll();
+    r.onsuccess=()=>res(r.result||[]);
+    r.onerror=()=>res([]);
+  });
+}
+async function ulPurge90(){
+  // Delete entries older than 90 days
+  const cutoff=new Date();cutoff.setDate(cutoff.getDate()-90);
+  const all=await ulGetAll();
+  const old=all.filter(x=>new Date(x.ts)<cutoff);
+  for(const x of old){
+    try{
+      await new Promise((res,rej)=>{
+        const tx=db.transaction(SUL,'readwrite');
+        const s=tx.objectStore(SUL);
+        const r=s.delete(x.id);
+        r.onsuccess=res;r.onerror=rej;
+      });
+    }catch(e){}
+  }
+}
+
+function showUrgMsg(msg,type){
+  const el=document.getElementById('urg-msg');
+  if(!el)return;
+  el.textContent=msg;el.className='smsg s-'+type;
+  clearTimeout(el._t);
+  if(type==='ok')el._t=setTimeout(()=>el.className='smsg',3000);
+}
+
+function openUrgentModal(){
+  document.getElementById('urg-cn').value='';
+  document.getElementById('urg-rem').value='';
+  const msg=document.getElementById('urg-msg');if(msg)msg.className='smsg';
+  document.getElementById('urgentModal').classList.add('on');
+  loadUrgLog();
+  setTimeout(()=>document.getElementById('urg-cn').focus(),120);
+}
+
+// QR scan for urgent
+function urgScan(){
+  openScan('urgent_scan','⚡ Urgent — Case No scan karo',false);
+}
+// QR scan for add-case panel
+function acScan(){
+  openScan('addcase_scan','➕ Case No scan karo',false);
+}
+
+async function urgAction(mode){
+  const cn=(document.getElementById('urg-cn').value||'').trim().toUpperCase();
+  if(!cn){showUrgMsg('⚠️ Case No daalo','err');return;}
+  const rem=(document.getElementById('urg-rem').value||'').trim();
+  const now=new Date();
+  const todayISO=now.toISOString().split('T')[0];
+  const timeStr=now.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
+
+  // Log entry save karo (urgent_logs — not linked to CFM data)
+  const entry={
+    caseno:cn,
+    action:mode,
+    date:todayISO,
+    time:timeStr,
+    remark:rem,
+    ts:now.toISOString()
+  };
+  try{
+    await ulAdd(entry);
+    await ulPurge90();
+  }catch(e){console.warn('urgent log save fail:',e);}
+
+  // CFM data mein bhi update karo agar case exist kare
+  const idx=cData.findIndex(r=>String(r.caseno).toUpperCase()===cn);
+  if(idx!==-1){
+    if(mode==='SENT'){
+      if(cData[idx].sent==='Sent'){showUrgMsg('ℹ️ Already Sent: '+cn,'info');return;}
+      cData[idx].sent='Sent';cData[idx].sentdate=todayISO;
+      if(rem&&rem!==''){
+        const ex=(cData[idx].remark||'').trim();
+        cData[idx].remark=ex?ex+' | '+rem:rem;
+      }
+      cData[idx].searchableText=gSrch(cData[idx]);
+      await hideBundleEntry(cn);
+    } else {
+      if(cData[idx].received==='Received'){showUrgMsg('ℹ️ Already Received: '+cn,'info');return;}
+      cData[idx].received='Received';cData[idx].receiveddate=todayISO;
+      if(rem){
+        const ex=(cData[idx].remark||'').trim();
+        cData[idx].remark=ex?ex+' | '+rem:rem;
+      }
+      cData[idx].searchableText=gSrch(cData[idx]);
+    }
+    await saveLocal();drawTable(getFiltered());updateDash();
+  }
+
+  const icon=mode==='SENT'?'📤':'📥';
+  showUrgMsg(icon+' '+mode+': '+cn+(idx===-1?' (log only — CFM mein nahi mila)':''),'ok');
+  haptic('success');speak(mode==='SENT'?'Sent':'Received');
+  document.getElementById('urg-cn').value='';
+  document.getElementById('urg-rem').value='';
+  loadUrgLog();
+}
+
+async function loadUrgLog(){
+  const listEl=document.getElementById('urg-log-list');
+  if(!listEl)return;
+  try{
+    const all=await ulGetAll();
+    if(!all.length){listEl.innerHTML='<div class="bempty" style="margin-top:12px">Koi log nahi abhi tak</div>';return;}
+    // Sort latest first
+    all.sort((a,b)=>new Date(b.ts)-new Date(a.ts));
+    const recent=all.slice(0,30);
+    listEl.innerHTML=recent.map(x=>{
+      const badge=x.action==='SENT'
+        ?'<span style="background:#fef9c3;color:#a16207;font-size:10px;padding:2px 7px;border-radius:20px;font-weight:700">📤 Sent</span>'
+        :'<span style="background:#dcfce7;color:#15803d;font-size:10px;padding:2px 7px;border-radius:20px;font-weight:700">📥 Received</span>';
+      return`<div class="ulog-row">
+        <div class="ulog-top">
+          <span class="ulog-cn">${esc(x.caseno)}</span>
+          ${badge}
+        </div>
+        <div class="ulog-meta">📅 ${fmtD(x.date)} ${x.time||''}${x.remark?' · '+esc(x.remark):''}</div>
+      </div>`;
+    }).join('');
+  }catch(e){listEl.innerHTML='<div class="bempty">Log load fail</div>';}
+}
+
+// ════ SCANNER CONTEXT — urgent + addcase ════
+// handleScanResult mein urgent_scan aur addcase_scan add karo
+// (override existing handleScanResult)
+const _origHandleScanResult=handleScanResult;
+function handleScanResult(dec){
+  if(scanCtx==='urgent_scan'){
+    document.getElementById('urg-cn').value=dec.trim().toUpperCase();
+    closeScan();
+    setTimeout(()=>document.getElementById('urg-cn').focus(),100);
+  } else if(scanCtx==='addcase_scan'){
+    document.getElementById('ac-caseno').value=dec.trim().toUpperCase();
+    closeScan();
+    setTimeout(()=>document.getElementById('ac-party').focus(),100);
+  } else {
+    _origHandleScanResult(dec);
+  }
+}
+
+// ════ BUNDLE CHECK ════
+function runBundleCheck(){
+  const listEl=document.getElementById('bchk-inline');
+  if(!listEl)return;
+
+  // Jo files bundle mein hain (hidden=false) aur CFM mein Sent ho chuki hain
+  const mismatch=[];
+  const workDay=workDate.value?parseInt(workDate.value.split('-')[2]):null;
+
+  Object.values(bFiles).forEach(f=>{
+    if(f.hidden)return; // already hidden = already processed
+    const id=f.id;
+    const cfmRec=cData.find(r=>String(r.caseno).toUpperCase()===id);
+    if(!cfmRec)return; // not in CFM, skip
+    if(cfmRec.sent==='Sent'){
+      // Bundle mein hai, CFM mein Sent ho gaya but bundle se hide nahi hua
+      mismatch.push({f,cfmRec,reason:'CFM mein Sent hai lekin bundle se hide nahi hua'});
+    }
+    // Also check: file kisi aur date ki hai par bundle mein galat date pe rakhi hai
+    if(cfmRec.nextdate){
+      const cfmDay=parseInt(cfmRec.nextdate.split('-')[2]);
+      if(cfmDay && f.md !== cfmDay && f.sd==null){
+        mismatch.push({f,cfmRec,reason:`CFM next date: ${cfmDay}, Bundle mein: ${f.md} pe rakhi hai`});
+      }
+    }
+  });
+
+  if(!mismatch.length){
+    listEl.innerHTML=`<div style="color:var(--green);font-weight:700;font-size:14px;text-align:center;padding:20px 0">
+      ✅ Sab theek! Koi mismatch nahi mila.
+    </div>`;
+    return;
+  }
+
+  // Group by reason
+  const sentNotHidden=mismatch.filter(x=>x.reason.includes('hide nahi'));
+  const wrongDate=mismatch.filter(x=>x.reason.includes('next date'));
+
+  let h=`<div style="color:var(--red);font-weight:700;font-size:13px;margin-bottom:12px">⚠️ ${mismatch.length} mismatch mila:</div>`;
+
+  if(sentNotHidden.length){
+    h+=`<div style="font-size:11px;font-weight:700;color:var(--mu);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">📤 Sent hain par bundle mein abhi bhi dikha rahe (${sentNotHidden.length})</div>`;
+    h+=sentNotHidden.map(({f,cfmRec})=>`
+      <div style="background:#fff;border:1.5px solid #fca5a5;border-radius:10px;padding:10px 12px;margin-bottom:7px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="font-weight:700;font-size:14px;color:var(--navy)">${esc(f.id)}</span>
+          <button onclick="hideBundleEntry('${esc(f.id)}').then(()=>runBundleCheck())" 
+            style="background:#dc2626;color:#fff;border:none;border-radius:7px;padding:5px 11px;font-size:11px;font-weight:700;cursor:pointer">
+            Hide karo
+          </button>
+        </div>
+        <div style="font-size:11px;color:var(--mu);margin-top:3px">
+          📍 Bundle: Date ${f.md}${f.sd!=null?'/'+f.sd:''} — ${dispCol(f.col)} &nbsp;|&nbsp; 
+          👤 ${esc(cfmRec.partyname||'—')}
+        </div>
+      </div>`).join('');
+  }
+
+  if(wrongDate.length){
+    h+=`<div style="font-size:11px;font-weight:700;color:var(--mu);text-transform:uppercase;letter-spacing:.5px;margin:12px 0 8px">📅 Galat date pe rakhi hain (${wrongDate.length})</div>`;
+    h+=wrongDate.map(({f,cfmRec})=>{
+      const cfmDay=parseInt(cfmRec.nextdate.split('-')[2]);
+      return`<div style="background:#fff;border:1.5px solid #fcd34d;border-radius:10px;padding:10px 12px;margin-bottom:7px">
+        <div style="font-weight:700;font-size:14px;color:var(--navy)">${esc(f.id)}</div>
+        <div style="font-size:11px;color:var(--mu);margin-top:3px">
+          Bundle mein: Date <strong>${f.md}</strong> &nbsp;→&nbsp; CFM next date: <strong style="color:var(--blue)">${cfmDay}</strong>
+        </div>
+        <div style="font-size:11px;color:var(--mu)">👤 ${esc(cfmRec.partyname||'—')}</div>
+      </div>`;
+    }).join('');
+  }
+
+  listEl.innerHTML=h;
+}
+
+// ════ DISPOSE CONFIRM (confirmDisposeNo was here - re-adding) ════
 function confirmDisposeNo(){
-  // Remark se 'dispose' word clear karo
   const cn=_disposePendingCN;
   if(cn){
     const idx=cData.findIndex(r=>r.caseno===cn);
     if(idx!==-1){
-      // Remove the 'dispose'/'disposed' word from remark
       cData[idx].remark=(cData[idx].remark||'').replace(/\bdispose(d)?\b/gi,'').replace(/^\s*\|\s*|\s*\|\s*$/g,'').trim();
       cData[idx].searchableText=gSrch(cData[idx]);
-      saveLocal();
-      drawTable(getFiltered());
+      saveLocal();drawTable(getFiltered());
     }
   }
   _disposePendingCN=null;
   document.getElementById('disposeModal').classList.remove('on');
 }
+
 
 </script>
 </body>
