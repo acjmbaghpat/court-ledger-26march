@@ -641,7 +641,7 @@ td input:focus{background:#fff;border-color:var(--blue)}
   <button class="bnb on" data-bv="add"    onclick="swBV('add')">➕ Add Files</button>
   <button class="bnb"    data-bv="search" onclick="swBV('search')">🔍 Find</button>
   <button class="bnb"    data-bv="grid"   onclick="swBV('grid')">🗂 Grid View</button>
-  <button class="bnb"    data-bv="check"  onclick="swBV('check');runBundleCheck()">⚠️ Check</button>
+  <button class="bnb"    data-bv="check"  onclick="swBV('check')">⚠️ Check</button>
 </div>
 <div class="cnt" style="padding-top:14px">
 
@@ -749,13 +749,21 @@ td input:focus{background:#fff;border-color:var(--blue)}
   <div class="bview" id="bview-check">
     <div class="sec" style="border-color:rgba(217,119,6,.3)">
       <div class="sec-hd">
-        <div class="ico amber">⚠️</div>
-        <div><div class="lbl">Bundle vs CFM Check</div><div class="sub">Working date ki sent files jo bundle mein abhi bhi hain</div></div>
+        <div class="ico amber">📅</div>
+        <div><div class="lbl">Aaj ki Files Check</div><div class="sub">CFM mein aaj ki next date wali files — almari mein to nahi reh gayi?</div></div>
       </div>
-      <p style="font-size:12px;color:var(--mu);margin-bottom:12px;font-weight:500">CFM mein <strong>Sent</strong> ho chuki files lekin Bundle mein abhi bhi rakhi hain — check karo koi almari mein toh nahi reh gayi.</p>
-      <button class="btn amber" onclick="runBundleCheck()" style="margin-top:0">🔍 Abhi Check Karo</button>
-      <div id="bchk-inline" style="margin-top:14px"></div>
+      <p style="font-size:12px;color:var(--mu);margin-bottom:10px;font-weight:500">CFM mein jo files aaj court jaani hain — unka bundle tracker se match karo.</p>
+      <button class="btn amber" onclick="checkTodayFiles()" style="margin-top:0">🔍 Aaj ki Files Check Karo</button>
     </div>
+    <div class="sec" style="border-color:rgba(26,86,219,.2)">
+      <div class="sec-hd">
+        <div class="ico blue">📋</div>
+        <div><div class="lbl">Galat Date Check</div><div class="sub">Koi file galat shelf par to nahi rakhi?</div></div>
+      </div>
+      <p style="font-size:12px;color:var(--mu);margin-bottom:10px;font-weight:500">Bundle mein rakhi files ka CFM next date se milaan karo.</p>
+      <button class="btn primary" onclick="runBundleCheck()" style="margin-top:0">🔍 Galat Date Check Karo</button>
+    </div>
+    <div id="bchk-inline" style="margin-top:4px"></div>
   </div>
 
 </div>
@@ -1183,30 +1191,17 @@ async function updateDash(){
   document.getElementById("tabPSentCount").innerText=ps;
   document.getElementById("tabPRecvdCount").innerText=pr;
 
-  const todayStr=new Date().toISOString().split('T')[0];
   const today=new Date();today.setHours(0,0,0,0);
-  let odCount=0;
-
-  if(isToday(workDate.value)){
-    // Overall: sabhi dates ka data scan karo
-    const allData=await getAllCDataOverall();
-    odCount=allData.filter(r=>{
-      if(r._disposed)return false;
-      if(r.sent!=="Sent"||r.received==="Received")return false;
-      if(!r.sentdate)return false;
-      const sd=new Date(r.sentdate);sd.setHours(0,0,0,0);
-      return Math.floor((today-sd)/86400000)>=7;
-    }).length;
-  } else {
-    // Back date: sirf us date ka data
-    const wd=workDate.value?new Date(workDate.value+'T00:00:00'):null;
-    const daysSinceWork=wd?Math.floor((today-wd)/86400000):0;
-    odCount=cData.filter(r=>{
-      if(r._disposed)return false;
-      if(r.sent!=="Sent"||r.received==="Received")return false;
-      return daysSinceWork>=7;
-    }).length;
-  }
+  // Overdue: HAMESHA actual today se calculate karo (workDate se nahi)
+  // Sabhi dates ka aggregate data — overall overdue
+  const allData=await getAllCDataOverall();
+  const odCount=allData.filter(r=>{
+    if(r._disposed)return false;
+    if(r.sent!=="Sent"||r.received==="Received")return false;
+    if(!r.sentdate)return false;
+    const sd=new Date(r.sentdate);sd.setHours(0,0,0,0);
+    return Math.floor((today-sd)/86400000)>=7;
+  }).length;
 
   const oc=document.getElementById("overdueCount");if(oc)oc.innerText=odCount;
   const ovCard=document.getElementById("ovCard");
@@ -1624,9 +1619,18 @@ function closeScan(){
 }
 function toggleCont(){contMode=!contMode;scanLast='';scanCool=false;const b=document.getElementById('cont-btn');b.textContent='🔁 Continuous: '+(contMode?'ON':'OFF');b.className=contMode?'on':'';}
 function handleScanResult(dec){
-  if(scanCtx==='cfm_sent')handleCFMScan(dec,'SENT');
-  else if(scanCtx==='cfm_rcv')handleCFMScan(dec,'RECEIVED');
-  else if(scanCtx==='bundle')handleBundleScan(dec);
+  if(scanCtx==='cfm_sent')      handleCFMScan(dec,'SENT');
+  else if(scanCtx==='cfm_rcv')  handleCFMScan(dec,'RECEIVED');
+  else if(scanCtx==='bundle')   handleBundleScan(dec);
+  else if(scanCtx==='urgent_scan'){
+    document.getElementById('urg-cn').value=dec.trim().toUpperCase();
+    closeScan();
+    setTimeout(()=>document.getElementById('urg-cn').focus(),100);
+  } else if(scanCtx==='addcase_scan'){
+    document.getElementById('ac-caseno').value=dec.trim().toUpperCase();
+    closeScan();
+    setTimeout(()=>document.getElementById('ac-party').focus(),100);
+  }
 }
 function startCFMScan(mode){openScan(mode==='SENT'?'cfm_sent':'cfm_rcv',mode==='SENT'?'📤 Scanning for SENT...':'📥 Scanning for RECEIVED...',false);}
 async function handleCFMScan(code,mode){
@@ -1660,14 +1664,14 @@ const CAT_LABELS={'OLD':'📂 Old','COMMITTAL':'⛓ Committal','JAIL':'🔒 Jail
 let bActiveCat=null; // null = date mode, 'OLD'/'COMMITTAL'/'JAIL'/'NAKAL' = category mode
 
 function bSetCat(cat){
-  // Toggle category; clear date selection if category selected
   if(bActiveCat===cat){
+    // Toggle off
     bActiveCat=null;
-    BUNDLE_CATS.forEach(c=>document.getElementById('bcat-'+c)&&document.getElementById('bcat-'+c).classList.remove('on'));
+    BUNDLE_CATS.forEach(c=>{const el=document.getElementById('bcat-'+c);if(el)el.classList.remove('on');});
   } else {
     bActiveCat=cat;
     BUNDLE_CATS.forEach(c=>{const el=document.getElementById('bcat-'+c);if(el)el.classList.toggle('on',c===cat);});
-    // Clear date selection highlight
+    // Clear date grid selection
     document.querySelectorAll('#b-mdg .db').forEach(b=>b.classList.remove('on'));
   }
   bUpdateSP();bUpdateST();
@@ -1764,50 +1768,69 @@ function bSK(md,sd,c){return md+'|'+(sd==null?'-':sd)+'|'+c;}
 function bPK(k){const p=k.split('|');return{md:+p[0],sd:p[1]==='-'?null:+p[1],col:p[2]};}
 function bCC(arr){if(!arr||!arr.length)return'sc-e';if(arr.some(f=>f.st==='missing'))return'sc-m';return arr.length>=40?'sc-f':arr.length>=25?'sc-h':'sc-e';}
 function bRenderGrid(){
-  const m=bSM();const gc=document.getElementById('bgc');
-  // Label: today = overall (sab dates), back date = us date ka
-  const todayStr=new Date().toISOString().split('T')[0];
-  const isOverall=isToday(workDate.value);
+  const gc=document.getElementById('bgc');
+  const todayDay=new Date().getDate();
   const totalInBundle=Object.values(bFiles).filter(f=>!f.hidden).length;
-  let h=`<div style="background:${isOverall?'#eef2ff':'#f0fdf4'};border-radius:10px;padding:9px 13px;margin-bottom:12px;font-size:12px;font-weight:600;color:${isOverall?'var(--blue)':'var(--green)'}">
-    ${isOverall?'🌐 Overall View — Sabhi dates ka bundle data ('+totalStr(totalInBundle)+')':'📅 '+fmtD(workDate.value)+' ka Bundle View ('+totalStr(totalInBundle)+')'}
-  </div>`;
   function totalStr(n){return n+' file'+(n!==1?'s':'');}
+  let h=`<div style="background:#eef2ff;border-radius:10px;padding:9px 13px;margin-bottom:12px;font-size:12px;font-weight:600;color:var(--blue)">
+    🌐 Present State — Almari mein abhi: ${totalStr(totalInBundle)}
+  </div>`;
+  // Categories
+  const catUsed=BUNDLE_CATS.filter(cat=>Object.values(bFiles).some(f=>!f.hidden&&f.cat===cat));
+  if(catUsed.length){
+    h+=`<div style="font-size:11px;font-weight:700;color:var(--mu);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">📂 Special Categories</div>`;
+    catUsed.forEach(cat=>{
+      const inCat=Object.values(bFiles).filter(f=>!f.hidden&&f.cat===cat);
+      const missC=inCat.filter(f=>f.st==='missing').length;
+      h+=`<div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding:9px 13px;background:#fff;border:1.5px solid var(--bdr);border-radius:10px;margin-bottom:6px" onclick="bOSlotCat('${cat}')">`
+        +`<span style="font-size:14px;font-weight:700;color:var(--navy)">${CAT_LABELS[cat]||cat}${missC>0?` <span style="color:var(--red);font-size:11px">⚠ ${missC} missing</span>`:''}</span>`
+        +`<span style="background:#e8f0fe;color:var(--blue);font-size:11px;padding:2px 9px;border-radius:20px;font-weight:700">${inCat.length} files</span></div>`;
+    });
+  }
+  h+=`<div style="font-size:11px;font-weight:700;color:var(--mu);text-transform:uppercase;letter-spacing:.5px;margin:12px 0 8px">📅 Date-wise (1–31)</div>`;
   DATES.forEach(date=>{
-    const allInDate=Object.values(bFiles).filter(f=>!f.hidden&&f.md===date);
-    const tot=allInDate.length;const missCount=allInDate.filter(f=>f.st==='missing').length;
-    const isSpecial=SPECIAL_DATES.includes(date);const cols=getColsForDate(date);
+    const allInDate=Object.values(bFiles).filter(f=>!f.hidden&&f.md===date&&!f.cat);
+    const tot=allInDate.length;
+    const missCount=allInDate.filter(f=>f.st==='missing').length;
+    const isSpecial=SPECIAL_DATES.includes(date);
+    const cols=getColsForDate(date);
+    const isToday_d=(date===todayDay);
     const colCounts=cols.map(col=>{
-      const cnt=Object.values(bFiles).filter(f=>!f.hidden&&f.md===date&&f.col===col).length;
-      const miss=Object.values(bFiles).filter(f=>!f.hidden&&f.md===date&&f.col===col&&f.st==='missing').length;
+      const cnt=Object.values(bFiles).filter(f=>!f.hidden&&f.md===date&&f.col===col&&!f.cat).length;
+      const miss=Object.values(bFiles).filter(f=>!f.hidden&&f.md===date&&f.col===col&&f.st==='missing'&&!f.cat).length;
       return{col,cnt,miss};
     });
     const maxCnt=Math.max(0,...colCounts.map(c=>c.cnt));
-    const hasMiss=missCount>0;
-    const rowCls=hasMiss?'sc-m':maxCnt>=40?'sc-f':maxCnt>=25?'sc-h':'sc-e';
+    const rowCls=(missCount>0)?'sc-m':maxCnt>=40?'sc-f':maxCnt>=25?'sc-h':'sc-e';
     const dateColor=tot===0?'#cbd5e1':rowCls==='sc-e'?'var(--blue)':rowCls==='sc-h'?'var(--amber)':'var(--red)';
     const pillsHTML=colCounts.map(({col,cnt,miss})=>{
       if(cnt===0)return`<span style="background:#f0f3f9;color:#cbd5e1;border-radius:6px;padding:2px 7px;font-size:11px;font-weight:600">${dispCol(col)}-0</span>`;
       const bg=miss>0?'#fee2e2':cnt>=40?'#fecaca':cnt>=25?'#fef3c7':'#e8f0fe';
       const tc=miss>0?'#b91c1c':cnt>=40?'var(--red)':cnt>=25?'var(--amber)':'var(--blue)';
-      return`<span style="background:${bg};color:${tc};border-radius:6px;padding:2px 7px;font-size:11px;font-weight:700;cursor:pointer" onclick="event.stopPropagation();bOpenDate(${date})" title="${dispCol(col)}: ${cnt} files${miss>0?' ('+miss+' missing)':''}">${dispCol(col)}-${cnt}${miss>0?'⚠':''}</span>`;
+      return`<span style="background:${bg};color:${tc};border-radius:6px;padding:2px 7px;font-size:11px;font-weight:700;cursor:pointer" onclick="event.stopPropagation();bOpenDate(${date})">${dispCol(col)}-${cnt}${miss>0?'⚠':''}</span>`;
     }).join('');
-    h+=`<div style="background:${tot===0?'var(--sur2)':'var(--sur)'};border:1.5px solid ${tot===0?'var(--bdr)':rowCls==='sc-m'?'#fca5a5':rowCls==='sc-h'?'#fcd34d':rowCls==='sc-f'?'#fca5a5':'var(--bdr)'};border-radius:var(--r12);padding:12px 14px;margin-bottom:8px;${tot===0?'opacity:.5':''}">
-      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer" onclick="bOpenDate(${date})">
-        <div style="display:flex;align-items:center;gap:14px">
-          <span style="font-size:28px;font-weight:800;color:${dateColor};min-width:30px;letter-spacing:-1px;line-height:1">${date}</span>
-          <div>
-            <div style="font-size:13px;font-weight:700;color:${tot===0?'var(--mu)':'var(--txt)'}">${tot===0?'Koi file nahi':tot+' files'}${missCount>0?`<span style="color:var(--red);font-size:11px;margin-left:6px">⚠ ${missCount} missing</span>`:''}</div>
-            ${isSpecial?'<div style="font-size:10px;color:var(--teal);font-weight:600">🗄 S1+S2 Safe</div>':''}
-          </div>
-        </div>
-        <span style="color:var(--mu);font-size:18px">›</span>
-      </div>
-      <div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:9px">${pillsHTML}</div>
-      ${bRM&&tot>0?allInDate.map(f=>`<div style="margin-top:4px"><button class="rmfb" data-fileid="${esc(f.id)}" onclick="bOpenMove(_decId(this.dataset.fileid))" style="display:inline-block;width:auto;margin-right:4px">⇄ ${esc(f.id)} (${dispCol(f.col)})</button></div>`).join(''):''}
-    </div>`;
+    const todayBadge=isToday_d?'<span style="background:#e8f0fe;color:var(--blue);font-size:10px;margin-left:6px;padding:1px 6px;border-radius:10px;font-weight:700">Aaj</span>':'';
+    const border=isToday_d?'2px solid var(--blue)':'1.5px solid '+(tot===0?'var(--bdr)':rowCls==='sc-m'?'#fca5a5':rowCls==='sc-h'?'#fcd34d':rowCls==='sc-f'?'#fca5a5':'var(--bdr)');
+    h+=`<div style="background:${tot===0?'var(--sur2)':'var(--sur)'};border:${border};border-radius:var(--r12);padding:12px 14px;margin-bottom:8px;${tot===0?'opacity:.5':''}">`
+      +`<div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer" onclick="bOpenDate(${date})">`
+      +`<div style="display:flex;align-items:center;gap:14px">`
+      +`<span style="font-size:28px;font-weight:800;color:${dateColor};min-width:30px;letter-spacing:-1px;line-height:1">${date}</span>`
+      +`<div><div style="font-size:13px;font-weight:700;color:${tot===0?'var(--mu)':'var(--txt)'}">${tot===0?'Koi file nahi':tot+' files'}${missCount>0?`<span style="color:var(--red);font-size:11px;margin-left:6px">⚠ ${missCount} missing</span>`:''}${todayBadge}</div>`
+      +`${isSpecial?'<div style="font-size:10px;color:var(--teal);font-weight:600">🗄 S1+S2 Safe</div>':''}</div></div>`
+      +`<span style="color:var(--mu);font-size:18px">›</span></div>`
+      +`<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:9px">${pillsHTML}</div>`
+      +`${bRM&&tot>0?allInDate.map(f=>`<div style="margin-top:4px"><button class="rmfb" data-fileid="${esc(f.id)}" onclick="bOpenMove(_decId(this.dataset.fileid))" style="display:inline-block;width:auto;margin-right:4px">⇄ ${esc(f.id)} (${dispCol(f.col)})</button></div>`).join(''):''}` 
+      +`</div>`;
   });
   gc.innerHTML=h;
+}
+function bOSlotCat(cat){
+  bSlot={md:0,sd:null,col:'A',cat:cat};
+  const back=document.getElementById('bsd-back');
+  if(back)back.onclick=()=>swBV('grid');
+  bRenderSlot();
+  document.querySelectorAll('.bview').forEach(el=>el.classList.remove('on'));
+  document.getElementById('bview-slot').classList.add('on');
 }
 function toggleRM(){bRM=!bRM;const b=document.getElementById('rbtn');b.textContent=bRM?'✓ Done':'⇄ Rearrange';b.classList.toggle('on',bRM);bRenderGrid();}
 function bOpenDate(date){
@@ -1845,13 +1868,22 @@ function bOSlot(md,sd,col,backView){
 }
 function bRenderSlot(){
   if(!bSlot)return;
-  const arr=(bSM()[bSK(bSlot.md,bSlot.sd,bSlot.col)]||[]);
-  document.getElementById('bsd-t').textContent=`Date ${bSlot.md}${bSlot.sd!=null?'/'+bSlot.sd:''} — Col ${dispCol(bSlot.col)}`;
-  document.getElementById('bsd-s').textContent=arr.length+' files';
-  document.getElementById('bsd-c').innerHTML=arr.length?arr.map(f=>bFCHTML(f,false,true)).join(''):'<div class="bempty">Koi file nahi.</div>';
+  let arr;
+  const title_el=document.getElementById('bsd-t');
+  const sub_el=document.getElementById('bsd-s');
+  if(bSlot.cat){
+    // Category slot
+    arr=Object.values(bFiles).filter(f=>!f.hidden&&f.cat===bSlot.cat);
+    if(title_el)title_el.textContent=(CAT_LABELS[bSlot.cat]||bSlot.cat);
+  } else {
+    arr=(bSM()[bSK(bSlot.md,bSlot.sd,bSlot.col,null)]||[]);
+    if(title_el)title_el.textContent=`Date ${bSlot.md}${bSlot.sd!=null?'/'+bSlot.sd:''} \u2014 Col ${dispCol(bSlot.col)}`;
+  }
+  if(sub_el)sub_el.textContent=arr.length+' files';
+  document.getElementById('bsd-c').innerHTML=arr.length?arr.map(f=>bFCHTML(f,!!bSlot.cat,true)).join(''):'<div class="bempty">Koi file nahi.</div>';
 }
 function bRenderAdd(){
-  bBDG('b-mdg',bAMD,d=>{bAMD=d;bRenderColButtons();bRenderAdd();});
+  bBDG('b-mdg',bAMD,d=>{bAMD=d;bClearCat();bRenderColButtons();bRenderAdd();});
   if(bASD!==null){const el=document.getElementById('b-sdg');if(el)bBDG('b-sdg',bASD,d=>{bASD=d;bRenderAdd();});}
   bUpdateSP();bUpdateST();
 }
@@ -2057,32 +2089,18 @@ function isDisposed(r){ return r._disposed===true; }
 
 async function openOverdueModal(){
   const today=new Date();today.setHours(0,0,0,0);
-  let od=[];
-
-  if(isToday(workDate.value)){
-    // Today: sabhi dates ka data aggregate karke dikhao
-    const allData=await getAllCDataOverall();
-    od=allData.filter(r=>{
-      if(isDisposed(r))return false;
-      if(r.sent!=="Sent"||r.received==="Received")return false;
-      if(!r.sentdate)return false;
-      const sd=new Date(r.sentdate);sd.setHours(0,0,0,0);
-      return Math.floor((today-sd)/86400000)>=7;
-    }).map(r=>{
-      const sd=new Date(r.sentdate);sd.setHours(0,0,0,0);
-      return{...r,daysOld:Math.floor((today-sd)/86400000)};
-    }).sort((a,b)=>b.daysOld-a.daysOld);
-  } else {
-    // Back date: sirf us date ka data
-    const wd=new Date(workDate.value+'T00:00:00');
-    const daysSinceWork=Math.floor((today-wd)/86400000);
-    od=cData.filter(r=>{
-      if(isDisposed(r))return false;
-      if(r.sent!=="Sent"||r.received==="Received")return false;
-      return daysSinceWork>=7;
-    }).map(r=>({...r,daysOld:daysSinceWork}))
-      .sort((a,b)=>String(a.caseno).localeCompare(String(b.caseno)));
-  }
+  // HAMESHA actual today se — sabhi dates ka overall overdue
+  const allData=await getAllCDataOverall();
+  const od=allData.filter(r=>{
+    if(isDisposed(r))return false;
+    if(r.sent!=="Sent"||r.received==="Received")return false;
+    if(!r.sentdate)return false;
+    const sd=new Date(r.sentdate);sd.setHours(0,0,0,0);
+    return Math.floor((today-sd)/86400000)>=7;
+  }).map(r=>{
+    const sd=new Date(r.sentdate);sd.setHours(0,0,0,0);
+    return{...r,daysOld:Math.floor((today-sd)/86400000)};
+  }).sort((a,b)=>b.daysOld-a.daysOld);
 
   if(!od.length){showToast('✅ Koi overdue file nahi!');return;}
   _ovRemSel={};_ovCustomDays={};_ovData=od;
@@ -2390,107 +2408,141 @@ async function loadUrgLog(){
 }
 
 // ════ SCANNER CONTEXT — urgent + addcase ════
-// handleScanResult mein urgent_scan aur addcase_scan add karo
-// (override existing handleScanResult)
-const _origHandleScanResult=handleScanResult;
-function handleScanResult(dec){
-  if(scanCtx==='urgent_scan'){
-    document.getElementById('urg-cn').value=dec.trim().toUpperCase();
-    closeScan();
-    setTimeout(()=>document.getElementById('urg-cn').focus(),100);
-  } else if(scanCtx==='addcase_scan'){
-    document.getElementById('ac-caseno').value=dec.trim().toUpperCase();
-    closeScan();
-    setTimeout(()=>document.getElementById('ac-party').focus(),100);
-  } else {
-    _origHandleScanResult(dec);
-  }
-}
-
-// ════ BUNDLE CHECK ════
+// ════ BUNDLE CHECK (Fix 6: sirf galat date) ════
 function runBundleCheck(){
   const listEl=document.getElementById('bchk-inline');
   if(!listEl)return;
 
-  const today=new Date();today.setHours(0,0,0,0);
-  const todayStr=new Date().toISOString().split('T')[0];
-
-  // Logic: Bundle mein visible files (hidden=false) jinki CFM next date
-  // aaj ya usse pehle thi — matlab aaj unhe court mein jaana chahiye tha
-  // lekin bundle se gayi nahi (scan sent nahi hua)
-  const almariPending=[];   // date aa gayi par file abhi bhi almari mein
-  const wrongDate=[];       // file galat date ki shelf mein rakhi hai
-
+  // Sirf ek check: koi file galat date ki shelf mein rakhi hai?
+  // Matlab CFM mein next date alag hai aur bundle mein alag date par rakhi hai
+  const wrongDate=[];
   Object.values(bFiles).forEach(f=>{
-    if(f.hidden)return; // sent ho chuki — ignore
-
-    // CFM record dhundo (kisi bhi date ke cData mein)
-    // Note: getCFMRecord sirf current cData se check karta hai
-    // Bundle check ke liye hum f.id se match karenge
-    const id=f.id;
-
-    // Check 1: Kya file ka bundle date aaj ya past mein hai?
-    // yani us date ki file ab tak almari mein padi hai
-    const fileDate=new Date(
-      new Date().getFullYear()+'-'+
-      String(new Date().getMonth()+1).padStart(2,'0')+'-'+
-      String(f.md).padStart(2,'0')
-    );
-    fileDate.setHours(0,0,0,0);
-    const isPastOrToday=(today-fileDate)>=0;
-
-    if(isPastOrToday){
-      almariPending.push({f});
-    }
-
-    // Check 2: CFM next date alag hai (galat shelf)
-    const cfmRec=cData.find(r=>String(r.caseno).toUpperCase()===id);
-    if(cfmRec&&cfmRec.nextdate){
-      const cfmDay=parseInt(cfmRec.nextdate.split('-')[2]);
-      if(cfmDay && f.md!==cfmDay && f.sd==null){
-        wrongDate.push({f,cfmRec,cfmDay});
-      }
+    if(f.hidden||f.cat)return; // sent / category — skip
+    const cfmRec=cData.find(r=>String(r.caseno).toUpperCase()===f.id);
+    if(!cfmRec||!cfmRec.nextdate)return;
+    const cfmDay=parseInt(cfmRec.nextdate.split('-')[2]);
+    if(cfmDay && f.md!==cfmDay && f.sd==null){
+      wrongDate.push({f,cfmRec,cfmDay});
     }
   });
 
-  if(!almariPending.length&&!wrongDate.length){
-    listEl.innerHTML=`<div style="color:var(--green);font-weight:700;font-size:14px;text-align:center;padding:20px 0">✅ Koi file pending nahi! Sab clear.</div>`;
+  if(!wrongDate.length){
+    listEl.innerHTML=`<div style="color:var(--green);font-weight:700;font-size:14px;text-align:center;padding:20px 0">
+      ✅ Sab theek! Koi file galat date pe nahi rakhi.
+    </div>`;
     return;
   }
 
-  let h='';
-
-  if(almariPending.length){
-    h+=`<div style="background:#fef2f2;border-radius:10px;padding:10px 12px;margin-bottom:12px">
-      <div style="color:var(--red);font-weight:700;font-size:13px">⚠️ ${almariPending.length} file${almariPending.length>1?'s':''} abhi bhi almari mein hain</div>
-      <div style="color:var(--mu);font-size:11px;margin-top:2px">Inki date aa chuki hai — court mein bhejna baaki hai</div>
-    </div>`;
-    h+=almariPending.map(({f})=>`
-      <div style="background:#fff;border:1.5px solid #fca5a5;border-radius:10px;padding:10px 12px;margin-bottom:7px">
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <span style="font-weight:700;font-size:14px;color:var(--navy)">${esc(f.id)}</span>
-          <span style="background:#fee2e2;color:var(--red);font-size:10px;padding:2px 8px;border-radius:20px;font-weight:700">Date ${f.md} — ${dispCol(f.col)}</span>
+  let h=`<div style="background:#fffbeb;border-radius:10px;padding:10px 12px;margin-bottom:12px">
+    <div style="color:var(--amber);font-weight:700;font-size:13px">📅 ${wrongDate.length} file${wrongDate.length>1?'s':''} galat date pe rakhi hain</div>
+    <div style="color:var(--mu);font-size:11px;margin-top:2px">CFM mein next date alag hai aur bundle mein alag shelf pe rakhi hai</div>
+  </div>`;
+  h+=wrongDate.map(({f,cfmRec,cfmDay})=>`
+    <div style="background:#fff;border:1.5px solid #fcd34d;border-radius:10px;padding:11px 13px;margin-bottom:7px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div>
+          <div style="font-weight:700;font-size:14px;color:var(--navy)">${esc(f.id)}</div>
+          <div style="font-size:12px;color:var(--mu);margin-top:2px">👤 ${esc(cfmRec.partyname||'—')}</div>
         </div>
-        <div style="font-size:11px;color:var(--mu);margin-top:3px">📍 Almari mein: Date ${f.md}${f.sd!=null?'/'+f.sd:''} — Col ${dispCol(f.col)}</div>
+        <div style="text-align:right">
+          <div style="font-size:11px;font-weight:600;color:var(--mu)">Bundle: Date <strong>${f.md}</strong></div>
+          <div style="font-size:11px;font-weight:700;color:var(--blue);margin-top:2px">CFM Next: Date <strong>${cfmDay}</strong></div>
+        </div>
+      </div>
+    </div>`).join('');
+  listEl.innerHTML=h;
+}
+
+// ════ FIX 7: TODAY's DATE FILES — Koi almari mein to nahi reh gayi? ════
+// Aaj ki date ke CFM cases (nextdate = aaj) jo bundle mein abhi bhi hain (sent nahi hui)
+async function checkTodayFiles(){
+  const listEl=document.getElementById('bchk-inline');
+  if(!listEl)return;
+
+  const today=new Date();
+  const todayDay=today.getDate();
+  const todayMonth=today.getMonth()+1;
+  const todayYear=today.getFullYear();
+  const todayISO=today.toISOString().split('T')[0]; // YYYY-MM-DD
+
+  // Sabhi dates ke CFM data mein se aaj ki nextdate wali files
+  const allCFM=await getAllCDataOverall();
+  const todayFiles=allCFM.filter(r=>{
+    if(!r.nextdate)return false;
+    // nextdate match YYYY-MM-DD
+    return r.nextdate===todayISO;
+  });
+
+  if(!todayFiles.length){
+    listEl.innerHTML=`<div style="color:var(--green);font-weight:700;font-size:14px;text-align:center;padding:20px 0">
+      ✅ Aaj (${todayDay}.${String(todayMonth).padStart(2,'0')}) ki koi file CFM mein set nahi hai.
+    </div>`;
+    return;
+  }
+
+  // In files ka bundle status check karo
+  const leftInAlmari=[];   // bundle mein hai, sent nahi hua
+  const alreadySent=[];    // CFM mein sent ho chuki
+  const notInBundle=[];    // bundle mein hi nahi tha
+
+  todayFiles.forEach(r=>{
+    const id=String(r.caseno).toUpperCase();
+    const bf=bFiles[id];
+    if(r.sent==='Sent'){
+      alreadySent.push(r);
+    } else if(bf&&!bf.hidden){
+      // Bundle mein hai aur sent nahi hua
+      leftInAlmari.push({r,bf});
+    } else {
+      notInBundle.push(r);
+    }
+  });
+
+  let h=`<div style="background:#f7f9fc;border-radius:10px;padding:10px 12px;margin-bottom:12px">
+    <div style="font-weight:700;font-size:13px;color:var(--navy)">📅 Aaj ${todayDay}.${String(todayMonth).padStart(2,'0')}.${todayYear} — CFM mein ${todayFiles.length} file${todayFiles.length>1?'s':''} next date ke roop mein set hain</div>
+  </div>`;
+
+  if(leftInAlmari.length){
+    h+=`<div style="background:#fef2f2;border-radius:10px;padding:10px 12px;margin-bottom:10px">
+      <div style="color:var(--red);font-weight:700;font-size:13px">🚨 ${leftInAlmari.length} file${leftInAlmari.length>1?'s':''} almari mein padi hain — SENT NAHI HUI!</div>
+      <div style="color:var(--mu);font-size:11px;margin-top:2px">Inhe scan karke court mein bhejein</div>
+    </div>`;
+    h+=leftInAlmari.map(({r,bf})=>`
+      <div style="background:#fff;border:2px solid var(--red);border-radius:10px;padding:11px 13px;margin-bottom:7px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="font-weight:800;font-size:15px;color:var(--navy)">${esc(r.caseno)}</span>
+          <span style="background:#fee2e2;color:var(--red);font-size:10px;padding:2px 9px;border-radius:20px;font-weight:700">⚠ Almari mein</span>
+        </div>
+        <div style="font-size:12px;color:var(--mu);margin-top:4px">👤 ${esc(r.partyname||'—')}${r.section?' · '+esc(r.section):''}${r.ps?' · '+esc(r.ps):''}</div>
+        <div style="font-size:11px;color:var(--mu);margin-top:3px">📍 Bundle: Date ${bf.md} — Col ${dispCol(bf.col)}</div>
       </div>`).join('');
   }
 
-  if(wrongDate.length){
-    h+=`<div style="background:#fffbeb;border-radius:10px;padding:10px 12px;margin:12px 0 10px">
-      <div style="color:var(--amber);font-weight:700;font-size:13px">📅 ${wrongDate.length} file${wrongDate.length>1?'s':''} galat date pe rakhi hain</div>
+  if(alreadySent.length){
+    h+=`<div style="margin-top:12px;margin-bottom:8px">
+      <div style="font-size:11px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.5px">✅ Sent ho chuki hain (${alreadySent.length})</div>
     </div>`;
-    h+=wrongDate.map(({f,cfmRec,cfmDay})=>`
-      <div style="background:#fff;border:1.5px solid #fcd34d;border-radius:10px;padding:10px 12px;margin-bottom:7px">
-        <div style="font-weight:700;font-size:14px;color:var(--navy)">${esc(f.id)}</div>
-        <div style="font-size:11px;color:var(--mu);margin-top:3px">
-          Almari mein: Date <strong>${f.md}</strong> &nbsp;→&nbsp; CFM next date: <strong style="color:var(--blue)">${cfmDay}</strong>
-        </div>
-        ${cfmRec?`<div style="font-size:11px;color:var(--mu)">👤 ${esc(cfmRec.partyname||'—')}</div>`:''}
+    h+=alreadySent.map(r=>`
+      <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;padding:9px 13px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center">
+        <span style="font-weight:700;font-size:13px;color:var(--navy)">${esc(r.caseno)}</span>
+        <span style="background:#dcfce7;color:#15803d;font-size:10px;padding:2px 8px;border-radius:20px;font-weight:700">✓ Sent</span>
+      </div>`).join('');
+  }
+
+  if(notInBundle.length){
+    h+=`<div style="margin-top:12px;margin-bottom:8px">
+      <div style="font-size:11px;font-weight:700;color:var(--mu);text-transform:uppercase;letter-spacing:.5px">📋 Bundle mein nahi tha (${notInBundle.length})</div>
+    </div>`;
+    h+=notInBundle.map(r=>`
+      <div style="background:#f7f9fc;border:1.5px solid var(--bdr);border-radius:10px;padding:9px 13px;margin-bottom:6px">
+        <div style="font-weight:700;font-size:13px;color:var(--navy)">${esc(r.caseno)}</div>
+        <div style="font-size:11px;color:var(--mu);margin-top:2px">👤 ${esc(r.partyname||'—')}</div>
       </div>`).join('');
   }
 
   listEl.innerHTML=h;
 }
+
 
 // ════ DISPOSE CONFIRM (confirmDisposeNo was here - re-adding) ════
 function confirmDisposeNo(){
