@@ -1139,7 +1139,20 @@ async function loadVersions(){
   vs.forEach(v=>{const o=document.createElement("option");o.value=v;o.text="Upload "+v;versionSelect.appendChild(o);});
 }
 async function saveCurV(){await idbSM('cv_'+workDate.value,upV);}
-async function loadCurV(){const v=await idbGM('cv_'+workDate.value);upV=parseInt(v)||1;versionSelect.value=upV;}
+async function loadCurV(){
+  const v=await idbGM('cv_'+workDate.value);
+  const saved=parseInt(v)||1;
+  // Check if saved version actually exists in versionSelect
+  const opts=Array.from(versionSelect.options).map(o=>parseInt(o.value));
+  if(opts.includes(saved)){
+    upV=saved;
+  } else if(opts.length){
+    upV=Math.max(...opts); // latest version
+  } else {
+    upV=1;
+  }
+  versionSelect.value=upV;
+}
 async function saveLocal(){
   try{await idbSM(dKey(),cData);fbPush();}
   catch(e){console.error('saveLocal fail:',e);showToast('⚠️ Data save fail! Storage full ho sakta hai.','d');}
@@ -1162,25 +1175,29 @@ function isToday(dateStr){
   return dateStr===new Date().toISOString().split('T')[0];
 }
 
-// All stored cData across all dates (for overall overdue)
+// All stored cData across ALL dates AND versions
 async function getAllCDataOverall(){
   try{
     const allKeys=await idbAMK();
-    // Keys like "2024-03-15_1", "2024-03-15_2" etc
     const dataKeys=allKeys.filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k));
     let all=[];
     for(const k of dataKeys){
       const d=await idbGM(k);
-      if(d&&Array.isArray(d))all=all.concat(d);
+      if(d&&Array.isArray(d))d.forEach(r=>all.push({...r,_srcKey:k}));
     }
-    // Deduplicate by caseno — latest version wins
+    // Deduplicate: received state > sent state > latest sentdate
     const map={};
     all.forEach(r=>{
-      const key=String(r.caseno).toUpperCase();
-      if(!map[key]||r.sentdate>=(map[key].sentdate||''))map[key]=r;
+      const key=String(r.caseno||'').trim().toUpperCase();
+      if(!key)return;
+      const ex=map[key];
+      if(!ex){map[key]=r;return;}
+      if(r.received==='Received'&&ex.received!=='Received'){map[key]=r;return;}
+      if(ex.received==='Received'&&r.received!=='Received')return;
+      if((r.sentdate||'')>=(ex.sentdate||''))map[key]=r;
     });
     return Object.values(map);
-  }catch(e){return cData;}
+  }catch(e){console.error('getAllCDataOverall:',e);return cData;}
 }
 
 async function updateDash(){
@@ -1567,7 +1584,13 @@ async function importBackup(event){
 // ════ QR SCANNER ════
 let scanActive=false,scanStream=null,scanCtx='',contMode=false,scanLast='',scanCool=false;
 let scanDetector=null;
-function showSC(msg,color){const c=document.getElementById('scan-card');c.textContent=msg;c.style.background=color;c.style.display='block';setTimeout(()=>c.style.display='none',2000);}
+function showSC(msg,color){
+  const c=document.getElementById('scan-card');
+  c.textContent=msg;c.style.background=color;c.style.display='block';
+  c.style.cursor='pointer';c.title='Tap to close';
+  // No auto-hide — stays until user taps it
+  c.onclick=()=>{c.style.display='none';c.onclick=null;};
+}
 function setSS(msg){const el=document.getElementById('scan-sb');if(el)el.textContent=msg;}
 async function openScan(ctx,label,defaultCont){
   scanCtx=ctx;contMode=defaultCont||false;scanLast='';scanCool=false;
@@ -2115,6 +2138,7 @@ async function openOverdueModal(){
         <div>
           <span class="ov-cn">${esc(r.caseno)}</span>
           <div class="ov-pt" style="margin-top:2px;margin-bottom:0">👤 ${esc(r.partyname||'')}${r.section?' · '+esc(r.section):''}${r.ps?' · '+esc(r.ps):''}</div>
+          <div style="font-size:11px;color:var(--mu);margin-top:3px">📤 Sent: <strong style="color:var(--txt)">${r.sentdate?fmtD(r.sentdate):'—'}</strong>${r._srcKey?` · Date: <strong style="color:var(--blue)">${r._srcKey.split('_')[0].split('-').reverse().join('-')}</strong>`:''}</div>
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
           <span class="ov-days">${r.daysOld} din</span>
@@ -2458,86 +2482,105 @@ function runBundleCheck(){
 async function checkTodayFiles(){
   const listEl=document.getElementById('bchk-inline');
   if(!listEl)return;
+  listEl.innerHTML='<div style="text-align:center;padding:20px;color:var(--mu);font-size:13px">🔍 Check ho raha hai...</div>';
 
-  const today=new Date();
+  const today=new Date();today.setHours(0,0,0,0);
+  const todayISO=today.toISOString().split('T')[0];
   const todayDay=today.getDate();
-  const todayMonth=today.getMonth()+1;
-  const todayYear=today.getFullYear();
-  const todayISO=today.toISOString().split('T')[0]; // YYYY-MM-DD
+  const todayMon=String(today.getMonth()+1).padStart(2,'0');
+  const todayYr=today.getFullYear();
 
-  // Sabhi dates ke CFM data mein se aaj ki nextdate wali files
+  // Sabhi dates+versions se latest state
   const allCFM=await getAllCDataOverall();
-  const todayFiles=allCFM.filter(r=>{
-    if(!r.nextdate)return false;
-    // nextdate match YYYY-MM-DD
-    return r.nextdate===todayISO;
+
+  // Group 1: Received ho chuki files jinki nextdate <= aaj aur dobara sent nahi hui
+  // (matlab woh wapas aayi thi, ab fir court jaani chahiye thi)
+  const dobara=allCFM.filter(r=>{
+    if(!r.nextdate||r._disposed)return false;
+    if(r.nextdate>todayISO)return false;   // future — skip
+    if(r.received!=='Received')return false; // wapas aayi hi nahi — skip
+    if(r.sent==='Sent'&&(r.sentdate||'')>=(r.receiveddate||''))return false; // dobara sent ho chuki
+    return true; // received thi, nextdate aa gayi, dobara sent nahi hui
   });
 
-  if(!todayFiles.length){
-    listEl.innerHTML=`<div style="color:var(--green);font-weight:700;font-size:14px;text-align:center;padding:20px 0">
-      ✅ Aaj (${todayDay}.${String(todayMonth).padStart(2,'0')}) ki koi file CFM mein set nahi hai.
-    </div>`;
-    return;
-  }
-
-  // In files ka bundle status check karo
-  const leftInAlmari=[];   // bundle mein hai, sent nahi hua
-  const alreadySent=[];    // CFM mein sent ho chuki
-  const notInBundle=[];    // bundle mein hi nahi tha
-
-  todayFiles.forEach(r=>{
-    const id=String(r.caseno).toUpperCase();
-    const bf=bFiles[id];
-    if(r.sent==='Sent'){
-      alreadySent.push(r);
-    } else if(bf&&!bf.hidden){
-      // Bundle mein hai aur sent nahi hua
-      leftInAlmari.push({r,bf});
-    } else {
-      notInBundle.push(r);
-    }
+  // Group 2: Aaj ki nextdate wali jo pehli baar bhi sent nahi huin
+  const nayiAaj=allCFM.filter(r=>{
+    if(!r.nextdate||r._disposed)return false;
+    if(r.nextdate!==todayISO)return false;
+    if(r.received==='Received')return false; // ye dobara group mein hai
+    if(r.sent==='Sent')return false; // already sent
+    return true;
   });
 
-  let h=`<div style="background:#f7f9fc;border-radius:10px;padding:10px 12px;margin-bottom:12px">
-    <div style="font-weight:700;font-size:13px;color:var(--navy)">📅 Aaj ${todayDay}.${String(todayMonth).padStart(2,'0')}.${todayYear} — CFM mein ${todayFiles.length} file${todayFiles.length>1?'s':''} next date ke roop mein set hain</div>
+  let h=`<div style="background:#f7f9fc;border-radius:10px;padding:10px 13px;margin-bottom:14px">
+    <div style="font-weight:700;font-size:13px;color:var(--navy)">📅 Aaj ${todayDay}.${todayMon}.${todayYr} ka Status Check</div>
+    <div style="font-size:11px;color:var(--mu);margin-top:2px">Sabhi dates+versions ka aggregate data</div>
   </div>`;
 
-  if(leftInAlmari.length){
-    h+=`<div style="background:#fef2f2;border-radius:10px;padding:10px 12px;margin-bottom:10px">
-      <div style="color:var(--red);font-weight:700;font-size:13px">🚨 ${leftInAlmari.length} file${leftInAlmari.length>1?'s':''} almari mein padi hain — SENT NAHI HUI!</div>
-      <div style="color:var(--mu);font-size:11px;margin-top:2px">Inhe scan karke court mein bhejein</div>
+  if(dobara.length){
+    // Split: aaj ki aur pehle ki
+    const aajKi=dobara.filter(r=>r.nextdate===todayISO);
+    const pehleKi=dobara.filter(r=>r.nextdate<todayISO);
+
+    if(aajKi.length){
+      h+=`<div style="background:#fff3cd;border:1.5px solid #fcd34d;border-radius:10px;padding:9px 13px;margin-bottom:8px">
+        <div style="font-weight:700;font-size:13px;color:#856404">⚠️ Aaj dobara court jaani hain — sent karo (${aajKi.length})</div>
+        <div style="font-size:11px;color:#78350f;margin-top:2px">Pehle received ho chuki thi, aaj ki date lagi hai</div>
+      </div>`;
+      h+=aajKi.map(r=>`
+        <div style="background:#fff;border:1.5px solid #fcd34d;border-radius:10px;padding:10px 13px;margin-bottom:7px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start">
+            <div>
+              <div style="font-weight:800;font-size:14px;color:var(--navy)">${esc(r.caseno)}</div>
+              <div style="font-size:12px;color:var(--mu);margin-top:2px">👤 ${esc(r.partyname||'—')}${r.section?' · '+esc(r.section):''}</div>
+            </div>
+            <div style="text-align:right;flex-shrink:0;margin-left:8px">
+              <div style="font-size:10px;font-weight:700;color:#856404">Next: ${fmtD(r.nextdate)}</div>
+              <div style="font-size:10px;color:var(--mu);margin-top:2px">Last Recv: ${fmtD(r.receiveddate||'')}</div>
+            </div>
+          </div>
+        </div>`).join('');
+    }
+
+    if(pehleKi.length){
+      pehleKi.sort((a,b)=>(a.nextdate||'').localeCompare(b.nextdate||''));
+      h+=`<div style="background:#fef2f2;border:1.5px solid #fca5a5;border-radius:10px;padding:9px 13px;margin-bottom:8px;margin-top:${aajKi.length?'8':'0'}px">
+        <div style="font-weight:700;font-size:13px;color:var(--red)">🚨 Purani pending — date nikal gayi, abhi bhi sent nahi (${pehleKi.length})</div>
+        <div style="font-size:11px;color:var(--mu);margin-top:2px">Received thi, next date ke baad dobara court nahi gayi</div>
+      </div>`;
+      h+=pehleKi.map(r=>{
+        const nd=new Date(r.nextdate+'T00:00:00');nd.setHours(0,0,0,0);
+        const late=Math.floor((today-nd)/86400000);
+        return`<div style="background:#fff;border:2px solid var(--red);border-radius:10px;padding:10px 13px;margin-bottom:7px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start">
+            <div>
+              <div style="font-weight:800;font-size:14px;color:var(--navy)">${esc(r.caseno)}</div>
+              <div style="font-size:12px;color:var(--mu);margin-top:2px">👤 ${esc(r.partyname||'—')}${r.section?' · '+esc(r.section):''}</div>
+            </div>
+            <div style="text-align:right;flex-shrink:0;margin-left:8px">
+              <div style="font-size:10px;font-weight:700;background:#fee2e2;color:var(--red);padding:2px 8px;border-radius:20px">${late} din late</div>
+              <div style="font-size:10px;color:var(--mu);margin-top:3px">Next: ${fmtD(r.nextdate)}</div>
+              <div style="font-size:10px;color:var(--mu)">Last Recv: ${fmtD(r.receiveddate||'')}</div>
+            </div>
+          </div>
+        </div>`;
+      }).join('');
+    }
+  }
+
+  if(nayiAaj.length){
+    h+=`<div style="background:#eef2ff;border:1.5px solid #93b4fd;border-radius:10px;padding:9px 13px;margin-bottom:8px;margin-top:${dobara.length?'8':'0'}px">
+      <div style="font-weight:700;font-size:13px;color:var(--blue)">📋 Aaj pehli baar court jaani hain — sent nahi hue (${nayiAaj.length})</div>
     </div>`;
-    h+=leftInAlmari.map(({r,bf})=>`
-      <div style="background:#fff;border:2px solid var(--red);border-radius:10px;padding:11px 13px;margin-bottom:7px">
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <span style="font-weight:800;font-size:15px;color:var(--navy)">${esc(r.caseno)}</span>
-          <span style="background:#fee2e2;color:var(--red);font-size:10px;padding:2px 9px;border-radius:20px;font-weight:700">⚠ Almari mein</span>
-        </div>
-        <div style="font-size:12px;color:var(--mu);margin-top:4px">👤 ${esc(r.partyname||'—')}${r.section?' · '+esc(r.section):''}${r.ps?' · '+esc(r.ps):''}</div>
-        <div style="font-size:11px;color:var(--mu);margin-top:3px">📍 Bundle: Date ${bf.md} — Col ${dispCol(bf.col)}</div>
+    h+=nayiAaj.map(r=>`
+      <div style="background:#fff;border:1.5px solid #93b4fd;border-radius:10px;padding:10px 13px;margin-bottom:7px">
+        <div style="font-weight:800;font-size:14px;color:var(--navy)">${esc(r.caseno)}</div>
+        <div style="font-size:12px;color:var(--mu);margin-top:2px">👤 ${esc(r.partyname||'—')}${r.section?' · '+esc(r.section):''}</div>
       </div>`).join('');
   }
 
-  if(alreadySent.length){
-    h+=`<div style="margin-top:12px;margin-bottom:8px">
-      <div style="font-size:11px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.5px">✅ Sent ho chuki hain (${alreadySent.length})</div>
-    </div>`;
-    h+=alreadySent.map(r=>`
-      <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;padding:9px 13px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center">
-        <span style="font-weight:700;font-size:13px;color:var(--navy)">${esc(r.caseno)}</span>
-        <span style="background:#dcfce7;color:#15803d;font-size:10px;padding:2px 8px;border-radius:20px;font-weight:700">✓ Sent</span>
-      </div>`).join('');
-  }
-
-  if(notInBundle.length){
-    h+=`<div style="margin-top:12px;margin-bottom:8px">
-      <div style="font-size:11px;font-weight:700;color:var(--mu);text-transform:uppercase;letter-spacing:.5px">📋 Bundle mein nahi tha (${notInBundle.length})</div>
-    </div>`;
-    h+=notInBundle.map(r=>`
-      <div style="background:#f7f9fc;border:1.5px solid var(--bdr);border-radius:10px;padding:9px 13px;margin-bottom:6px">
-        <div style="font-weight:700;font-size:13px;color:var(--navy)">${esc(r.caseno)}</div>
-        <div style="font-size:11px;color:var(--mu);margin-top:2px">👤 ${esc(r.partyname||'—')}</div>
-      </div>`).join('');
+  if(!dobara.length&&!nayiAaj.length){
+    h+=`<div style="color:var(--green);font-weight:700;font-size:14px;text-align:center;padding:20px 0">✅ Aaj sab files ka hisaab sahi hai!</div>`;
   }
 
   listEl.innerHTML=h;
