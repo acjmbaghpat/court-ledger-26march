@@ -656,10 +656,13 @@ td input:focus{background:#fff;border-color:var(--blue)}
       <div class="dgrid" id="b-mdg"></div>
       <span class="blbl" style="margin-top:10px">Ya Special Category</span>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:4px" id="b-catg">
-        <button class="cb" id="bcat-OLD"      onclick="bSetCat('OLD')"      style="font-size:13px;padding:8px 14px">📂 Old</button>
-        <button class="cb" id="bcat-COMMITTAL" onclick="bSetCat('COMMITTAL')" style="font-size:13px;padding:8px 14px">⛓ Committal</button>
-        <button class="cb" id="bcat-JAIL"     onclick="bSetCat('JAIL')"     style="font-size:13px;padding:8px 14px">🔒 Jail</button>
-        <button class="cb" id="bcat-NAKAL"    onclick="bSetCat('NAKAL')"    style="font-size:13px;padding:8px 14px">📋 Nakal</button>
+        <button class="cb" id="bcat-OLD"       onclick="bSetCat('OLD')"       style="font-size:12px;padding:7px 11px">📂 Old</button>
+        <button class="cb" id="bcat-COMMITTAL" onclick="bSetCat('COMMITTAL')" style="font-size:12px;padding:7px 11px">⛓ Committal</button>
+        <button class="cb" id="bcat-JAIL"      onclick="bSetCat('JAIL')"      style="font-size:12px;padding:7px 11px">🔒 Jail</button>
+        <button class="cb" id="bcat-NAKAL"     onclick="bSetCat('NAKAL')"     style="font-size:12px;padding:7px 11px">📋 Nakal</button>
+        <button class="cb" id="bcat-STAY"      onclick="bSetCat('STAY')"      style="font-size:12px;padding:7px 11px">⏸ Stay</button>
+        <button class="cb" id="bcat-SPLDIR"    onclick="bSetCat('SPLDIR')"    style="font-size:12px;padding:7px 11px">📌 Spl.Dir</button>
+        <button class="cb" id="bcat-FR"        onclick="bSetCat('FR')"        style="font-size:12px;padding:7px 11px">📎 FR</button>
       </div>
       <p style="font-size:11px;color:var(--mu);font-weight:500;margin-bottom:10px">Date ya Category — ek baar mein ek select karo</p>
       <div style="display:flex;align-items:center;margin-top:12px">
@@ -1031,7 +1034,7 @@ const idbDB  =id=>idbTx(SB,'readwrite',s=>s.delete(id));
 const idbAB  =()=>idbTx(SB,'readonly',s=>s.getAll());
 
 // ════ SHARED HELPERS ════
-const COLS=['A','B','C','D','E','F'];
+const COLS=['A','B','C','D','E','F','G','H','I'];
 const DATES=Array.from({length:31},(_,i)=>i+1);
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 let toastT;
@@ -1177,34 +1180,56 @@ function isToday(dateStr){
 
 // Overdue ke liye: sabhi dates+versions mein jo files SENT hain lekin RECEIVED nahi
 // Har ek sent instance ko alag track karo — caseno duplicate ho sakta hai
-async function getAllSentNotReceived(){
+// Overdue: workDate vs today >= 7 din
+// Har IDB date scan karo — agar today - wo_date >= 7 → us date ki Sent+NotReceived files overdue
+async function getAllOverdueFiles(){
   try{
     const allKeys=await idbAMK();
     const dataKeys=allKeys.filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k));
-    const caseMap={};
+    const today=new Date();today.setHours(0,0,0,0);
+    const caseMap={}; // caseno → best record (prefer received=false, show sentdate)
+
     for(const k of dataKeys){
+      // k format: "YYYY-MM-DD_N" — extract the date part
+      const datePart=k.split('_')[0]; // "YYYY-MM-DD"
+      const wd=new Date(datePart+'T00:00:00');wd.setHours(0,0,0,0);
+      const daysDiff=Math.floor((today-wd)/86400000);
+      if(daysDiff<7)continue; // is date ka data 7 din se pehle ka nahi — skip
+
       const d=await idbGM(k);
       if(!d||!Array.isArray(d))continue;
+
       d.forEach(r=>{
         const cn=String(r.caseno||'').trim().toUpperCase();
-        if(!cn)return;
-        if(!caseMap[cn])caseMap[cn]={sentdate:'',srcKey:'',record:null,receivedAnywhere:false};
-        if(r.received==='Received')caseMap[cn].receivedAnywhere=true;
-        if(r.sent==='Sent'&&r.sentdate){
-          if(!caseMap[cn].sentdate||r.sentdate<caseMap[cn].sentdate){
-            caseMap[cn].sentdate=r.sentdate;
-            caseMap[cn].srcKey=k;
-            caseMap[cn].record=r;
-          }
+        if(!cn||r._disposed)return;
+        if(r.sent!=='Sent')return;       // sent nahi — skip
+        if(r.received==='Received')return; // received ho gayi — skip
+
+        // Is caseno ke liye already ek entry hai?
+        const ex=caseMap[cn];
+        if(!ex){
+          caseMap[cn]={...r,_srcKey:k,_workDate:datePart,_daysDiff:daysDiff};
+          return;
+        }
+        // Jo zyada purana workDate ho wo rakho (more overdue)
+        if(daysDiff>ex._daysDiff){
+          caseMap[cn]={...r,_srcKey:k,_workDate:datePart,_daysDiff:daysDiff};
         }
       });
     }
-    return Object.values(caseMap)
-      .filter(x=>!x.receivedAnywhere&&x.record&&x.sentdate)
-      .map(x=>({...x.record,sentdate:x.sentdate,_srcKey:x.srcKey}));
+
+    // Final check: agar kisi bhi version mein received ho chuki ho to remove
+    // (received check oopar ho rahi hai, but double-check ke liye)
+    return Object.values(caseMap);
   }catch(e){
-    console.error('getAllSentNotReceived:',e);
-    return cData.filter(r=>r.sent==='Sent'&&r.received!=='Received'&&r.sentdate);
+    console.error('getAllOverdueFiles:',e);
+    // Fallback: current cData + current workDate
+    const today=new Date();today.setHours(0,0,0,0);
+    const wd=workDate.value?new Date(workDate.value+'T00:00:00'):today;wd.setHours(0,0,0,0);
+    const diff=Math.floor((today-wd)/86400000);
+    if(diff<7)return[];
+    return cData.filter(r=>r.sent==='Sent'&&r.received!=='Received'&&!r._disposed)
+      .map(r=>({...r,_workDate:workDate.value,_daysDiff:diff}));
   }
 }
 
@@ -1241,13 +1266,8 @@ async function updateDash(){
   document.getElementById("tabPRecvdCount").innerText=pr;
 
   const today=new Date();today.setHours(0,0,0,0);
-  const sentNotRecv=await getAllSentNotReceived();
-  const odCount=sentNotRecv.filter(r=>{
-    if(r._disposed)return false;
-    const sd=new Date(r.sentdate);sd.setHours(0,0,0,0);
-    return Math.floor((today-sd)/86400000)>=7;
-  }).length;
-
+  const odFiles=await getAllOverdueFiles();
+  const odCount=odFiles.length;
   const oc=document.getElementById("overdueCount");if(oc)oc.innerText=odCount;
   const ovCard=document.getElementById("ovCard");
   if(ovCard){ovCard.style.borderColor=odCount>0?'rgba(220,38,38,.3)':'rgba(221,229,244,.6)';ovCard.style.background=odCount>0?'#fef2f2':'var(--sur)';}
@@ -1710,8 +1730,8 @@ async function hideBundleEntry(caseNo){
 
 // ════ BUNDLE STATE + COLUMNS ════
 const COLS_NORMAL=COLS;
-const BUNDLE_CATS=['OLD','COMMITTAL','JAIL','NAKAL'];
-const CAT_LABELS={'OLD':'📂 Old','COMMITTAL':'⛓ Committal','JAIL':'🔒 Jail','NAKAL':'📋 Nakal'};
+const BUNDLE_CATS=['OLD','COMMITTAL','JAIL','NAKAL','STAY','SPLDIR','FR'];
+const CAT_LABELS={'OLD':'📂 Old','COMMITTAL':'⛓ Committal','JAIL':'🔒 Jail','NAKAL':'📋 Nakal','STAY':'⏸ Stay','SPLDIR':'📌 Spl. Direction','FR':'📎 FR'};
 let bActiveCat=null; // null = date mode, 'OLD'/'COMMITTAL'/'JAIL'/'NAKAL' = category mode
 
 function bSetCat(cat){
@@ -2141,16 +2161,9 @@ function isDisposed(r){ return r._disposed===true; }
 async function openOverdueModal(){
   const today=new Date();today.setHours(0,0,0,0);
 
-  // Sabhi dates+versions se sent-but-not-received files
-  const sentNotRecv=await getAllSentNotReceived();
-  const od=sentNotRecv.filter(r=>{
-    if(r._disposed)return false;
-    const sd=new Date(r.sentdate);sd.setHours(0,0,0,0);
-    return Math.floor((today-sd)/86400000)>=7;
-  }).map(r=>{
-    const sd=new Date(r.sentdate);sd.setHours(0,0,0,0);
-    return{...r,daysOld:Math.floor((today-sd)/86400000)};
-  }).sort((a,b)=>b.daysOld-a.daysOld);
+  // workDate vs today >= 7 din wali files — sabhi dates+versions se
+  const od=await getAllOverdueFiles();
+  od.sort((a,b)=>b._daysDiff-a._daysDiff); // most overdue first
 
   if(!od.length){showToast('✅ Koi overdue file nahi!');return;}
   _ovRemSel={};_ovCustomDays={};_ovData=od;
@@ -2159,16 +2172,22 @@ async function openOverdueModal(){
   document.getElementById('ovList').innerHTML=od.map((r,i)=>{
     const hasReminder=r._reminder&&r._reminder>todayStr;
     const reminderDue=r._reminder&&r._reminder<=todayStr;
-    const urgency=r.daysOld>=30?'border-color:#dc2626;background:#fef2f2':r.daysOld>=15?'border-color:#f59e0b;background:#fffbeb':'';
+    const days=r._daysDiff||0;
+    const urgency=days>=30?'border-color:#dc2626;background:#fef2f2':days>=15?'border-color:#f59e0b;background:#fffbeb':'';
+    // workDate display: DD-MM-YY format
+    const wdDisplay=r._workDate?r._workDate.split('-').reverse().join('-'):'—';
     return`<div class="ov-item" id="ovi-${i}" style="${reminderDue?'border-color:#fcd34d;background:#fffbeb':urgency}">
       <div class="ov-hd">
-        <div>
+        <div style="flex:1;min-width:0">
           <span class="ov-cn">${esc(r.caseno)}</span>
           <div class="ov-pt" style="margin-top:2px;margin-bottom:0">👤 ${esc(r.partyname||'')}${r.section?' · '+esc(r.section):''}${r.ps?' · '+esc(r.ps):''}</div>
-          <div style="font-size:11px;color:var(--mu);margin-top:3px">📤 Sent: <strong style="color:var(--txt)">${r.sentdate?fmtD(r.sentdate):'—'}</strong>${r._srcKey?` · Date: <strong style="color:var(--blue)">${r._srcKey.split('_')[0].split('-').reverse().join('-')}</strong>`:''}</div>
+          <div style="font-size:11px;color:var(--mu);margin-top:4px;display:flex;flex-wrap:wrap;gap:8px">
+            <span>📅 Working Date: <strong style="color:var(--blue)">${wdDisplay}</strong></span>
+            ${r.sentdate?`<span>📤 Sent: <strong style="color:var(--txt)">${fmtD(r.sentdate)}</strong></span>`:''}
+          </div>
         </div>
-        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
-          <span class="ov-days">${r.daysOld} din</span>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0;margin-left:8px">
+          <span class="ov-days">${days} din</span>
           ${reminderDue?'<span style="background:#fef3c7;color:#92400e;font-size:10px;padding:1px 7px;border-radius:20px;font-weight:700">🔔 Aaj</span>':''}
           ${hasReminder?`<span style="background:#eef2ff;color:var(--blue);font-size:10px;padding:1px 7px;border-radius:20px;font-weight:700">📅 ${r._reminder}</span>`:''}
         </div>
