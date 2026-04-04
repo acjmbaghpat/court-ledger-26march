@@ -2271,14 +2271,35 @@ async function ovDispose(i){
   const cn=r.caseno;
   const remark=(document.getElementById('ovr-'+i)||{}).value||'';
   if(!confirm(`"${cn}" ko Disposed mark karein? Ye file overdue list se permanently hatt jaayegi.`))return;
-  const idx=cData.findIndex(x=>x.caseno===cn);
+
+  // Fix: _srcKey se sahi IDB key mein update karo
+  const srcKey=r._srcKey; // e.g. "2026-03-01_1"
+  if(srcKey){
+    // Us key ka poora data lo, caseno match karo, _disposed set karo, wapas save karo
+    const keyData=await idbGM(srcKey);
+    if(keyData&&Array.isArray(keyData)){
+      const idx=keyData.findIndex(x=>String(x.caseno).toUpperCase()===String(cn).toUpperCase());
+      if(idx!==-1){
+        keyData[idx]._disposed=true;
+        if(remark)keyData[idx].remark=(keyData[idx].remark?keyData[idx].remark+' | ':'')+remark;
+        delete keyData[idx]._reminder;
+        keyData[idx].searchableText=gSrch(keyData[idx]);
+        await idbSM(srcKey,keyData);
+      }
+    }
+  }
+
+  // Current cData mein bhi update karo agar same date hai
+  const idx=cData.findIndex(x=>String(x.caseno).toUpperCase()===String(cn).toUpperCase());
   if(idx!==-1){
     cData[idx]._disposed=true;
     if(remark)cData[idx].remark=(cData[idx].remark?cData[idx].remark+' | ':'')+remark;
     delete cData[idx]._reminder;
     cData[idx].searchableText=gSrch(cData[idx]);
-    await saveLocal();updateDash();drawTable(getFiltered());
+    await saveLocal();
   }
+
+  drawTable(getFiltered());await updateDash();
   showToast('🗂 Disposed: '+cn,'w');haptic('warn');
   const el=document.getElementById('ovi-'+i);
   if(el){el.style.opacity='0.35';el.style.pointerEvents='none';}
@@ -2531,68 +2552,113 @@ async function checkTodayFiles(){
   listEl.innerHTML='<div style="text-align:center;padding:20px;color:var(--mu);font-size:13px">🔍 Check ho raha hai...</div>';
 
   const today=new Date();today.setHours(0,0,0,0);
+  const todayISO=today.toISOString().split('T')[0];
   const todayDay=today.getDate();
   const todayMon=String(today.getMonth()+1).padStart(2,'0');
   const todayYr=today.getFullYear();
 
-  // Simple logic: bundle mein jo files hain (not hidden, not cat)
-  // jinki md (date) aaj ya aaj se pehle hai — vo abhi bhi almari mein hain
-  const aajKi=[]; const pehleKi=[];
-  Object.values(bFiles).forEach(f=>{
-    if(f.hidden||f.cat||!f.md||f.md<=0)return;
-    if(f.md>todayDay)return; // future — skip
-    if(f.md===todayDay) aajKi.push(f);
-    else pehleKi.push(f);
+  // Logic: Sabhi IDB dates+versions se CFM data lo
+  // Jo files ki nextdate <= aaj hai AUR dobara sent nahi hui
+  // "Dobara sent nahi" = ya to sent hi nahi, ya received ke baad sentdate < receiveddate
+  const allKeys=await idbAMK();
+  const dataKeys=allKeys.filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k));
+
+  // caseno → best record (latest state)
+  const caseMap={};
+  for(const k of dataKeys){
+    const d=await idbGM(k);
+    if(!d||!Array.isArray(d))continue;
+    d.forEach(r=>{
+      const cn=String(r.caseno||'').trim().toUpperCase();
+      if(!cn||!r.nextdate)return;
+      if(r._disposed)return;
+      if(r.nextdate>todayISO)return; // future nextdate — skip
+
+      const ex=caseMap[cn];
+      if(!ex){caseMap[cn]={...r,_srcKey:k};return;}
+      // Agar received hai — prefer karo (latest state)
+      if(r.received==='Received'&&ex.received!=='Received'){caseMap[cn]={...r,_srcKey:k};return;}
+      if(ex.received==='Received'&&r.received!=='Received')return;
+      // Latest nextdate rakho
+      if((r.nextdate||'')>=(ex.nextdate||''))caseMap[cn]={...r,_srcKey:k};
+    });
+  }
+
+  // Ab filter: dobara sent nahi hui
+  const pending=[];
+  Object.values(caseMap).forEach(r=>{
+    // Agar received hai aur sentdate < receiveddate → dobara sent nahi hui
+    if(r.received==='Received'){
+      const sd=r.sentdate||'';
+      const rd=r.receiveddate||'';
+      if(sd<rd||!sd){
+        // Received hai, nextdate set hai, dobara sent nahi hui
+        pending.push(r);
+      }
+    } else if(r.sent!=='Sent'){
+      // Kabhi sent hi nahi hui, nextdate hai aur nikal gayi
+      pending.push(r);
+    }
+    // Agar sent='Sent' aur received nahi — ye overdue mein dikhegi, yahan nahi
   });
 
+  // Split: aaj ki aur pehle ki
+  const aajKi=pending.filter(r=>r.nextdate===todayISO);
+  const pehleKi=pending.filter(r=>r.nextdate<todayISO);
+  pehleKi.sort((a,b)=>(a.nextdate||'').localeCompare(b.nextdate||''));
+
   let h=`<div style="background:#f7f9fc;border-radius:10px;padding:10px 13px;margin-bottom:14px">
-    <div style="font-weight:700;font-size:13px;color:var(--navy)">📅 Aaj ${todayDay}.${todayMon}.${todayYr} — Bundle Tracker Check</div>
-    <div style="font-size:11px;color:var(--mu);margin-top:2px">Bundle mein jo files hain jinki date aaj ya nikal chuki hai</div>
+    <div style="font-weight:700;font-size:13px;color:var(--navy)">📅 Aaj ${todayDay}.${todayMon}.${todayYr} — CFM Next Date Check</div>
+    <div style="font-size:11px;color:var(--mu);margin-top:2px">Sabhi dates+versions — jinki fix date aaj ya nikal chuki, sent nahi hui</div>
   </div>`;
 
   if(!aajKi.length&&!pehleKi.length){
-    h+=`<div style="color:var(--green);font-weight:700;font-size:14px;text-align:center;padding:20px 0">✅ Koi file pending nahi! Sab dates ki files court mein ja chuki hain.</div>`;
-    listEl.innerHTML=h; return;
+    h+=`<div style="color:var(--green);font-weight:700;font-size:14px;text-align:center;padding:20px 0">✅ Koi file pending nahi! Aaj ki date tk sab sent ho chuki hain.</div>`;
+    listEl.innerHTML=h;return;
   }
 
   if(aajKi.length){
     h+=`<div style="background:#fff3cd;border:1.5px solid #fcd34d;border-radius:10px;padding:9px 13px;margin-bottom:8px">
-      <div style="font-weight:700;font-size:13px;color:#856404">⚠️ Aaj (${todayDay}.${todayMon}) ki files — abhi bhi almari mein (${aajKi.length})</div>
-      <div style="font-size:11px;color:#78350f;margin-top:2px">Inhe aaj court mein bhejna hai</div>
+      <div style="font-weight:700;font-size:13px;color:#856404">⚠️ Aaj (${todayDay}.${todayMon}) court jaani hain — sent nahi hui (${aajKi.length})</div>
     </div>`;
-    aajKi.forEach(f=>{
-      const cfmR=cData.find(r=>String(r.caseno).toUpperCase()===f.id);
+    aajKi.forEach(r=>{
+      const bf=bFiles[String(r.caseno).toUpperCase()];
       h+=`<div style="background:#fff;border:1.5px solid #fcd34d;border-radius:10px;padding:10px 13px;margin-bottom:6px">
-        <div style="display:flex;justify-content:space-between;align-items:center">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start">
           <div>
-            <div style="font-weight:800;font-size:14px;color:var(--navy)">${f.id}</div>
-            ${cfmR?`<div style="font-size:12px;color:var(--mu);margin-top:2px">👤 ${cfmR.partyname||'—'}${cfmR.section?' · '+cfmR.section:''}</div>`:''}
+            <div style="font-weight:800;font-size:14px;color:var(--navy)">${esc(r.caseno)}</div>
+            <div style="font-size:12px;color:var(--mu);margin-top:2px">👤 ${esc(r.partyname||'—')}${r.section?' · '+esc(r.section):''}</div>
+            ${r.received==='Received'?`<div style="font-size:11px;color:var(--teal);margin-top:2px">↩ Last recv: ${fmtD(r.receiveddate)}</div>`:''}
           </div>
-          <div style="font-size:10px;font-weight:700;background:#fff3cd;color:#856404;padding:2px 8px;border-radius:20px">Date ${f.md} — ${dispCol(f.col)}</div>
+          <div style="text-align:right;flex-shrink:0;margin-left:8px">
+            <div style="font-size:10px;font-weight:700;background:#fff3cd;color:#856404;padding:2px 8px;border-radius:20px">Next: ${fmtD(r.nextdate)}</div>
+            ${bf&&!bf.hidden?`<div style="font-size:10px;color:var(--mu);margin-top:3px">📍 Date ${bf.md} ${dispCol(bf.col)}</div>`:''}
+          </div>
         </div>
       </div>`;
     });
   }
 
   if(pehleKi.length){
-    pehleKi.sort((a,b)=>a.md-b.md);
     h+=`<div style="background:#fef2f2;border:1.5px solid #fca5a5;border-radius:10px;padding:9px 13px;margin-bottom:8px;margin-top:${aajKi.length?'8':'0'}px">
-      <div style="font-weight:700;font-size:13px;color:var(--red)">🚨 Pehle ki date wali — ABHI BHI ALMARI MEIN! (${pehleKi.length})</div>
-      <div style="font-size:11px;color:var(--mu);margin-top:2px">Inki date nikal gayi, court mein jaani thi</div>
+      <div style="font-weight:700;font-size:13px;color:var(--red)">🚨 Purani date — SENT NAHI HUI (${pehleKi.length})</div>
+      <div style="font-size:11px;color:var(--mu);margin-top:2px">Fix date nikal gayi, court jaani thi</div>
     </div>`;
-    pehleKi.forEach(f=>{
-      const cfmR=cData.find(r=>String(r.caseno).toUpperCase()===f.id);
-      const daysPast=todayDay-f.md;
+    pehleKi.forEach(r=>{
+      const bf=bFiles[String(r.caseno).toUpperCase()];
+      const nd=new Date(r.nextdate+'T00:00:00');nd.setHours(0,0,0,0);
+      const late=Math.floor((today-nd)/86400000);
       h+=`<div style="background:#fff;border:2px solid var(--red);border-radius:10px;padding:10px 13px;margin-bottom:6px">
         <div style="display:flex;justify-content:space-between;align-items:flex-start">
           <div>
-            <div style="font-weight:800;font-size:14px;color:var(--navy)">${f.id}</div>
-            ${cfmR?`<div style="font-size:12px;color:var(--mu);margin-top:2px">👤 ${cfmR.partyname||'—'}${cfmR.section?' · '+cfmR.section:''}</div>`:''}
-            <div style="font-size:11px;color:var(--mu);margin-top:3px">📍 ${dispCol(f.col)}</div>
+            <div style="font-weight:800;font-size:14px;color:var(--navy)">${esc(r.caseno)}</div>
+            <div style="font-size:12px;color:var(--mu);margin-top:2px">👤 ${esc(r.partyname||'—')}${r.section?' · '+esc(r.section):''}</div>
+            ${r.received==='Received'?`<div style="font-size:11px;color:var(--teal);margin-top:2px">↩ Last recv: ${fmtD(r.receiveddate)}</div>`:''}
           </div>
           <div style="text-align:right;flex-shrink:0;margin-left:8px">
-            <div style="font-size:10px;font-weight:700;background:#fee2e2;color:var(--red);padding:2px 8px;border-radius:20px">${daysPast} din late</div>
-            <div style="font-size:11px;color:var(--mu);margin-top:3px">Date ${f.md}.${todayMon}</div>
+            <div style="font-size:10px;font-weight:700;background:#fee2e2;color:var(--red);padding:2px 8px;border-radius:20px">${late} din late</div>
+            <div style="font-size:11px;color:var(--mu);margin-top:3px">Fix: ${fmtD(r.nextdate)}</div>
+            ${bf&&!bf.hidden?`<div style="font-size:10px;color:var(--mu);margin-top:2px">📍 Date ${bf.md} ${dispCol(bf.col)}</div>`:''}
           </div>
         </div>
       </div>`;
