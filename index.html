@@ -623,6 +623,7 @@ td input:focus{background:#fff;border-color:var(--blue)}
 </div>
 <!-- FAB: Scan buttons -->
 <div class="fab-row" id="cfmFlt">
+  <button class="fab" onclick="scrollToManual()" style="background:linear-gradient(135deg,#4b5563,#374151);width:46px;padding:0;height:46px;border-radius:50%;align-self:flex-end" title="Manual Entry pe jao">⬆️</button>
   <button class="fab fab-sent" onclick="startCFMScan('SENT')">📤 Scan SENT</button>
   <button class="fab fab-recv" onclick="startCFMScan('RECEIVED')">📥 Scan RECEIVED</button>
 </div>
@@ -1543,6 +1544,12 @@ async function manualAction(mode){
     showMS("✅ RECEIVED: "+cn,"ok");speak("File received");haptic('success');manualCaseInput.value="";openNDModal(cn);
   }
   drawTable(getFiltered());scrollToFile(cn);await saveLocal();await updateDash();
+}
+function scrollToManual(){
+  const el=document.getElementById('manualCaseInput');
+  if(!el)return;
+  el.scrollIntoView({behavior:'smooth',block:'center'});
+  setTimeout(()=>el.focus(),400);
 }
 function scrollToFile(cn){
   const row=document.getElementById("row_"+sId(cn));if(!row)return;
