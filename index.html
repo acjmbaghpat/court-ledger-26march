@@ -79,11 +79,6 @@ button{cursor:pointer}
 .ulog-top{display:flex;justify-content:space-between;align-items:center}
 .ulog-cn{font-weight:700;font-size:14px;color:var(--navy)}
 .ulog-meta{font-size:11px;color:var(--mu);font-weight:500;margin-top:3px}
-/* urgent log */
-.ulog-row{background:#fff;border:1.5px solid var(--bdr);border-radius:10px;padding:10px 12px;margin-bottom:7px}
-.ulog-top{display:flex;justify-content:space-between;align-items:center}
-.ulog-cn{font-weight:700;font-size:14px;color:var(--navy)}
-.ulog-meta{font-size:11px;color:var(--mu);font-weight:500;margin-top:3px}
 .sync-pill{display:flex;align-items:center;gap:5px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);border-radius:20px;padding:5px 10px;font-size:11px;color:rgba(255,255,255,.75);font-weight:600;cursor:default}
 #syncDot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
 #syncDot.ok{background:#4ade80}
@@ -1166,9 +1161,13 @@ async function loadLocal(){
     if(s&&Array.isArray(s)){cData=s;cData.forEach(r=>r.searchableText=gSrch(r));}
     else cData=[];
   }catch(e){cData=[];showToast('⚠️ Data load fail!','d');}
-  drawTable(getFiltered());updateDash();
+  drawTable(getFiltered());await updateDash();
 }
-workDate.addEventListener("change",async()=>{updateHdrDate();syncAddCaseDateLabel();await loadVersions();await loadCurV();await loadLocal();fbStartListen();});
+workDate.addEventListener("change",async()=>{
+  _reminderShownToday=false; // reset so reminders re-check on date change
+  updateHdrDate();syncAddCaseDateLabel();
+  await loadVersions();await loadCurV();await loadLocal();fbStartListen();
+});
 versionSelect.addEventListener("change",async()=>{upV=parseInt(versionSelect.value);await saveCurV();await loadLocal();fbStartListen();});
 
 // ════ OVERDUE HELPERS ════
@@ -1181,20 +1180,31 @@ function isToday(dateStr){
 // Overdue ke liye: sabhi dates+versions mein jo files SENT hain lekin RECEIVED nahi
 // Har ek sent instance ko alag track karo — caseno duplicate ho sakta hai
 // Overdue: workDate vs today >= 7 din
-// Har IDB date scan karo — agar today - wo_date >= 7 → us date ki Sent+NotReceived files overdue
+// Scan ALL keys to correctly detect received state, then filter by 7+ day old work dates
 async function getAllOverdueFiles(){
   try{
     const allKeys=await idbAMK();
     const dataKeys=allKeys.filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k));
     const today=new Date();today.setHours(0,0,0,0);
-    const caseMap={}; // caseno → best record (prefer received=false, show sentdate)
 
+    // Pass 1: Collect received state from ALL keys (including recent ones)
+    const receivedAnywhere=new Set();
     for(const k of dataKeys){
-      // k format: "YYYY-MM-DD_N" — extract the date part
-      const datePart=k.split('_')[0]; // "YYYY-MM-DD"
+      const d=await idbGM(k);
+      if(!d||!Array.isArray(d))continue;
+      d.forEach(r=>{
+        const cn=String(r.caseno||'').trim().toUpperCase();
+        if(cn&&r.received==='Received')receivedAnywhere.add(cn);
+      });
+    }
+
+    // Pass 2: Collect sent-but-not-received from 7+ day old keys only
+    const caseMap={};
+    for(const k of dataKeys){
+      const datePart=k.split('_')[0];
       const wd=new Date(datePart+'T00:00:00');wd.setHours(0,0,0,0);
       const daysDiff=Math.floor((today-wd)/86400000);
-      if(daysDiff<7)continue; // is date ka data 7 din se pehle ka nahi — skip
+      if(daysDiff<7)continue; // less than 7 days — skip
 
       const d=await idbGM(k);
       if(!d||!Array.isArray(d))continue;
@@ -1202,28 +1212,17 @@ async function getAllOverdueFiles(){
       d.forEach(r=>{
         const cn=String(r.caseno||'').trim().toUpperCase();
         if(!cn||r._disposed)return;
-        if(r.sent!=='Sent')return;       // sent nahi — skip
-        if(r.received==='Received')return; // received ho gayi — skip
+        if(r.sent!=='Sent')return;
+        if(receivedAnywhere.has(cn))return; // received in ANY version/date — skip
 
-        // Is caseno ke liye already ek entry hai?
         const ex=caseMap[cn];
-        if(!ex){
-          caseMap[cn]={...r,_srcKey:k,_workDate:datePart,_daysDiff:daysDiff};
-          return;
-        }
-        // Jo zyada purana workDate ho wo rakho (more overdue)
-        if(daysDiff>ex._daysDiff){
-          caseMap[cn]={...r,_srcKey:k,_workDate:datePart,_daysDiff:daysDiff};
-        }
+        if(!ex){caseMap[cn]={...r,_srcKey:k,_workDate:datePart,_daysDiff:daysDiff};return;}
+        if(daysDiff>ex._daysDiff)caseMap[cn]={...r,_srcKey:k,_workDate:datePart,_daysDiff:daysDiff};
       });
     }
-
-    // Final check: agar kisi bhi version mein received ho chuki ho to remove
-    // (received check oopar ho rahi hai, but double-check ke liye)
     return Object.values(caseMap);
   }catch(e){
     console.error('getAllOverdueFiles:',e);
-    // Fallback: current cData + current workDate
     const today=new Date();today.setHours(0,0,0,0);
     const wd=workDate.value?new Date(workDate.value+'T00:00:00'):today;wd.setHours(0,0,0,0);
     const diff=Math.floor((today-wd)/86400000);
@@ -1324,7 +1323,7 @@ async function uploadExcel(){
       const uvs=vs&&vs.length?[...vs,nv]:[nv];
       await idbSV(workDate.value,uvs);await saveCurV();await saveLocal();
       await loadVersions();versionSelect.value=upV;
-      drawTable(getFiltered());updateDash();updateSU();
+      drawTable(getFiltered());await updateDash();updateSU();
       speak("Excel uploaded");
       resetBtn();
       showToast('✅ Upload ho gaya! ('+cData.length+' records)');
@@ -1380,7 +1379,7 @@ async function addCaseManually(){
   newRow.searchableText=gSrch(newRow);
   cData.push(newRow);
   await saveLocal();
-  drawTable(getFiltered());updateDash();
+  drawTable(getFiltered());await updateDash();
   showAcMsg(`✅ "${cn}" add ho gaya!`,'ok');
   haptic('success');
   clearAddCaseForm();
@@ -1408,7 +1407,7 @@ function drawTable(data){
       }else if(k==="remark"){
         const ca=String(r.caseno).replace(/"/g,'&quot;'),cj=String(r.caseno).replace(/\\/g,'\\\\').replace(/'/g,"\\'"),va=String(r[k]||"").replace(/"/g,'&quot;');
         const isDisposed=r._disposed;
-        row+=`<td>${isDisposed?'<span class="td-badge-dispose">✓ Disposed</span> ':''}<input data-caseno="${ca}" value="${va}" oninput="updateRemark('${cj}',this.value)" placeholder="Remark..." ${isDisposed?'style="color:var(--mu)"':''}></td>`;
+        row+=`<td>${isDisposed?'<span class="td-badge-dispose">✓ Disposed</span> ':''}<input data-caseno="${ca}" value="${va}" oninput="updateRemark('${cj}',this.value)" placeholder="Remark..." ${isDisposed?'disabled style="color:var(--mu);background:#f0f3f9;cursor:not-allowed"':''}></td>`;
       }else if(k==="receiveddate"){
         row+=`<td><span class="td-meta">${fmtD(r[k])}</span></td>`;
       }else if(k==="nextdate"){
@@ -1440,7 +1439,7 @@ searchBox.addEventListener("input",()=>{clearTimeout(sDeb);sDeb=setTimeout(()=>d
 async function updateNextDate(cn,val){
   const idx=cData.findIndex(r=>r.caseno===cn);if(idx===-1)return;
   cData[idx].nextdate=val;cData[idx].searchableText=gSrch(cData[idx]);
-  await saveLocal();updateDash();
+  await saveLocal();await updateDash();
   if(val){const dt=new Date(val);speak("Next date "+dt.getUTCDate()+" "+dt.toLocaleDateString("en-IN",{month:"long",timeZone:"UTC"}));showToast('📅 Next date: '+fmtD(val));}
   else showToast('📅 Next date clear ho gaya','w');
 }
@@ -1494,7 +1493,7 @@ async function confirmUndo(){
     showToast('↩ SENT undo ho gaya: '+_cdCN);
   }else if(_undoAction==='unreceived'){cData[idx].received='';cData[idx].receiveddate='';cData[idx].nextdate='';showToast('↩ RECEIVED undo ho gaya: '+_cdCN);}
   cData[idx].searchableText=gSrch(cData[idx]);
-  await saveLocal();drawTable(getFiltered());updateDash();closeCaseDetail();
+  await saveLocal();drawTable(getFiltered());await updateDash();closeCaseDetail();
 }
 function closeCaseDetail(){document.getElementById('caseDetailModal').classList.remove('on');_cdCN=null;_undoAction=null;}
 document.getElementById('caseDetailModal').addEventListener('click',function(e){if(e.target===this)closeCaseDetail();});
@@ -1543,7 +1542,7 @@ async function manualAction(mode){
     lastRcvCase=cn;cData[idx].searchableText=gSrch(cData[idx]);
     showMS("✅ RECEIVED: "+cn,"ok");speak("File received");haptic('success');manualCaseInput.value="";openNDModal(cn);
   }
-  drawTable(getFiltered());scrollToFile(cn);updateDash();await saveLocal();
+  drawTable(getFiltered());scrollToFile(cn);await saveLocal();await updateDash();
 }
 function scrollToFile(cn){
   const row=document.getElementById("row_"+sId(cn));if(!row)return;
@@ -1717,9 +1716,9 @@ async function handleCFMScan(code,mode){
     cData[idx].received="Received";cData[idx].receiveddate=new Date().toISOString().split("T")[0];cData[idx].searchableText=gSrch(cData[idx]);lastRcvCase=code;
     showSC('✅ RECEIVED: '+code,'#16a34a');speak("File received");haptic('scan');
     setTimeout(()=>{closeScan();openNDModal(code);},800);
-    drawTable(getFiltered());scrollToFile(code);updateDash();await saveLocal();return;
+    drawTable(getFiltered());scrollToFile(code);await saveLocal();await updateDash();return;
   }
-  drawTable(getFiltered());scrollToFile(code);updateDash();await saveLocal();
+  drawTable(getFiltered());scrollToFile(code);await saveLocal();await updateDash();
 }
 
 // ════ BUNDLE AUTO-HIDE ════
@@ -1835,8 +1834,6 @@ function bBuildMoveCR(){
   }
 }
 function bMSetCol(c){bMC=c;bBuildMoveCR();bUpdateMP();}
-function bSK(md,sd,c){return md+'|'+(sd==null?'-':sd)+'|'+c;}
-function bPK(k){const p=k.split('|');return{md:+p[0],sd:p[1]==='-'?null:+p[1],col:p[2]};}
 function bCC(arr){if(!arr||!arr.length)return'sc-e';if(arr.some(f=>f.st==='missing'))return'sc-m';return arr.length>=40?'sc-f':arr.length>=25?'sc-h':'sc-e';}
 function bRenderGrid(){
   const gc=document.getElementById('bgc');
@@ -2144,7 +2141,14 @@ function fbStartListen(){
   _fbUnsub=_fbDb.collection('cfm').doc(docId).onSnapshot(snap=>{
     if(!snap.exists)return;const rem=snap.data();if(!rem||!rem.data)return;
     if(scanActive)return;const active=document.activeElement;if(active&&active.dataset&&active.dataset.caseno)return;
-    cData=rem.data;cData.forEach(r=>r.searchableText=gSrch(r));drawTable(getFiltered());updateDash();setSyncDot('ok');checkReminders();
+    cData=rem.data;cData.forEach(r=>r.searchableText=gSrch(r));
+    drawTable(getFiltered());updateDash();setSyncDot('ok');checkReminders();
+    // Refresh overdue modal if open (stale data protection)
+    const ovM=document.getElementById('ovModal');
+    if(ovM&&ovM.classList.contains('on')){
+      // Close and let user reopen to get fresh data
+      document.getElementById('ovList').innerHTML='<div style="text-align:center;padding:20px;color:var(--mu);font-size:13px">🔄 Data update hua — band karo aur dobara kholein</div>';
+    }
   },()=>setSyncDot('err'));
 }
 async function fbPush(){
@@ -2250,7 +2254,27 @@ async function ovSave(i){
   const cn=r.caseno;
   const remark=(document.getElementById('ovr-'+i)||{}).value||'';
   const days=_ovRemSel[cn]??null;
-  const idx=cData.findIndex(x=>x.caseno===cn);
+
+  // Save to the actual IDB key where this record lives
+  const srcKey=r._srcKey;
+  if(srcKey){
+    const keyData=await idbGM(srcKey);
+    if(keyData&&Array.isArray(keyData)){
+      const idx=keyData.findIndex(x=>String(x.caseno).toUpperCase()===String(cn).toUpperCase());
+      if(idx!==-1){
+        if(remark)keyData[idx].remark=remark;
+        if(days!==null){
+          if(days===0){delete keyData[idx]._reminder;}
+          else{const rd=new Date();rd.setDate(rd.getDate()+days);keyData[idx]._reminder=rd.toISOString().split('T')[0];}
+        }
+        keyData[idx].searchableText=gSrch(keyData[idx]);
+        await idbSM(srcKey,keyData);
+      }
+    }
+  }
+
+  // Also update current cData if same date
+  const idx=cData.findIndex(x=>String(x.caseno).toUpperCase()===String(cn).toUpperCase());
   if(idx!==-1){
     if(remark)cData[idx].remark=remark;
     if(days!==null){
@@ -2258,8 +2282,9 @@ async function ovSave(i){
       else{const rd=new Date();rd.setDate(rd.getDate()+days);cData[idx]._reminder=rd.toISOString().split('T')[0];}
     }
     cData[idx].searchableText=gSrch(cData[idx]);
-    await saveLocal();checkReminders();
+    await saveLocal();
   }
+  checkReminders();
   const msg=days===0?'❌ Reminder cancel hua':`✅ Saved${days?' | '+days+' din mein reminder':''}`;
   showToast(msg);haptic('success');
   const el=document.getElementById('ovi-'+i);
@@ -2331,7 +2356,7 @@ async function confirmDisposeYes(){
     delete cData[idx]._reminder;
     cData[idx].searchableText=gSrch(cData[idx]);
     await saveLocal();
-    drawTable(getFiltered());updateDash();
+    drawTable(getFiltered());await updateDash();
     showToast('🗂 Disposed: '+cn,'w');
     haptic('warn');
   }
@@ -2591,7 +2616,7 @@ async function checkTodayFiles(){
     if(r.received==='Received'){
       const sd=r.sentdate||'';
       const rd=r.receiveddate||'';
-      if(sd<rd||!sd){
+      if(sd<=rd||!sd){
         // Received hai, nextdate set hai, dobara sent nahi hui
         pending.push(r);
       }
