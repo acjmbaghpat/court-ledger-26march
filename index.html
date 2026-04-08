@@ -464,8 +464,14 @@ td input:focus{background:#fff;border-color:var(--blue)}
         <div class="field"><label>Party Name</label>
           <input type="text" id="ac-party" placeholder="Muddai / Mulzim ka naam">
         </div>
-        <div class="field"><label>Section / Dhara</label>
-          <input type="text" id="ac-section" placeholder="Jaise: 302 IPC, 420 IPC">
+        <div class="field"><label>Case Type / Section</label>
+          <div style="position:relative">
+            <input type="text" id="ac-section" placeholder="Type karo ya list se chuno..." autocomplete="off"
+              oninput="filterCaseTypes(this.value)"
+              onfocus="filterCaseTypes(this.value)"
+              onkeydown="caseTypeKeyDown(event)">
+            <div id="caseTypeDD" style="display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;background:#fff;border:1.5px solid rgba(26,86,219,.3);border-radius:var(--r12);max-height:200px;overflow-y:auto;z-index:600;box-shadow:var(--sh3)"></div>
+          </div>
         </div>
         <div class="field"><label>Police Station</label>
           <input type="text" id="ac-ps" placeholder="PS ka naam">
@@ -1075,14 +1081,154 @@ function sId(id){return String(id||"").replace(/[^a-zA-Z0-9-_]/g,'_');}
 function gSrch(r){return DK.map(k=>r[k]||"").join(' ').toLowerCase();}
 function dKey(){return workDate.value+"_"+upV;}
 function fmtD(iso){if(!iso)return"";const p=iso.split("-");return p.length===3?p[2]+"-"+p[1]+"-"+p[0]:iso;}
+
+// ════ CASE TYPES ════
+const CASE_TYPES=[
+  'Anticipatory Bail Application u/s 438 CrPC','Arbitration','Assessment Appeal',
+  'Bail Application','Ceiling Appeal','Civil Appeal','Civil Revision',
+  'Claim Petition','Complaint Cases','Contempt','Criminal Case',
+  'Criminal Appeal','Criminal Bail Cancellation','Criminal Misc',
+  'Criminal Misc. Cases','Criminal Revision','D.P. Misc.',
+  'Election Petition','Election Revision','Essential Commodities Act',
+  'Execution Cases','Final Report','First Appeal','First Appeal From Order',
+  'Guardian & Wards Act','Hindu Marriage Act','Judge Small Cause Court Case',
+  'Juvenile Cases','Land Acquisition Act','Maintenance','Matrimonial',
+  'Misc. Cases','Misc. Civil','Misc. Civil Appeal','Misc. Nagar Nigam',
+  'Misc. PA','Motor Accident Claim Petition','Mutation Appeal','N.D.P.S.',
+  'Original Suit','P.A. Suit','Probate','Rent Control Appeal',
+  'Rent Control Revision','Restoration','Restoration Misc','Review',
+  'S.C.C. Revision','S.C.C. Suit','Sec.174A IPC Vis-a-Vis Sec.195',
+  'Second Appeal','Session Trial','Small Cause Court',
+  'Special Case (Anti Corruption)','Special Trial','S.T. - POCSO Act',
+  'Succession','Summons Case','Summary Trial','Warrant Case',
+  'Warrant or Summons Criminal Case'
+];
+
+// ════ FLEXIBLE CASE MATCHING ════
+// Abbreviation map — short → full forms (and reverse auto-generated)
+const ABBR_MAP={
+  'CC':'CRIMINAL CASE','CRI CASE':'CRIMINAL CASE','CRICASE':'CRIMINAL CASE',
+  'BA':'BAIL APPLICATION','BAILAPP':'BAIL APPLICATION',
+  'ABA':'ANTICIPATORY BAIL APPLICATION','ABAS':'ANTICIPATORY BAIL APPLICATION',
+  'CA':'CRIMINAL APPEAL','CRIAPPEAL':'CRIMINAL APPEAL',
+  'CM':'CRIMINAL MISC','CRIMMISC':'CRIMINAL MISC',
+  'CR':'CRIMINAL REVISION','CRIREV':'CRIMINAL REVISION',
+  'ST':'SESSION TRIAL','SESSTRIAL':'SESSION TRIAL',
+  'SA':'SECOND APPEAL','SECONDAPP':'SECOND APPEAL',
+  'FA':'FIRST APPEAL','FIRSTAPP':'FIRST APPEAL',
+  'FAFO':'FIRST APPEAL FROM ORDER',
+  'OS':'ORIGINAL SUIT','ORIGSUIT':'ORIGINAL SUIT',
+  'MA':'MAINTENANCE','MATR':'MATRIMONIAL',
+  'EP':'ELECTION PETITION','ER':'ELECTION REVISION',
+  'CBC':'CRIMINAL BAIL CANCELLATION',
+  'RC':'RENT CONTROL','RCA':'RENT CONTROL APPEAL',
+  'RCR':'RENT CONTROL REVISION',
+  'SC':'SUMMONS CASE','SUMCASE':'SUMMONS CASE',
+  'WT':'WARRANT CASE','WC':'WARRANT CASE',
+  'SCC':'SMALL CAUSE COURT','SCCS':'S.C.C. SUIT','SCCR':'S.C.C. REVISION',
+  'CP':'CLAIM PETITION','CLMPET':'CLAIM PETITION',
+  'MAC':'MOTOR ACCIDENT CLAIM PETITION','MACP':'MOTOR ACCIDENT CLAIM PETITION',
+  'NDPS':'N.D.P.S.','NDP':'N.D.P.S.',
+  'HMA':'HINDU MARRIAGE ACT',
+  'LA':'LAND ACQUISITION ACT',
+  'EC':'ESSENTIAL COMMODITIES ACT',
+  'POSCO':'S.T. - POCSO ACT','POCSO':'S.T. - POCSO ACT',
+  'CVA':'CIVIL APPEAL','CVR':'CIVIL REVISION',
+  'MISC':'MISC. CASES','MISCIVIL':'MISC. CIVIL',
+  'EXE':'EXECUTION CASES','EXEC':'EXECUTION CASES','EXECUTION':'EXECUTION CASES',
+  'FR':'FINAL REPORT',
+  'REST':'RESTORATION','RESTMISC':'RESTORATION MISC',
+  'CONT':'CONTEMPT','COMP':'COMPLAINT CASES',
+  'JUV':'JUVENILE CASES',
+  'ARB':'ARBITRATION',
+  'PROB':'PROBATE','SUCC':'SUCCESSION',
+  'SMTRIAL':'SUMMARY TRIAL','SUMTRIAL':'SUMMARY TRIAL',
+  'SPL':'SPECIAL TRIAL','SPCASE':'SPECIAL CASE (ANTI CORRUPTION)',
+};
+
+// Build reverse map: full form words → abbreviation
+// (auto-generated from CASE_TYPES first letters)
+function buildAbbr(){
+  CASE_TYPES.forEach(t=>{
+    const words=t.toUpperCase().replace(/[^A-Z0-9\s]/g,' ').trim().split(/\s+/);
+    if(words.length>=2){
+      const abbr=words.map(w=>w[0]).join('');
+      if(abbr.length>=2&&!ABBR_MAP[abbr])ABBR_MAP[abbr]=t.toUpperCase();
+    }
+  });
+}
+buildAbbr();
+
+function normCase(s){
+  // Remove ALL non-alphanumeric (spaces, slashes, dots, hyphens)
+  return String(s||'').toUpperCase().replace(/[^A-Z0-9]/g,'').trim();
+}
+// For slash-aware compare (keep slash for structure)
+function normSlash(s){
+  return String(s||'').toUpperCase().replace(/[\s.\-_]/g,'').trim();
+}
+
+// Extract just numeric signature: digits and slashes — e.g. "123/2024"
+function numSig(s){
+  const parts=String(s||'').match(/\d[\d\/\-]*/g)||[];
+  return parts.join('/').replace(/\/{2,}/g,'/');
+}
+
+// Expand abbreviations in a string
+function expandAbbr(s){
+  const up=String(s||'').toUpperCase().replace(/[.\s\-_]/g,'');
+  for(const[abbr,full]of Object.entries(ABBR_MAP)){
+    if(up.startsWith(abbr)){
+      return full.replace(/[^A-Z0-9]/g,'')+up.slice(abbr.length);
+    }
+  }
+  return up;
+}
+
+function caseMatch(a,b){
+  if(!a||!b)return false;
+  // 1. Exact
+  if(String(a).toUpperCase().trim()===String(b).toUpperCase().trim())return true;
+  // 2. Slash-aware normalize (keep slashes, remove spaces/dots)
+  const as=normSlash(a),bs=normSlash(b);
+  if(as===bs)return true;
+  // 3. Full normalize (remove everything including slashes)
+  const an=normCase(a),bn=normCase(b);
+  if(an===bn)return true;
+  // 4. Abbreviation expand on full-normalized
+  const ae=expandAbbr(an),be=expandAbbr(bn);
+  if(ae===be)return true;
+  if(ae===bn||an===be)return true;
+  // 5. Abbreviation expand on slash-normalized
+  const ase=expandAbbr(as.replace(/[^A-Z0-9]/g,'')),bse=expandAbbr(bs.replace(/[^A-Z0-9]/g,''));
+  if(ase===bse)return true;
+  // 6. Contains (min 5 chars)
+  if(an.length>=5&&bn.length>=5&&(an.includes(bn)||bn.includes(an)))return true;
+  return false;
+}
+
+function findCaseIdx(query){
+  const q=String(query||'').trim();
+  if(!q)return -1;
+  // 1. Exact upper
+  let idx=cData.findIndex(r=>String(r.caseno).toUpperCase()===q.toUpperCase());
+  if(idx!==-1)return idx;
+  // 2. Flexible
+  idx=cData.findIndex(r=>caseMatch(r.caseno,q));
+  return idx;
+}
+function getMatchedCaseNo(query){
+  const idx=findCaseIdx(query);
+  return idx!==-1?cData[idx].caseno:query;
+}
+
 function getCFMDay(caseNo){
-  const r=cData.find(x=>x.caseno===String(caseNo).toUpperCase()||x.caseno===String(caseNo));
+  const r=cData.find(x=>caseMatch(x.caseno,caseNo));
   if(!r||!r.nextdate)return null;
   return parseInt(r.nextdate.split('-')[2]);
 }
 function getCFMRecord(caseNo){
-  const cn=String(caseNo).toUpperCase();
-  return cData.find(x=>String(x.caseno).toUpperCase()===cn);
+  return cData.find(x=>caseMatch(x.caseno,caseNo));
 }
 
 // ════ INIT ════
@@ -1339,6 +1485,32 @@ async function uploadExcel(){
   catch(err){resetBtn();showToast('❌ Upload fail: '+err,'d');}
 }
 
+// ════ CASE TYPE DROPDOWN ════
+let _ctIdx=-1;
+function filterCaseTypes(val){
+  const dd=document.getElementById('caseTypeDD');if(!dd)return;
+  const q=(val||'').toLowerCase().trim();
+  const matches=q?CASE_TYPES.filter(t=>t.toLowerCase().includes(q)):CASE_TYPES;
+  if(!matches.length){dd.style.display='none';return;}
+  _ctIdx=-1;
+  dd.innerHTML=matches.map(t=>`<div class="di" onmousedown="event.preventDefault()" onclick="selectCaseType(${JSON.stringify(t)})" style="padding:10px 13px;font-size:13px;cursor:pointer;border-bottom:1px solid var(--bdr);font-weight:500">${t}</div>`).join('');
+  dd.style.display='block';
+}
+function selectCaseType(val){
+  const inp=document.getElementById('ac-section');if(inp)inp.value=val;
+  const dd=document.getElementById('caseTypeDD');if(dd)dd.style.display='none';
+  _ctIdx=-1;
+}
+function caseTypeKeyDown(e){
+  const dd=document.getElementById('caseTypeDD');
+  const items=dd?dd.querySelectorAll('.di'):[];
+  if(!items.length)return;
+  if(e.key==='ArrowDown'){e.preventDefault();_ctIdx=Math.min(_ctIdx+1,items.length-1);items.forEach((el,i)=>el.style.background=i===_ctIdx?'#eef2ff':'');if(items[_ctIdx])items[_ctIdx].scrollIntoView({block:'nearest'});}
+  else if(e.key==='ArrowUp'){e.preventDefault();_ctIdx=Math.max(_ctIdx-1,0);items.forEach((el,i)=>el.style.background=i===_ctIdx?'#eef2ff':'');}
+  else if(e.key==='Enter'&&_ctIdx>=0&&items[_ctIdx]){e.preventDefault();selectCaseType(items[_ctIdx].textContent.trim());}
+  else if(e.key==='Escape'){dd.style.display='none';_ctIdx=-1;}
+}
+
 // ════ MANUAL CASE ADD (from drawer) ════
 function showAcMsg(msg,type){
   const el=document.getElementById('ac-msg');
@@ -1520,30 +1692,38 @@ function onManualKeyDown(e){
 function updDDHL(items){items.forEach((el,i)=>{el.classList.toggle("act",i===dropIdx);if(i===dropIdx)el.scrollIntoView({block:"nearest"});});}
 function selDD(cn){manualCaseInput.value=cn;closeDD();document.getElementById("manualStatus").className="smsg";}
 function closeDD(){document.getElementById("caseDD").style.display="none";dropIdx=-1;}
-document.addEventListener("click",e=>{if(!e.target.closest(".dwrap"))closeDD();});
+document.addEventListener("click",e=>{
+  if(!e.target.closest(".dwrap"))closeDD();
+  // Close case type dropdown too
+  const ctdd=document.getElementById('caseTypeDD');
+  const ctinp=document.getElementById('ac-section');
+  if(ctdd&&ctinp&&!ctinp.contains(e.target)&&!ctdd.contains(e.target)){ctdd.style.display='none';_ctIdx=-1;}
+});
 
 async function manualAction(mode){
-  const cn=manualCaseInput.value.trim().toUpperCase();
+  const raw=manualCaseInput.value.trim();
+  const cn=raw.toUpperCase();
   if(!cn){showMS("⚠️ Case No enter karo","err");return;}
   if(cn.length<2){showMS("⚠️ Case No bahut chhota hai","err");return;}
   if(cn.length>50){showMS("⚠️ Case No bahut lamba hai","err");return;}
   if(!cData.length){showMS("⚠️ Data nahi. Excel upload karo","err");return;}
-  const idx=cData.findIndex(r=>String(r.caseno).trim()===cn);
+  const idx=findCaseIdx(raw);
   if(idx===-1){showMS("❌ Not Found: "+cn,"err");speak("Case not found");haptic('error');return;}
   const rec=cData[idx];
+  const actualCN=rec.caseno;
   if(mode==="SENT"){
-    if(rec.sent==="Sent"){showMS("ℹ️ Already SENT: "+cn,"info");speak("Already sent");return;}
+    if(rec.sent==="Sent"){showMS("ℹ️ Already SENT: "+actualCN,"info");speak("Already sent");return;}
     cData[idx].sent="Sent";cData[idx].sentdate=new Date().toISOString().split("T")[0];cData[idx].searchableText=gSrch(cData[idx]);
-    showMS("✅ SENT: "+cn,"ok");speak("File sent");haptic('success');manualCaseInput.value="";
-    await hideBundleEntry(cn);
+    showMS("✅ SENT: "+actualCN,"ok");speak("File sent");haptic('success');manualCaseInput.value="";
+    await hideBundleEntry(actualCN);
   }else{
     if(rec.sent!=="Sent"){showMS("❌ Pehle SENT karo","err");speak("File not sent yet");return;}
-    if(rec.received==="Received"){showMS("ℹ️ Already RECEIVED: "+cn,"info");speak("Already received");return;}
+    if(rec.received==="Received"){showMS("ℹ️ Already RECEIVED: "+actualCN,"info");speak("Already received");return;}
     cData[idx].received="Received";cData[idx].receiveddate=new Date().toISOString().split("T")[0];
-    lastRcvCase=cn;cData[idx].searchableText=gSrch(cData[idx]);
-    showMS("✅ RECEIVED: "+cn,"ok");speak("File received");haptic('success');manualCaseInput.value="";openNDModal(cn);
+    lastRcvCase=actualCN;cData[idx].searchableText=gSrch(cData[idx]);
+    showMS("✅ RECEIVED: "+actualCN,"ok");speak("File received");haptic('success');manualCaseInput.value="";openNDModal(actualCN);
   }
-  drawTable(getFiltered());scrollToFile(cn);await saveLocal();await updateDash();
+  drawTable(getFiltered());scrollToFile(actualCN);await saveLocal();await updateDash();
 }
 function scrollToManual(){
   const el=document.getElementById('manualCaseInput');
@@ -1711,7 +1891,7 @@ function handleScanResult(dec){
 }
 function startCFMScan(mode){openScan(mode==='SENT'?'cfm_sent':'cfm_rcv',mode==='SENT'?'📤 Scanning for SENT...':'📥 Scanning for RECEIVED...',false);}
 async function handleCFMScan(code,mode){
-  const idx=cData.findIndex(r=>r.caseno===code.trim().toUpperCase());
+  const idx=findCaseIdx(code.trim());
   if(idx===-1){showSC('❌ Not Found: '+code,'#dc2626');speak("File not found");haptic('error');return;}
   if(mode==='SENT'){
     if(cData[idx].sent==="Sent"){showSC('ℹ️ Already Sent: '+code,'#d97706');speak("Already sent");return;}
