@@ -515,6 +515,7 @@ td input:focus{background:#fff;border-color:var(--blue)}
         <div class="field"><label>API Key</label><input type="text" id="fbKey" placeholder="AIzaSy..."></div>
         <div class="field"><label>Messaging Sender ID</label><input type="text" id="fbMid" placeholder="123456789"></div>
         <div class="field"><label>App ID</label><input type="text" id="fbAid" placeholder="1:xxx:web:xxx"></div>
+        <div class="field"><label>Project ID <span style="color:var(--mu);font-weight:400">(optional)</span></label><input type="text" id="fbPid" placeholder="court-file-system"></div>
         <div class="g2" style="margin-top:4px">
           <button class="btn amber" onclick="fbSaveConfig()" style="margin-top:0">💾 Connect</button>
           <button class="btn neutral" onclick="fbReset()" style="margin-top:0">🗑 Reset</button>
@@ -1777,8 +1778,14 @@ async function deleteOldData(){
   try{
     const mk=await idbAMK();
     for(const key of mk){
-      if(key.startsWith('cv_')){const fd=new Date(key.substring(3));if(!isNaN(fd)&&(today-fd)/86400000>60)await idbDM(key);continue;}
-      const fd=new Date(key.substring(0,10));if(!isNaN(fd)&&(today-fd)/86400000>60){await idbDM(key);count++;}
+      if(key.startsWith('cv_')){
+        const ds=key.substring(3); // "YYYY-MM-DD"
+        const fd=new Date(ds+'T00:00:00');
+        if(!isNaN(fd)&&(today-fd)/86400000>60)await idbDM(key);
+        continue;
+      }
+      const ds2=key.substring(0,10);
+      const fd=new Date(ds2+'T00:00:00');if(!isNaN(fd)&&(today-fd)/86400000>60){await idbDM(key);count++;}
     }
     const dk=await idbAVK();for(const d of dk){const fd=new Date(d);if(!isNaN(fd)&&(today-fd)/86400000>60)await idbDV(d);}
     showToast(count+' records delete ho gaye.');updateSU();
@@ -1893,19 +1900,20 @@ function startCFMScan(mode){openScan(mode==='SENT'?'cfm_sent':'cfm_rcv',mode==='
 async function handleCFMScan(code,mode){
   const idx=findCaseIdx(code.trim());
   if(idx===-1){showSC('❌ Not Found: '+code,'#dc2626');speak("File not found");haptic('error');return;}
+  const actualCN=cData[idx].caseno; // always use stored caseno, not raw scanned string
   if(mode==='SENT'){
-    if(cData[idx].sent==="Sent"){showSC('ℹ️ Already Sent: '+code,'#d97706');speak("Already sent");return;}
+    if(cData[idx].sent==="Sent"){showSC('ℹ️ Already Sent: '+actualCN,'#d97706');speak("Already sent");return;}
     cData[idx].sent="Sent";cData[idx].sentdate=new Date().toISOString().split("T")[0];cData[idx].searchableText=gSrch(cData[idx]);
-    showSC('✅ SENT: '+code,'#16a34a');speak("File sent");haptic('scan');await hideBundleEntry(code);
+    showSC('✅ SENT: '+actualCN,'#16a34a');speak("File sent");haptic('scan');await hideBundleEntry(actualCN);
   }else{
-    if(cData[idx].sent!=="Sent"){showSC('❌ Pehle SENT karo: '+code,'#dc2626');speak("File not sent yet");return;}
-    if(cData[idx].received==="Received"){showSC('ℹ️ Already Received: '+code,'#d97706');speak("Already received");return;}
-    cData[idx].received="Received";cData[idx].receiveddate=new Date().toISOString().split("T")[0];cData[idx].searchableText=gSrch(cData[idx]);lastRcvCase=code;
-    showSC('✅ RECEIVED: '+code,'#16a34a');speak("File received");haptic('scan');
-    setTimeout(()=>{closeScan();openNDModal(code);},800);
-    drawTable(getFiltered());scrollToFile(code);await saveLocal();await updateDash();return;
+    if(cData[idx].sent!=="Sent"){showSC('❌ Pehle SENT karo: '+actualCN,'#dc2626');speak("File not sent yet");return;}
+    if(cData[idx].received==="Received"){showSC('ℹ️ Already Received: '+actualCN,'#d97706');speak("Already received");return;}
+    cData[idx].received="Received";cData[idx].receiveddate=new Date().toISOString().split("T")[0];cData[idx].searchableText=gSrch(cData[idx]);lastRcvCase=actualCN;
+    showSC('✅ RECEIVED: '+actualCN,'#16a34a');speak("File received");haptic('scan');
+    setTimeout(()=>{closeScan();openNDModal(actualCN);},800);
+    drawTable(getFiltered());scrollToFile(actualCN);await saveLocal();await updateDash();return;
   }
-  drawTable(getFiltered());scrollToFile(code);await saveLocal();await updateDash();
+  drawTable(getFiltered());scrollToFile(actualCN);await saveLocal();await updateDash();
 }
 
 // ════ BUNDLE AUTO-HIDE ════
@@ -2180,7 +2188,7 @@ async function bAddFile(rawId,fromScan){
   bUpdateSP();bRenderGrid();return true;
 }
 function bMKey(e){if(e.key==='Enter'){e.preventDefault();document.getElementById('b-mi').value.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean).forEach(p=>bAddFile(p,false));document.getElementById('b-mi').value='';}}
-function bMAdd(){document.getElementById('b-mi').value.split(/,/).map(s=>s.trim()).filter(Boolean).forEach(p=>bAddFile(p,false));document.getElementById('b-mi').value='';}
+function bMAdd(){document.getElementById('b-mi').value.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean).forEach(p=>bAddFile(p,false));document.getElementById('b-mi').value='';}
 function startBundleScan(){bUpdateST();openScan('bundle',`📷 Bundle → Date ${bAMD}${bASD!=null?'/'+bASD:''} ${dispCol(bAC)}`,true);}
 function handleBundleScan(dec){bAddFile(dec,true);if(scanActive)bUpdateST();}
 function openMismatchModal(id,cfmDay){
@@ -2192,10 +2200,19 @@ function openMismatchModal(id,cfmDay){
   document.getElementById('mmModal').classList.add('on');
 }
 async function confirmMismatch(){
-  const id=mmPending.id,prevSD=bASD;bASD=mmSD;
-  const obj={id,md:bAMD,sd:bASD,col:bAC,at:Date.now(),st:'placed',hidden:false};
-  bFiles[id]=obj;await idbSBn(obj);showSC('✅ '+id+` → Date ${bAMD}/${bASD}-${dispCol(bAC)}`,'#16a34a');speak(bAMD+' '+dispCol(bAC),'hi-IN');
-  bUpdateSP();bRenderGrid();bASD=prevSD;document.getElementById('mmModal').classList.remove('on');mmPending={id:'',cfmDay:0};
+  const id=mmPending.id,prevSD=bASD;
+  bASD=mmSD;
+  try{
+    const obj={id,md:bAMD,sd:bASD,col:bAC,cat:bActiveCat||null,at:Date.now(),st:'placed',hidden:false};
+    bFiles[id]=obj;await idbSBn(obj);
+    showSC('✅ '+id+` → Date ${bAMD}/${bASD}-${dispCol(bAC)}`,'#16a34a');
+    speak(bAMD+' '+dispCol(bAC),'hi-IN');haptic('scan');
+    bUpdateSP();bRenderGrid();
+  }finally{
+    bASD=prevSD;
+    document.getElementById('mmModal').classList.remove('on');
+    mmPending={id:'',cfmDay:0};
+  }
 }
 function cancelMismatch(){document.getElementById('mmModal').classList.remove('on');mmPending={id:'',cfmDay:0};showSC('❌ Scan reject: date mismatch','#dc2626');}
 async function bSetStatus(id,st){if(!bFiles[id])return;bFiles[id].st=st;await idbSBn(bFiles[id]);showToast(st==='missing'?'⚠ Missing: '+id:'✅ Restored: '+id,st==='missing'?'w':'');bRenderGrid();if(bSlot)bRenderSlot();bRenderSearch();}
@@ -2303,6 +2320,7 @@ function fbLoadConfig(){
       if(document.getElementById('fbKey'))document.getElementById('fbKey').value=cfg.apiKey||'';
       if(document.getElementById('fbMid'))document.getElementById('fbMid').value=cfg.messagingSenderId||'';
       if(document.getElementById('fbAid'))document.getElementById('fbAid').value=cfg.appId||'';
+      if(document.getElementById('fbPid'))document.getElementById('fbPid').value=cfg.projectId||'';
       fbInit(cfg);
     }
   }catch(e){}
@@ -2312,7 +2330,12 @@ function fbSaveConfig(){
   const mid=(document.getElementById('fbMid').value||'').trim();
   const aid=(document.getElementById('fbAid').value||'').trim();
   if(!apiKey||!aid){fbMsg('❌ API Key aur App ID zaroori hain','s-err');return;}
-  const cfg={apiKey,messagingSenderId:mid,appId:aid,projectId:'court-file-system',authDomain:'court-file-system.firebaseapp.com',storageBucket:'court-file-system.appspot.com'};
+  const pid=(document.getElementById('fbPid')?.value||'').trim();
+  const storedCfg=JSON.parse(localStorage.getItem(FB_KEY)||'null');
+  const projectId=pid||storedCfg?.projectId||'court-file-system';
+  const authDomain=projectId+'.firebaseapp.com';
+  const storageBucket=projectId+'.appspot.com';
+  const cfg={apiKey,messagingSenderId:mid,appId:aid,projectId,authDomain,storageBucket};
   localStorage.setItem(FB_KEY,JSON.stringify(cfg));fbInit(cfg);
 }
 function fbReset(){localStorage.removeItem(FB_KEY);_fbDb=null;setSyncDot('off');fbMsg('Firebase reset ho gaya','s-info');}
@@ -2428,9 +2451,13 @@ function selR(i,days){
 function selRCustom(i,val){
   const cn=_ovData[i]?_ovData[i].caseno:null;if(!cn)return;
   const d=parseInt(val);
-  if(d>0&&d<=90){
+  if(isNaN(d))return;
+  if(d===0){
+    _ovRemSel[cn]=0; // 0 = cancel reminder
+    const btns=document.getElementById('rops-'+i);
+    if(btns)btns.querySelectorAll('.ropt').forEach((b,bi)=>b.classList.toggle('on',bi===6)); // ✕ button
+  } else if(d>0&&d<=90){
     _ovRemSel[cn]=d;
-    // Deselect preset buttons
     const btns=document.getElementById('rops-'+i);
     if(btns)btns.querySelectorAll('.ropt').forEach(b=>b.classList.remove('on'));
   }
@@ -2721,7 +2748,7 @@ function runBundleCheck(){
   const wrongDate=[];
   Object.values(bFiles).forEach(f=>{
     if(f.hidden||f.cat)return; // sent / category — skip
-    const cfmRec=cData.find(r=>String(r.caseno).toUpperCase()===f.id);
+    const cfmRec=cData.find(r=>caseMatch(r.caseno,f.id));
     if(!cfmRec||!cfmRec.nextdate)return;
     const cfmDay=parseInt(cfmRec.nextdate.split('-')[2]);
     if(cfmDay && f.md!==cfmDay && f.sd==null){
@@ -2886,7 +2913,13 @@ function confirmDisposeNo(){
   if(cn){
     const idx=cData.findIndex(r=>r.caseno===cn);
     if(idx!==-1){
-      cData[idx].remark=(cData[idx].remark||'').replace(/\bdispose(d)?\b/gi,'').replace(/^\s*\|\s*|\s*\|\s*$/g,'').trim();
+      cData[idx].remark=(cData[idx].remark||'')
+        .replace(/\bdispose(d)?\b/gi,'')   // remove dispose/disposed
+        .replace(/\s*\|\s*\|\s*/g,' | ')   // double pipe → single
+        .replace(/^\s*\|\s*/,'')            // leading pipe
+        .replace(/\s*\|\s*$/,'')            // trailing pipe
+        .replace(/\s{2,}/g,' ')             // multiple spaces
+        .trim();
       cData[idx].searchableText=gSrch(cData[idx]);
       saveLocal();drawTable(getFiltered());
     }
