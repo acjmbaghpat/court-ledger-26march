@@ -609,7 +609,8 @@ td input:focus{background:#fff;border-color:var(--blue)}
     </div>
     <div class="dwrap">
       <input type="text" id="manualCaseInput" placeholder="Case No likhein ya dropdown se chunein..."
-        autocomplete="off" oninput="onManualInput()" onkeydown="onManualKeyDown(event)"
+        autocomplete="off" inputmode="numeric"
+        oninput="onManualInput()" onkeydown="onManualKeyDown(event)"
         onpaste="setTimeout(()=>{manualCaseInput.value=manualCaseInput.value.replace(/[\n\r\t]+/g,' ').trim();onManualInput();},0)">
       <div id="caseDD"></div>
     </div>
@@ -1052,6 +1053,20 @@ function showToast(msg,type){
 }
 function speak(msg,lang){
   try{const u=new SpeechSynthesisUtterance(msg);u.lang=lang||'en-IN';u.rate=1;speechSynthesis.cancel();speechSynthesis.speak(u);}catch(e){}
+}
+
+// Hindi mein date bolne ka function
+const HINDI_DATES=['','ek','do','teen','chaar','paanch','chhe','saat','aath','nau','das','gyarah','barah','terah','chaudah','pandrah','solah','satrah','atharah','unnees','bees','ikkees','baais','teis','chaubees','pachees','chhabbees','sattaais','atthaais','untees','tees','ikattees'];
+const HINDI_MONTHS={'January':'Januari','February':'Februari','March':'March','April':'April','May':'Mayi','June':'June','July':'Julai','August':'August','September':'Sitambar','October':'October','November':'November','December':'December'};
+function speakNextDate(isoDate){
+  try{
+    const dt=new Date(isoDate+'T00:00:00');
+    const day=dt.getDate();
+    const monthEn=dt.toLocaleDateString('en-IN',{month:'long'});
+    const dayHindi=HINDI_DATES[day]||String(day);
+    const monthHindi=HINDI_MONTHS[monthEn]||monthEn;
+    speak('अगली तारीख '+dayHindi+' '+monthHindi,'hi-IN');
+  }catch(e){}
 }
 function haptic(type){
   try{
@@ -1614,7 +1629,7 @@ async function updateNextDate(cn,val){
   const idx=cData.findIndex(r=>r.caseno===cn);if(idx===-1)return;
   cData[idx].nextdate=val;cData[idx].searchableText=gSrch(cData[idx]);
   await saveLocal();await updateDash();
-  if(val){const dt=new Date(val);speak("Next date "+dt.getUTCDate()+" "+dt.toLocaleDateString("en-IN",{month:"long",timeZone:"UTC"}));showToast('📅 Next date: '+fmtD(val));}
+  if(val){speakNextDate(val);showToast('📅 Next date: '+fmtD(val));}
   else showToast('📅 Next date clear ho gaya','w');
 }
 async function updateRemark(cn,val){
@@ -1756,7 +1771,7 @@ async function saveNextDate(){
     cData[idx].searchableText=gSrch(cData[idx]);
   }
   document.getElementById("ndModal").classList.remove("on");
-  const dt=new Date(d);speak("Next date "+dt.getUTCDate()+" "+dt.toLocaleDateString("en-IN",{month:"long",timeZone:"UTC"}));
+  const dt=new Date(d);speakNextDate(d);
   drawTable(getFiltered());updateDash();await saveLocal();resetJO();lastRcvCase=null;
 }
 
