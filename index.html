@@ -609,7 +609,7 @@ td input:focus{background:#fff;border-color:var(--blue)}
     </div>
     <div class="dwrap">
       <input type="text" id="manualCaseInput" placeholder="Case No likhein ya dropdown se chunein..."
-        autocomplete="off" inputmode="numeric"
+        autocomplete="off"
         oninput="onManualInput()" onkeydown="onManualKeyDown(event)"
         onpaste="setTimeout(()=>{manualCaseInput.value=manualCaseInput.value.replace(/[\n\r\t]+/g,' ').trim();onManualInput();},0)">
       <div id="caseDD"></div>
@@ -1063,9 +1063,7 @@ function speakNextDate(isoDate){
     const dt=new Date(isoDate+'T00:00:00');
     const day=dt.getDate();
     const monthEn=dt.toLocaleDateString('en-IN',{month:'long'});
-    const dayHindi=HINDI_DATES[day]||String(day);
-    const monthHindi=HINDI_MONTHS[monthEn]||monthEn;
-    speak('अगली तारीख '+dayHindi+' '+monthHindi,'hi-IN');
+    speak("Next date "+day+" "+monthEn);
   }catch(e){}
 }
 function haptic(type){
