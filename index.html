@@ -520,6 +520,7 @@ td input:focus{background:#fff;border-color:var(--blue)}
           <button class="btn amber" onclick="fbSaveConfig()" style="margin-top:0">💾 Connect</button>
           <button class="btn neutral" onclick="fbReset()" style="margin-top:0">🗑 Reset</button>
         </div>
+        <button class="btn primary" onclick="fbPush().then(()=>showToast('✅ Data Firebase pe push ho gaya!'))" style="margin-top:8px">☁️ Ab Push Karo (Force Sync)</button>
         <p class="fb-note">Firebase Console → Project Settings → Web App → Config</p>
       </div>
     </div>
@@ -2356,7 +2357,11 @@ let _fbUnsub=null;
 async function fbInit(cfg){
   try{
     if(firebase.apps.length)await Promise.all(firebase.apps.map(a=>a.delete()));
-    firebase.initializeApp(cfg);_fbDb=firebase.firestore();setSyncDot('ok');fbMsg('✅ Firebase connected!','s-ok');fbStartListen();
+    firebase.initializeApp(cfg);_fbDb=firebase.firestore();
+    setSyncDot('ok');fbMsg('✅ Firebase connected!','s-ok');
+    fbStartListen();
+    // Connect hote hi current data push karo (pehle ka data bhi sync ho jaye)
+    if(cData.length)await fbPush();
   }catch(e){_fbDb=null;setSyncDot('err');fbMsg('❌ '+e.message,'s-err');}
 }
 function fbStartListen(){
