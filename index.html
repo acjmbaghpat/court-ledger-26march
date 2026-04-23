@@ -1315,7 +1315,10 @@ async function loadCurV(){
   versionSelect.value=upV;
 }
 async function saveLocal(){
-  try{await idbSM(dKey(),cData);fbPush();fbPushVersionMeta();}
+  try{
+    await idbSM(dKey(),cData);
+    fbPush();fbPushVersionMeta();
+  }
   catch(e){console.error('saveLocal fail:',e);showToast('⚠️ Data save fail! Storage full ho sakta hai.','d');}
 }
 async function loadLocal(){
@@ -2371,15 +2374,14 @@ async function fbInit(cfg){
 }
 function fbStartListen(){
   if(!_fbDb)return;if(_fbUnsub)_fbUnsub();const docId=dKey();
-  _fbUnsub=_fbDb.collection('cfm').doc(docId).onSnapshot(snap=>{
-    if(!snap.exists)return;const rem=snap.data();if(!rem||!rem.data)return;
-    if(scanActive)return;const active=document.activeElement;if(active&&active.dataset&&active.dataset.caseno)return;
-    cData=rem.data;cData.forEach(r=>r.searchableText=gSrch(r));
-    drawTable(getFiltered());updateDash();setSyncDot('ok');checkReminders();
-    const ovM=document.getElementById('ovModal');
-    if(ovM&&ovM.classList.contains('on')){
-      document.getElementById('ovList').innerHTML='<div style="text-align:center;padding:20px;color:var(--mu);font-size:13px">🔄 Data update hua — band karo aur dobara kholein</div>';
+  // Local = source of truth. Firebase snapshot aaye to sirf push karo agar Firebase pe nahi hai.
+  // Firebase se local ko kabhi overwrite mat karo.
+  _fbUnsub=_fbDb.collection('cfm').doc(docId).onSnapshot(async snap=>{
+    if(!snap.exists&&cData.length){
+      // Firebase pe data nahi — local push karo
+      await fbPush();
     }
+    setSyncDot('ok');
   },()=>setSyncDot('err'));
 }
 
@@ -2387,27 +2389,12 @@ let _fbBundleUnsub=null;
 function fbStartListenBundle(){
   if(!_fbDb)return;
   if(_fbBundleUnsub){_fbBundleUnsub();_fbBundleUnsub=null;}
-  _fbBundleUnsub=_fbDb.collection('bundle').doc('main').onSnapshot(snap=>{
-    if(!snap.exists)return;
-    const d=snap.data();
-    if(!d||!d.files)return;
-    // Only update if data is newer than local
-    const remoteAt=d.at||0;
-    const localAt=Math.max(...Object.values(bFiles).map(f=>f.at||0),0);
-    if(remoteAt<=localAt)return; // local is newer or same — skip
-    // Update bFiles from Firebase
-    Object.values(d.files).forEach(async f=>{
-      bFiles[f.id]=f;
-      try{await idbSBn(f);}catch(e){}
-    });
-    // Remove deleted files
-    Object.keys(bFiles).forEach(async id=>{
-      if(!d.files[id]){
-        delete bFiles[id];
-        try{await idbDB(id);}catch(e){}
-      }
-    });
-    if(activeTab==='bundle')bRenderGrid();
+  // Local = source of truth. Firebase se bundle kabhi overwrite nahi hoga.
+  _fbBundleUnsub=_fbDb.collection('bundle').doc('main').onSnapshot(async snap=>{
+    if(!snap.exists){
+      // Firebase pe nahi — local push karo
+      await fbPushBundle();
+    }
     setSyncDot('ok');
   },()=>{});
 }
