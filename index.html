@@ -520,7 +520,8 @@ td input:focus{background:#fff;border-color:var(--blue)}
           <button class="btn amber" onclick="fbSaveConfig()" style="margin-top:0">💾 Connect</button>
           <button class="btn neutral" onclick="fbReset()" style="margin-top:0">🗑 Reset</button>
         </div>
-        <button class="btn primary" onclick="fbPush().then(()=>showToast('✅ Data Firebase pe push ho gaya!'))" style="margin-top:8px">☁️ Ab Push Karo (Force Sync)</button>
+        <button class="btn primary" onclick="fbPushAll()" style="margin-top:8px">☁️ Sabhi Data Push Karo</button>
+        <button class="btn primary" onclick="fbPullAll()" style="margin-top:6px;background:linear-gradient(135deg,#0891b2,#0e7490)">⬇️ Sabhi Data Pull Karo</button>
         <p class="fb-note">Firebase Console → Project Settings → Web App → Config</p>
       </div>
     </div>
@@ -1314,7 +1315,7 @@ async function loadCurV(){
   versionSelect.value=upV;
 }
 async function saveLocal(){
-  try{await idbSM(dKey(),cData);fbPush();}
+  try{await idbSM(dKey(),cData);fbPush();fbPushVersionMeta();}
   catch(e){console.error('saveLocal fail:',e);showToast('⚠️ Data save fail! Storage full ho sakta hai.','d');}
 }
 async function loadLocal(){
@@ -1677,7 +1678,7 @@ async function confirmUndo(){
   if(_undoAction==='unsent'){
     cData[idx].sent='';cData[idx].sentdate='';cData[idx].received='';cData[idx].receiveddate='';cData[idx].nextdate='';
     const bid=_cdCN.toUpperCase();
-    if(bFiles[bid]&&bFiles[bid].hidden){bFiles[bid].hidden=false;await idbSBn(bFiles[bid]);if(activeTab==='bundle')bRenderGrid();}
+    if(bFiles[bid]&&bFiles[bid].hidden){bFiles[bid].hidden=false;await idbSBn(bFiles[bid]);scheduleBundlePush();if(activeTab==='bundle')bRenderGrid();}
     showToast('↩ SENT undo ho gaya: '+_cdCN);
   }else if(_undoAction==='unreceived'){cData[idx].received='';cData[idx].receiveddate='';cData[idx].nextdate='';showToast('↩ RECEIVED undo ho gaya: '+_cdCN);}
   cData[idx].searchableText=gSrch(cData[idx]);
@@ -1933,7 +1934,7 @@ async function handleCFMScan(code,mode){
 // ════ BUNDLE AUTO-HIDE ════
 async function hideBundleEntry(caseNo){
   const id=String(caseNo).toUpperCase();
-  if(bFiles[id]){bFiles[id].hidden=true;await idbSBn(bFiles[id]);if(activeTab==='bundle')bRenderGrid();showToast('📁 '+id+' bundle se hide ho gaya (SENT)');}
+  if(bFiles[id]){bFiles[id].hidden=true;await idbSBn(bFiles[id]);scheduleBundlePush();if(activeTab==='bundle')bRenderGrid();showToast('📁 '+id+' bundle se hide ho gaya (SENT)');}
 }
 
 // ════ BUNDLE STATE + COLUMNS ════
@@ -2195,7 +2196,7 @@ async function bAddFile(rawId,fromScan){
     }
   }
   const obj={id,md:bActiveCat?0:bAMD,sd:bActiveCat?null:bASD,col:bAC,cat:bActiveCat||null,at:Date.now(),st:'placed',hidden:false};
-  bFiles[id]=obj;await idbSBn(obj);
+  bFiles[id]=obj;await idbSBn(obj);scheduleBundlePush();
   const slotLabel=bActiveCat?((CAT_LABELS[bActiveCat]||bActiveCat)+'-'+dispCol(bAC)):('Date '+bAMD+(bASD!=null?'/'+bASD:'')+'-'+dispCol(bAC));
   if(fromScan){showSC('✅ '+id+' → '+slotLabel,'#16a34a');speak(bActiveCat||String(bAMD)+' '+dispCol(bAC),'hi-IN');haptic('scan');}
   else{showToast('✅ '+id+' → '+slotLabel);haptic('success');}
@@ -2218,8 +2219,7 @@ async function confirmMismatch(){
   bASD=mmSD;
   try{
     const obj={id,md:bAMD,sd:bASD,col:bAC,cat:bActiveCat||null,at:Date.now(),st:'placed',hidden:false};
-    bFiles[id]=obj;await idbSBn(obj);
-    showSC('✅ '+id+` → Date ${bAMD}/${bASD}-${dispCol(bAC)}`,'#16a34a');
+    bFiles[id]=obj;await idbSBn(obj);scheduleBundlePush();
     speak(bAMD+' '+dispCol(bAC),'hi-IN');haptic('scan');
     bUpdateSP();bRenderGrid();
   }finally{
@@ -2229,9 +2229,9 @@ async function confirmMismatch(){
   }
 }
 function cancelMismatch(){document.getElementById('mmModal').classList.remove('on');mmPending={id:'',cfmDay:0};showSC('❌ Scan reject: date mismatch','#dc2626');}
-async function bSetStatus(id,st){if(!bFiles[id])return;bFiles[id].st=st;await idbSBn(bFiles[id]);showToast(st==='missing'?'⚠ Missing: '+id:'✅ Restored: '+id,st==='missing'?'w':'');bRenderGrid();if(bSlot)bRenderSlot();bRenderSearch();}
-async function bUnhide(id){if(!bFiles[id])return;bFiles[id].hidden=false;await idbSBn(bFiles[id]);showToast('✅ '+id+' wapas dikhaya');bRenderGrid();bRenderSearch();}
-async function bDelFile(id){delete bFiles[id];await idbDB(id);showToast('Hata diya: '+id,'d');bRenderGrid();if(bSlot)bRenderSlot();bRenderSearch();}
+async function bSetStatus(id,st){if(!bFiles[id])return;bFiles[id].st=st;await idbSBn(bFiles[id]);scheduleBundlePush();showToast(st==='missing'?'⚠ Missing: '+id:'✅ Restored: '+id,st==='missing'?'w':'');bRenderGrid();if(bSlot)bRenderSlot();bRenderSearch();}
+async function bUnhide(id){if(!bFiles[id])return;bFiles[id].hidden=false;await idbSBn(bFiles[id]);scheduleBundlePush();showToast('✅ '+id+' wapas dikhaya');bRenderGrid();bRenderSearch();}
+async function bDelFile(id){delete bFiles[id];await idbDB(id);scheduleBundlePush();showToast('Hata diya: '+id,'d');bRenderGrid();if(bSlot)bRenderSlot();bRenderSearch();}
 function bOpenMove(id){bMoveId=id;const f=bFiles[id];bMMD=f.md;bMSD=f.sd!=null?f.sd:null;bMC=f.col;document.getElementById('bm-fid').textContent=id;bRenderMoveForm();document.getElementById('bmModal').classList.add('on');}
 function closeBMModal(){document.getElementById('bmModal').classList.remove('on');bMoveId=null;}
 document.getElementById('bmModal').addEventListener('click',function(e){if(e.target===this)closeBMModal();});
@@ -2248,6 +2248,7 @@ function bUpdateMP(){document.getElementById('bm-prev').textContent=`Date ${bMMD
 async function doBundleMove(){
   if(_bulkMoveMode&&_ddSel.size>0){
     for(const rawId of _ddSel){if(!bFiles[rawId])continue;bFiles[rawId].md=bMMD;bFiles[rawId].sd=bMSD;bFiles[rawId].col=bMC;await idbSBn(bFiles[rawId]);}
+    scheduleBundlePush();
     showToast(`✅ ${_ddSel.size} files moved → Date ${bMMD}${bMSD!=null?'/'+bMSD:''}-${dispCol(bMC)}`);
     _ddSel.clear();_bulkMoveMode=false;_ddSelMode=false;
     const btn=document.getElementById('bsd-sel-btn');if(btn){btn.textContent='☑ Select';btn.classList.remove('on');}
@@ -2256,6 +2257,7 @@ async function doBundleMove(){
   }
   _bulkMoveMode=false;if(!bMoveId)return;
   bFiles[bMoveId].md=bMMD;bFiles[bMoveId].sd=bMSD;bFiles[bMoveId].col=bMC;await idbSBn(bFiles[bMoveId]);
+  scheduleBundlePush();
   showToast(`✅ Moved → Date ${bMMD}${bMSD!=null?'/'+bMSD:''}-${dispCol(bMC)}`);
   closeBMModal();bRenderGrid();if(bSlot){bSlot=null;swBV('grid');}bRenderSearch();
 }
@@ -2360,8 +2362,11 @@ async function fbInit(cfg){
     firebase.initializeApp(cfg);_fbDb=firebase.firestore();
     setSyncDot('ok');fbMsg('✅ Firebase connected!','s-ok');
     fbStartListen();
-    // Connect hote hi current data push karo (pehle ka data bhi sync ho jaye)
-    if(cData.length)await fbPush();
+    fbStartListenBundle();
+    // Connect hote hi current data push karo
+    if(cData.length){await fbPush();await fbPushVersionMeta();}
+    await fbPushBundle();
+    await fbPushUrgent();
   }catch(e){_fbDb=null;setSyncDot('err');fbMsg('❌ '+e.message,'s-err');}
 }
 function fbStartListen(){
@@ -2371,18 +2376,176 @@ function fbStartListen(){
     if(scanActive)return;const active=document.activeElement;if(active&&active.dataset&&active.dataset.caseno)return;
     cData=rem.data;cData.forEach(r=>r.searchableText=gSrch(r));
     drawTable(getFiltered());updateDash();setSyncDot('ok');checkReminders();
-    // Refresh overdue modal if open (stale data protection)
     const ovM=document.getElementById('ovModal');
     if(ovM&&ovM.classList.contains('on')){
-      // Close and let user reopen to get fresh data
       document.getElementById('ovList').innerHTML='<div style="text-align:center;padding:20px;color:var(--mu);font-size:13px">🔄 Data update hua — band karo aur dobara kholein</div>';
     }
   },()=>setSyncDot('err'));
 }
+
+let _fbBundleUnsub=null;
+function fbStartListenBundle(){
+  if(!_fbDb)return;
+  if(_fbBundleUnsub){_fbBundleUnsub();_fbBundleUnsub=null;}
+  _fbBundleUnsub=_fbDb.collection('bundle').doc('main').onSnapshot(snap=>{
+    if(!snap.exists)return;
+    const d=snap.data();
+    if(!d||!d.files)return;
+    // Only update if data is newer than local
+    const remoteAt=d.at||0;
+    const localAt=Math.max(...Object.values(bFiles).map(f=>f.at||0),0);
+    if(remoteAt<=localAt)return; // local is newer or same — skip
+    // Update bFiles from Firebase
+    Object.values(d.files).forEach(async f=>{
+      bFiles[f.id]=f;
+      try{await idbSBn(f);}catch(e){}
+    });
+    // Remove deleted files
+    Object.keys(bFiles).forEach(async id=>{
+      if(!d.files[id]){
+        delete bFiles[id];
+        try{await idbDB(id);}catch(e){}
+      }
+    });
+    if(activeTab==='bundle')bRenderGrid();
+    setSyncDot('ok');
+  },()=>{});
+}
+// Push ALL data — CFM sabhi dates, bundle, urgent
+async function fbPushAll(){
+  if(!_fbDb){showToast('⚠️ Firebase connected nahi hai','w');return;}
+  showToast('☁️ Sab data push ho raha hai...','w');
+  try{
+    // 1. CFM — sabhi IDB keys
+    const allKeys=await idbAMK();
+    const dataKeys=allKeys.filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k));
+    for(const k of dataKeys){
+      const d=await idbGM(k);
+      if(d&&Array.isArray(d))await _fbDb.collection('cfm').doc(k).set({data:d,at:Date.now()});
+    }
+    // 2. Version metadata — sabhi dates
+    const vKeys=await idbAVK();
+    for(const date of vKeys){
+      const vs=await idbGV(date);
+      const cv=await idbGM('cv_'+date);
+      await _fbDb.collection('cfm_meta').doc(date).set({versions:vs||[],cv:cv||1,at:Date.now()});
+    }
+    // 3. Bundle
+    await fbPushBundle();
+    // 4. Urgent
+    await fbPushUrgent();
+    showToast('✅ Sab data push ho gaya!');
+  }catch(e){
+    showToast('❌ Push fail: '+e.message,'d');
+  }
+}
+
 async function fbPush(){
   if(!_fbDb||!cData.length)return;
   try{setSyncDot('busy');await _fbDb.collection('cfm').doc(dKey()).set({data:cData,at:Date.now()});setSyncDot('ok');}
   catch(e){setSyncDot('err');}
+}
+
+// Version metadata push (sabhi dates ki version list)
+async function fbPushVersionMeta(){
+  if(!_fbDb)return;
+  try{
+    const vs=await idbGV(workDate.value);
+    const cv=await idbGM('cv_'+workDate.value);
+    await _fbDb.collection('cfm_meta').doc(workDate.value).set({versions:vs||[],cv:cv||1,at:Date.now()});
+  }catch(e){}
+}
+
+// Bundle push (debounced)
+let _bPushTimer;
+function scheduleBundlePush(){clearTimeout(_bPushTimer);_bPushTimer=setTimeout(()=>fbPushBundle(),1500);}
+async function fbPushBundle(){
+  if(!_fbDb)return;
+  try{
+    const filesArr=Object.values(bFiles);
+    await _fbDb.collection('bundle').doc('main').set({files:bFiles,count:filesArr.length,at:Date.now()});
+  }catch(e){console.error('fbPushBundle:',e);}
+}
+
+// Urgent logs push (debounced)
+let _urgPushTimer;
+function scheduleUrgentPush(){clearTimeout(_urgPushTimer);_urgPushTimer=setTimeout(()=>fbPushUrgent(),1500);}
+async function fbPushUrgent(){
+  if(!_fbDb)return;
+  try{
+    const logs=await ulGetAll();
+    await _fbDb.collection('urgent').doc('main').set({logs,at:Date.now()});
+  }catch(e){console.error('fbPushUrgent:',e);}
+}
+
+// Pull EVERYTHING from Firebase
+async function fbPullAll(){
+  if(!_fbDb){showToast('⚠️ Firebase connected nahi hai','w');return;}
+  showToast('🔄 Sab data pull ho raha hai...','w');
+  try{
+    // 1. CFM data — sabhi dates+versions
+    const cfmSnaps=await _fbDb.collection('cfm').get();
+    for(const doc of cfmSnaps.docs){
+      const key=doc.id;
+      if(!/^\d{4}-\d{2}-\d{2}_\d+$/.test(key))continue;
+      const d=doc.data();
+      if(d&&d.data&&Array.isArray(d.data))await idbSM(key,d.data);
+    }
+    // 2. Version metadata
+    const metaSnaps=await _fbDb.collection('cfm_meta').get();
+    for(const doc of metaSnaps.docs){
+      const date=doc.id;const d=doc.data();
+      if(d&&d.versions)await idbSV(date,d.versions);
+      if(d&&d.cv)await idbSM('cv_'+date,d.cv);
+    }
+    // 3. Bundle data
+    const bundleSnap=await _fbDb.collection('bundle').doc('main').get();
+    if(bundleSnap.exists){
+      const d=bundleSnap.data();
+      if(d&&d.files){
+        // Clear old IDB bundle data and replace
+        const oldAll=await idbAB();
+        for(const f of oldAll){try{await idbDB(f.id);}catch(e){}}
+        bFiles={};
+        for(const f of Object.values(d.files)){
+          bFiles[f.id]=f;
+          try{await idbSBn(f);}catch(e){}
+        }
+        if(activeTab==='bundle')bRenderGrid();
+      }
+    }
+    // 4. Urgent logs
+    const urgSnap=await _fbDb.collection('urgent').doc('main').get();
+    if(urgSnap.exists){
+      const d=urgSnap.data();
+      if(d&&d.logs&&Array.isArray(d.logs)){
+        // Clear existing urgent logs
+        const existing=await ulGetAll();
+        for(const x of existing){
+          try{await new Promise((res,rej)=>{
+            const tx=db.transaction(SUL,'readwrite');
+            const s=tx.objectStore(SUL);
+            const r=s.delete(x.id);r.onsuccess=res;r.onerror=rej;
+          });}catch(e){}
+        }
+        // Re-add from Firebase (without id so autoIncrement works)
+        for(const log of d.logs){
+          const {id,...logData}=log;
+          try{await new Promise((res,rej)=>{
+            const tx=db.transaction(SUL,'readwrite');
+            const s=tx.objectStore(SUL);
+            const r=s.add(logData);r.onsuccess=res;r.onerror=rej;
+          });}catch(e){}
+        }
+      }
+    }
+    // 5. Reload current view
+    await loadVersions();await loadCurV();await loadLocal();
+    showToast('✅ Sab data sync ho gaya!');
+  }catch(e){
+    console.error('fbPullAll:',e);
+    showToast('❌ Pull fail: '+e.message,'d');
+  }
 }
 
 // ════ OVERDUE MODAL ════
@@ -2604,7 +2767,7 @@ async function ulAdd(entry){
     const tx=db.transaction(SUL,'readwrite');
     const s=tx.objectStore(SUL);
     const r=s.add(entry);
-    r.onsuccess=()=>res(r.result);
+    r.onsuccess=()=>{res(r.result);scheduleUrgentPush();}
     r.onerror=e=>rej(e.target.error);
   });
 }
