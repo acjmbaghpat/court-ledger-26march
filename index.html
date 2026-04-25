@@ -1073,9 +1073,21 @@ function haptic(type){
     if(!navigator.vibrate)return;
     if(type==='success')navigator.vibrate(55);
     else if(type==='scan')navigator.vibrate(30);
-    else if(type==='error')navigator.vibrate([70,40,70]);
+    else if(type==='error')navigator.vibrate([100,50,100,50,100]); // strong triple pulse
+    else if(type==='mismatch')navigator.vibrate([200,100,200,100,200]); // very strong — attention!
     else if(type==='warn')navigator.vibrate(120);
   }catch(e){}
+}
+// Red flash overlay — screen red flash for critical errors
+function redFlash(){
+  let el=document.getElementById('_redFlash');
+  if(!el){el=document.createElement('div');el.id='_redFlash';
+    el.style.cssText='position:fixed;inset:0;background:rgba(220,38,38,0.28);z-index:99999;pointer-events:none;opacity:0;transition:opacity .15s';
+    document.body.appendChild(el);}
+  el.style.opacity='1';
+  setTimeout(()=>{el.style.opacity='0';},300);
+  setTimeout(()=>{el.style.opacity='1';},450);
+  setTimeout(()=>{el.style.opacity='0';},750);
 }
 let activeTab='cfm';
 function switchTab(t){
@@ -1727,7 +1739,7 @@ async function manualAction(mode){
   if(cn.length>50){showMS("⚠️ Case No bahut lamba hai","err");return;}
   if(!cData.length){showMS("⚠️ Data nahi. Excel upload karo","err");return;}
   const idx=findCaseIdx(raw);
-  if(idx===-1){showMS("❌ Not Found: "+cn,"err");speak("Case not found");haptic('error');return;}
+  if(idx===-1){showMS("❌ Not Found: "+cn,"err");speak("Case not found");haptic('error');redFlash();return;}
   const rec=cData[idx];
   const actualCN=rec.caseno;
   if(mode==="SENT"){
@@ -1917,14 +1929,14 @@ function handleScanResult(dec){
 function startCFMScan(mode){openScan(mode==='SENT'?'cfm_sent':'cfm_rcv',mode==='SENT'?'📤 Scanning for SENT...':'📥 Scanning for RECEIVED...',false);}
 async function handleCFMScan(code,mode){
   const idx=findCaseIdx(code.trim());
-  if(idx===-1){showSC('❌ Not Found: '+code,'#dc2626');speak("File not found");haptic('error');return;}
+  if(idx===-1){showSC('❌ Not Found: '+code,'#dc2626');speak("File not found");haptic('error');redFlash();return;}
   const actualCN=cData[idx].caseno; // always use stored caseno, not raw scanned string
   if(mode==='SENT'){
     if(cData[idx].sent==="Sent"){showSC('ℹ️ Already Sent: '+actualCN,'#d97706');speak("Already sent");return;}
     cData[idx].sent="Sent";cData[idx].sentdate=new Date().toISOString().split("T")[0];cData[idx].searchableText=gSrch(cData[idx]);
     showSC('✅ SENT: '+actualCN,'#16a34a');speak("File sent");haptic('scan');await hideBundleEntry(actualCN);
   }else{
-    if(cData[idx].sent!=="Sent"){showSC('❌ Pehle SENT karo: '+actualCN,'#dc2626');speak("File not sent yet");return;}
+    if(cData[idx].sent!=="Sent"){showSC('❌ Pehle SENT karo: '+actualCN,'#dc2626');speak("File not sent yet");haptic('error');redFlash();return;}
     if(cData[idx].received==="Received"){showSC('ℹ️ Already Received: '+actualCN,'#d97706');speak("Already received");return;}
     cData[idx].received="Received";cData[idx].receiveddate=new Date().toISOString().split("T")[0];cData[idx].searchableText=gSrch(cData[idx]);lastRcvCase=actualCN;
     showSC('✅ RECEIVED: '+actualCN,'#16a34a');speak("File received");haptic('scan');
@@ -2183,19 +2195,33 @@ function bUpdateSP(){
 function bUpdateST(){const el=document.getElementById('scan-ml');if(el&&scanCtx==='bundle')el.textContent=`📷 Bundle → Date ${bAMD}${bASD!=null?'/'+bASD:''} ${dispCol(bAC)}`;}
 async function bAddFile(rawId,fromScan){
   const id=rawId.trim().toUpperCase();if(!id)return false;
-  if(fromScan){const rec=getCFMRecord(id);if(!rec){showSC('❌ CFM mein nahi hai: '+id,'#dc2626');speak("File CFM mein nahi hai");haptic('error');return false;}}
+  // CFM check — file exist karni chahiye
+  const cfmRec=getCFMRecord(id);
+  if(fromScan){
+    if(!cfmRec){showSC('❌ CFM mein nahi hai: '+id,'#dc2626');speak("File CFM mein nahi hai");haptic('error');redFlash();return false;}
+    // File received honi chahiye tabhi bundle mein aaye
+    if(cfmRec.received!=='Received'){
+      const sentStr=cfmRec.sent==='Sent'?('Sent: '+fmtD(cfmRec.sentdate)+' — abhi received nahi hui'):'Abhi sent bhi nahi hui';
+      showSC('❌ '+id+' received nahi hai\n'+sentStr,'#dc2626');
+      speak("File received nahi hai");haptic('error');redFlash();return false;
+    }
+  }
   if(bFiles[id]&&!bFiles[id].hidden){
     const ex=bFiles[id];
-    const exLoc=ex.cat?(CAT_LABELS[ex.cat]||ex.cat)+' — '+dispCol(ex.col):'Date '+ex.md+(ex.sd!=null?'/'+ex.sd:'')+' — '+dispCol(ex.col);
-    const msg=`"${id}" pehle se: ${exLoc}`;
-    fromScan?showSC(msg,'#dc2626'):showToast(msg,'d');speak("File pehle se hai");haptic('error');return false;
+    const exLoc=ex.cat?(CAT_LABELS[ex.cat]||ex.cat)+' — '+dispCol(ex.col):'Date '+ex.md+(ex.sd!=null?'/'+ex.sd:'')+' — Col '+dispCol(ex.col);
+    const cfmRec=getCFMRecord(id);
+    const nextDateStr=cfmRec&&cfmRec.nextdate?(' | Next Date: '+fmtD(cfmRec.nextdate)):'';
+    const sentStr=cfmRec&&cfmRec.sentdate?(' | Last Sent: '+fmtD(cfmRec.sentdate)):'';
+    const msg=`⚠ "${id}" pehle se bundle mein hai\n📍 ${exLoc}${sentStr}${nextDateStr}`;
+    if(fromScan){showSC(msg,'#dc2626');haptic('mismatch');redFlash();}else{showToast(msg,'d');}
+    speak("File pehle se bundle mein hai");haptic('error');return false;
   }
   if(fromScan&&!bActiveCat){
-    const cfmDay=getCFMDay(id);
+    const cfmDay=cfmRec?getCFMDay(id):null;
     if(cfmDay!==null&&cfmDay!==bAMD&&bASD===null){
       scanCool=true;
       if(contMode){scanActive=false;if(scanStream){scanStream.getTracks().forEach(t=>t.stop());scanStream=null;}document.getElementById('scan-vid').srcObject=null;hideQRBox();document.getElementById('scan-ov').classList.remove('on');}
-      openMismatchModal(id,cfmDay);return false;
+      openMismatchModal(id,cfmDay);haptic('mismatch');redFlash();return false;
     }
   }
   const obj={id,md:bActiveCat?0:bAMD,sd:bActiveCat?null:bASD,col:bAC,cat:bActiveCat||null,at:Date.now(),st:'placed',hidden:false};
@@ -2953,6 +2979,64 @@ function runBundleCheck(){
 
 // ════ FIX 7: TODAY's DATE FILES — Koi almari mein to nahi reh gayi? ════
 // Aaj ki date ke CFM cases (nextdate = aaj) jo bundle mein abhi bhi hain (sent nahi hui)
+async function runBundleCheck(){
+  const listEl=document.getElementById('bchk-inline');
+  if(!listEl)return;
+  listEl.innerHTML='<div style="text-align:center;padding:20px;color:var(--mu);font-size:13px">🔍 Galat date check ho raha hai...</div>';
+
+  const today=new Date();today.setHours(0,0,0,0);
+  const todayDay=today.getDate();
+  const todayMon=String(today.getMonth()+1).padStart(2,'0');
+
+  const wrongDate=[];
+  Object.values(bFiles).forEach(f=>{
+    if(f.hidden||f.cat||!f.md)return;
+    // CFM se next date nikalo
+    const cfmRec=cData.find(r=>caseMatch(r.caseno,f.id));
+    if(!cfmRec||!cfmRec.nextdate)return;
+    const cfmDay=parseInt(cfmRec.nextdate.split('-')[2]);
+    if(cfmDay!==f.md){
+      wrongDate.push({f,cfmRec,cfmDay});
+    }
+  });
+
+  let h=`<div style="background:#f7f9fc;border-radius:10px;padding:10px 13px;margin-bottom:14px">
+    <div style="font-weight:700;font-size:13px;color:var(--navy)">🗂 Galat Date Check — ${todayDay}.${todayMon}</div>
+    <div style="font-size:11px;color:var(--mu);margin-top:2px">Bundle mein jo files hain unki CFM next date se compare</div>
+  </div>`;
+
+  if(!wrongDate.length){
+    h+=`<div style="color:var(--green);font-weight:700;font-size:14px;text-align:center;padding:20px 0">✅ Sab files sahi date pe rakhi hain!</div>`;
+    listEl.innerHTML=h;return;
+  }
+
+  h+=`<div style="background:#fef2f2;border:1.5px solid #fca5a5;border-radius:10px;padding:9px 13px;margin-bottom:10px">
+    <div style="font-weight:700;font-size:13px;color:var(--red)">⚠️ ${wrongDate.length} file${wrongDate.length>1?'s':''} galat date pe</div>
+    <div style="font-size:11px;color:var(--mu);margin-top:2px">Bundle date aur CFM next date match nahi karti</div>
+  </div>`;
+
+  wrongDate.forEach(({f,cfmRec,cfmDay})=>{
+    const diff=cfmDay-f.md;
+    h+=`<div style="background:#fff;border:2px solid var(--red);border-radius:10px;padding:10px 13px;margin-bottom:7px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div>
+          <div style="font-weight:800;font-size:14px;color:var(--navy)">${esc(f.id)}</div>
+          <div style="font-size:12px;color:var(--mu);margin-top:2px">👤 ${esc(cfmRec.partyname||'—')}${cfmRec.section?' · '+esc(cfmRec.section):''}</div>
+          <div style="font-size:11px;margin-top:4px">
+            <span style="background:#fee2e2;color:var(--red);padding:2px 7px;border-radius:20px;font-size:10px;font-weight:700">Bundle: Date ${f.md} — ${dispCol(f.col)}</span>
+          </div>
+        </div>
+        <div style="text-align:right;flex-shrink:0;margin-left:8px">
+          <div style="font-size:10px;font-weight:700;background:#eef2ff;color:var(--blue);padding:2px 8px;border-radius:20px">CFM: ${fmtD(cfmRec.nextdate)}</div>
+          <div style="font-size:10px;color:var(--mu);margin-top:4px">${diff>0?'+'+diff:diff} din ka fark</div>
+        </div>
+      </div>
+    </div>`;
+  });
+
+  listEl.innerHTML=h;
+}
+
 async function checkTodayFiles(){
   const listEl=document.getElementById('bchk-inline');
   if(!listEl)return;
