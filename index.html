@@ -8,6 +8,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
 <style>
 /* ═══════════════ RESET & ROOT ═══════════════ */
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -425,6 +426,7 @@ td input:focus{background:#fff;border-color:var(--blue)}
       <button class="dtab on" data-dp="dp-version" onclick="switchDP(this)"><span class="dice">📋</span>Version</button>
       <button class="dtab" data-dp="dp-addcase" onclick="switchDP(this)"><span class="dice">➕</span>Add Case</button>
       <button class="dtab" data-dp="dp-upload"  onclick="switchDP(this)"><span class="dice">📤</span>Upload</button>
+      <button class="dtab" data-dp="dp-translate" onclick="switchDP(this)"><span class="dice">🔤</span>Translate</button>
       <button class="dtab" data-dp="dp-export"  onclick="switchDP(this)"><span class="dice">📥</span>Export</button>
       <button class="dtab" data-dp="dp-sync"    onclick="switchDP(this)"><span class="dice">🔥</span>Firebase</button>
       <button class="dtab" data-dp="dp-backup"  onclick="switchDP(this)"><span class="dice">🗄</span>Backup</button>
@@ -498,7 +500,72 @@ td input:focus{background:#fff;border-color:var(--blue)}
       </div>
     </div>
 
-    <!-- Panel: Export -->
+    <!-- Panel: Translate -->
+    <div class="dpanel" id="dp-translate">
+      <div class="dsec">
+        <div class="dsec-title">🔤 Excel Translate & Process</div>
+        <p style="font-size:12px;color:var(--mu);margin-bottom:10px;font-weight:500">
+          Court ke Excel ko process karo — Case No. shorten, Hindi translate, Section abbreviate.
+        </p>
+
+        <!-- File upload zone -->
+        <div id="trUploadZone" style="border:2px dashed var(--bdr);border-radius:10px;padding:20px;text-align:center;cursor:pointer;position:relative;margin-bottom:10px;transition:all .2s"
+          ondragover="event.preventDefault();this.style.borderColor='var(--blue)'"
+          ondragleave="this.style.borderColor='var(--bdr)'"
+          ondrop="trOnDrop(event)">
+          <input type="file" id="trFileInput" accept=".xlsx,.xls"
+            style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%"
+            onchange="trOnFileChange(this)">
+          <div style="font-size:28px;margin-bottom:6px">📂</div>
+          <div style="font-size:13px;color:var(--mu)">Excel file drop karo ya click karo</div>
+          <div id="trChosenFile" style="font-size:12px;color:var(--blue);font-weight:700;margin-top:5px">Koi file nahi chuni</div>
+        </div>
+
+        <!-- Progress -->
+        <div style="background:#f0f3f9;border-radius:6px;height:8px;margin-bottom:8px;overflow:hidden">
+          <div id="trProgBar" style="height:100%;width:0%;background:linear-gradient(90deg,var(--blue),var(--teal));transition:width .3s;border-radius:6px"></div>
+        </div>
+        <div id="trStatus" style="font-size:12px;color:var(--mu);margin-bottom:12px;min-height:18px;font-weight:500">File select karo aur Process dabao.</div>
+
+        <!-- Action buttons -->
+        <button class="btn primary" id="trBtnProcess" onclick="trProcess()" style="margin-bottom:6px;width:100%">▶ Process Karo</button>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:4px">
+          <button class="btn" id="trBtnView" onclick="trShowPreview()" disabled
+            style="background:#f7f9fc;color:var(--navy);border:1.5px solid var(--bdr);font-size:12px;padding:9px 6px">
+            👁 View / Check
+          </button>
+          <button class="btn" id="trBtnDL" onclick="trAskFileName()" disabled
+            style="background:#f7f9fc;color:var(--navy);border:1.5px solid var(--bdr);font-size:12px;padding:9px 6px">
+            ⬇ Download
+          </button>
+          <button class="btn amber" id="trBtnSend" onclick="trSendToUpload()" disabled
+            style="font-size:12px;padding:9px 6px">
+            📤 Send to Upload
+          </button>
+        </div>
+
+        <!-- Preview area (inline) -->
+        <div id="trPreviewWrap" style="display:none;margin-top:14px;border-top:1.5px solid var(--bdr);padding-top:12px">
+          <div style="font-size:12px;font-weight:700;color:var(--navy);margin-bottom:8px">Preview — Translated Data</div>
+          <div id="trPreviewTable" style="overflow-x:auto;max-height:300px;overflow-y:auto;border-radius:8px;border:1px solid var(--bdr)"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Download name modal for translate -->
+    <div id="trModalOverlay" style="display:none;position:fixed;inset:0;background:#0008;z-index:9999;align-items:center;justify-content:center">
+      <div style="background:#fff;border-radius:14px;padding:24px;width:min(90vw,340px);border-top:4px solid var(--blue)">
+        <div style="font-weight:700;font-size:15px;color:var(--navy);margin-bottom:6px">📁 File ka naam daalen</div>
+        <p style="font-size:12px;color:var(--mu);margin-bottom:12px">Extension apne aap lagegi.</p>
+        <input type="text" id="trFileNameInput" placeholder="e.g. Court_April_2026"
+          style="width:100%;padding:10px 12px;border:1.5px solid var(--bdr);border-radius:8px;font-size:13px;margin-bottom:14px;outline:none;font-family:inherit"
+          onkeydown="if(event.key==='Enter')trConfirmDL();if(event.key==='Escape')trCloseModal()">
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn neutral" onclick="trCloseModal()" style="margin-top:0">Raho</button>
+          <button class="btn primary" onclick="trConfirmDL()" style="margin-top:0">⬇ Download</button>
+        </div>
+      </div>
+    </div>
     <div class="dpanel" id="dp-export">
       <div class="dsec">
         <div class="dsec-title">📥 Download Excel</div>
@@ -1516,7 +1583,308 @@ async function uploadExcel(){
   catch(err){resetBtn();showToast('❌ Upload fail: '+err,'d');}
 }
 
-// ════ CASE TYPE DROPDOWN ════
+
+// ════ TRANSLATE & PROCESS MODULE ════
+const TR_CASE_MAP={
+  "anticipatory bail application under section 438 crpc":"ABA","anticipatory bail application":"ABA","aba":"ABA",
+  "arbitration":"ARB","assesement appeal":"AssA","assessment appeal":"AssA",
+  "bail application":"BA","ba":"BA","ceiling appeal":"CA","civil appeal":"CivA",
+  "civil reivision":"CR","civil revision":"CR","claim petition":"CP","cp":"CP",
+  "complaint cases":"CC","cc":"CC","contempt":"CONT",
+  "cri. case":"CRI","cri case":"CRI","cri":"CRI","criminal case":"CRI",
+  "criminal appeal":"CrA","criminal bail cancellation":"CBC",
+  "criminal misc.":"CM","criminal misc":"CM","cm":"CM",
+  "criminal misc. cases":"CMC","criminal misc cases":"CMC","cmc":"CMC",
+  "criminal revision":"CRR","d.p. misc.":"DPM","d.p. misc":"DPM",
+  "election petition":"EP","election revision":"ER","essential commodities act":"ECA",
+  "execuition cases":"ExC","execution cases":"ExC","execution":"EXE",
+  "final report":"FR","fr":"FR","first appeal":"FA","first appeal from order":"FAFO",
+  "gaurdian wards act":"GWA","guardian wards act":"GWA","hindu marriage act":"HMA",
+  "judge small cause court case":"JSCCC","juvenile cases":"JC","land acquisition act":"LAA",
+  "maintenance":"MAINT","matrimonial":"MAT","misc. cases":"MC","misc cases":"MC","mc":"MC",
+  "misc.civil":"MCC","misc. civil":"MCC","misc. civil appeal":"MCA","misc civil appeal":"MCA",
+  "misc. nagar nigam":"MNN","misc. pa":"MPA",
+  "motar accident claim pitition":"MACP","motor accident claim petition":"MACP",
+  "mutation appeal":"MutA","n.d.p.s.":"NDPS","ndps":"NDPS","original suit":"OS",
+  "p.a.suit":"PAS","p.a. suit":"PAS","probate":"PROB",
+  "rent control appeal":"RCA","rent control revision":"RCR",
+  "restoration":"REST","restoration misc":"RM","review":"REV",
+  "s.c.c. revision":"SCCR","s.c.c. suit":"SCCS",
+  "sec.174a ipc vis-a-vis sec.195":"S174","second appeal":"SA",
+  "session trial":"ST","session trial..st":"ST","st":"ST","small cause court":"SCC",
+  "special case (anti curroption)":"SCAC","special case (anti corruption)":"SCAC",
+  "special trial":"SST","special trial..sst":"SST","sst":"SST",
+  "s.t.- posco act":"POSCO","st- posco act":"POSCO","posco":"POSCO",
+  "succession":"SUCC","summan case":"SC","summons case":"SC",
+  "summery trial":"SumT","summary trial":"SumT",
+  "warrant case":"WC","wc":"WC","warrant or summons criminal case":"WSC","wsc":"WSC",
+};
+
+const TR_SEC_MAP=[
+  ["protection of children from sexual offences act","POCSO"],
+  ["protection of children from sexual offences","POCSO"],["pocso act","POCSO"],
+  ["narcotic drugs and psychotropic substances act","NDPS"],
+  ["narcotic drugs and psychotropic substances","NDPS"],
+  ["prevention of corruption act","PCA"],["prevention of money laundering act","PMLA"],
+  ["protection of women from domestic violence act","PWDVA"],["domestic violence act","DVA"],
+  ["scheduled castes and scheduled tribes (prevention of atrocities) act","SC/ST Act"],
+  ["scheduled castes and scheduled tribes","SC/ST Act"],["prevention of atrocities act","PoA"],
+  ["food safety and standards act","FSSAI"],["prevention of food adulteration act","PFA"],
+  ["prevention of food adulteration","PFA"],["food adulteration act","PFA"],
+  ["representation of the people act","RPA"],["representation of people act","RPA"],
+  ["right to information act","RTI"],["information technology act","ITA"],
+  ["foreign exchange management act","FEMA"],["foreign exchange regulation act","FERA"],
+  ["insolvency and bankruptcy code","IBC"],["goods and services tax act","GST"],
+  ["income tax act","ITA"],["wealth tax act","WTA"],["customs act","CA"],
+  ["central excise act","CEA"],["code of criminal procedure","CrPC"],
+  ["criminal procedure code","CrPC"],["code of civil procedure","CPC"],
+  ["civil procedure code","CPC"],["indian penal code","IPC"],
+  ["indian evidence act","IEA"],["evidence act","IEA"],
+  ["transfer of property act","TPA"],["specific relief act","SRA"],
+  ["limitation act","LA"],["indian contract act","ICA"],["contract act","CA"],
+  ["companies act","CoA"],["partition act","PA"],
+  ["benami transactions (prohibition) act","BTA"],["consumer protection act","CPA"],
+  ["negotiable instruments act","NIA"],["motor vehicles act","MVA"],["motor vehicle act","MVA"],
+  ["hindu marriage act","HMA"],["hindu succession act","HSA"],
+  ["hindu minority and guardianship act","HMGA"],["dowry prohibition act","DPA"],
+  ["guardians and wards act","GWA"],["guardian and wards act","GWA"],
+  ["succession act","SA"],["indian succession act","ISA"],["maintenance act","MA"],
+  ["land acquisition act","LAA"],["essential commodities act","ECA"],
+  ["urban land ceiling act","ULCA"],
+  ["uttar pradesh zamindari abolition and land reforms act","UZLA"],
+  ["u.p. zamindari abolition","UZA"],["up zamindari abolition","UZA"],
+  ["u.p. consolidation of holdings act","UCHA"],
+  ["uttar pradesh urban buildings (regulation of letting, rent and eviction) act","UPRC"],
+  ["u.p. rent control act","UPRC"],["up rent control act","UPRC"],["rent control act","RCA"],
+  ["national security act","NSA"],["unlawful activities prevention act","UAPA"],
+  ["terrorist and disruptive activities act","TADA"],["prevention of terrorism act","POTA"],
+  ["official secrets act","OSA"],["uttar pradesh excise act","UP Excise"],
+  ["u.p. excise act","UP Excise"],["up excise act","UP Excise"],
+  ["uttar pradesh gangsters and anti-social activities (prevention) act","Gangsters"],
+  ["u.p. gangsters act","Gangsters"],["up gangsters act","Gangsters"],["gangsters act","Gangsters"],
+  ["u.p. goonda act","Goonda"],["up goonda act","Goonda"],["goonda act","Goonda"],
+  ["u.p. police act","UP Police"],["u.p. revenue code","UP Rev."],
+  ["u.p. municipalities act","UP Mun."],["u.p. panchayati raj act","UPPR"],
+  ["u.p. prevention of cow slaughter act","CS Act"],["cow slaughter act","CS Act"],
+  ["u.p. public gambling act","PGA"],["forest conservation act","FCA"],
+  ["wildlife protection act","WPA"],["environment protection act","EPA"],
+  ["forest act","FA"],["electricity act","EA"],["arms act","Arms Act"],
+  ["explosive substances act","ESA"],["explosives act","ESA"],
+  ["public gambling act","PGA"],["stamp act","SA"],["indian stamp act","ISA"],
+  ["registration act","RA"],["probation of offenders act","POA"],
+  ["juvenile justice (care and protection) act","JJA"],["juvenile justice act","JJA"],
+  ["contempt of courts act","CoCA"],["advocates act","AA"],
+  ["legal services authorities act","LSAA"],["arbitration and conciliation act","ACA"],
+  ["arbitration act","ACA"],["public premises eviction act","PPEA"],
+  ["medical termination of pregnancy act","MTPA"],
+  ["pre-conception and pre-natal diagnostic techniques act","PCPNDT"],
+  ["persons with disabilities act","PWDA"],["mental health act","MHA"],
+  ["epidemic diseases act","EDA"],["disaster management act","DMA"],
+  ["transplantation of human organs act","THOA"],["trade marks act","TMA"],
+  ["copyright act","CRA"],["patents act","PTA"],["banking regulation act","BRA"],
+  ["reserve bank of india act","RBIA"],["competition act","CompA"],
+  ["ipc","IPC"],["crpc","CrPC"],["cpc","CPC"],
+  ["ndps","NDPS"],["pocso","POCSO"],["uapa","UAPA"],["pmla","PMLA"],["fema","FEMA"],["mva","MVA"],
+];
+
+let _trData=[]; // processed translated data
+
+function trSetStatus(m){const el=document.getElementById('trStatus');if(el)el.textContent=m;}
+function trSetProgress(p){const el=document.getElementById('trProgBar');if(el)el.style.width=p+'%';}
+function trSetBtns(state){
+  const v=document.getElementById('trBtnView');
+  const d=document.getElementById('trBtnDL');
+  const s=document.getElementById('trBtnSend');
+  const p=document.getElementById('trBtnProcess');
+  if(state==='processing'){if(p)p.disabled=true;if(v)v.disabled=true;if(d)d.disabled=true;if(s)s.disabled=true;}
+  else if(state==='done'){if(p)p.disabled=false;if(v)v.disabled=false;if(d)d.disabled=false;if(s)s.disabled=false;}
+  else{if(p)p.disabled=false;if(v)v.disabled=true;if(d)d.disabled=true;if(s)s.disabled=true;}
+}
+
+function trOnFileChange(inp){
+  const f=inp.files[0];
+  document.getElementById('trChosenFile').textContent=f?'✅ '+f.name:'Koi file nahi chuni';
+  _trData=[];trSetBtns('idle');trSetStatus('File select karo aur Process dabao.');trSetProgress(0);
+  document.getElementById('trPreviewWrap').style.display='none';
+}
+function trOnDrop(e){
+  e.preventDefault();
+  document.getElementById('trUploadZone').style.borderColor='var(--bdr)';
+  const f=e.dataTransfer.files[0];
+  if(f&&(f.name.endsWith('.xlsx')||f.name.endsWith('.xls'))){
+    document.getElementById('trFileInput').files=e.dataTransfer.files;
+    document.getElementById('trChosenFile').textContent='✅ '+f.name;
+    _trData=[];trSetBtns('idle');trSetProgress(0);
+  }
+}
+
+function trAutoAbbrev(text){
+  const skip=new Set(['of','the','and','or','from','for','a','an','in','to','at','by','with','under','on','versus','vs']);
+  const words=text.trim().split(/\s+/);
+  let main=words.filter(w=>!skip.has(w.toLowerCase()));
+  if(main.length>1&&main[main.length-1].toLowerCase()==='act')main=main.slice(0,-1);
+  if(main.length===0)return text;
+  return main.map(w=>w[0].toUpperCase()).join('');
+}
+function trShortenSection(text){
+  if(!text)return text;
+  let s=String(text);
+  for(const[from,to]of TR_SEC_MAP){
+    const re=new RegExp(from.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'gi');
+    if(re.test(s))return s.replace(re,to).trim();
+  }
+  return trAutoAbbrev(s);
+}
+function trShortenCaseNo(val){
+  if(val==null||val==='')return val;
+  const str=String(val);
+  const idx=str.indexOf('/');
+  let type=(idx===-1?str:str.substring(0,idx)).trim();
+  const rest=idx===-1?'':str.substring(idx);
+  const key=type.toLowerCase().replace(/\s+/g,' ').replace(/\.{2,}/g,'.').trim();
+  return(TR_CASE_MAP[key]||type)+rest;
+}
+function trShortenHindi(text){
+  if(!text)return text;
+  let s=text.trim();
+  s=s.replace(/(?:उत्तर\s*प्रदेश\s*(?:राज्य|सरकार)|उ\.?\s*प्र\.?\s*(?:राज्य|सरकार)|यू\.?पी\.?\s*(?:राज्य|सरकार)|राज्य\s*सरकार|राज्य|सरकार)\s*बनाम\s*/gi,'स-');
+  s=s.replace(/\s*बनाम\s*/g,'-');
+  s=s.replace(/स-स-/g,'स-');
+  return s.trim();
+}
+const _trSleep=ms=>new Promise(r=>setTimeout(r,ms));
+async function trTranslate(text,retries=5){
+  for(let i=0;i<=retries;i++){
+    try{
+      const res=await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=hi&dt=t&q=${encodeURIComponent(text)}`);
+      if(!res.ok)throw new Error('HTTP '+res.status);
+      const data=await res.json();
+      return data[0].map(d=>d[0]).join('');
+    }catch(err){
+      if(i<retries){await _trSleep(800*(i+1));}
+      else return text;
+    }
+  }
+}
+
+async function trProcess(){
+  const file=document.getElementById('trFileInput').files[0];
+  if(!file){showToast('⚠️ Pehle file select karo','w');return;}
+  trSetBtns('processing');trSetStatus('📂 File read ho rahi hai…');trSetProgress(0);
+  _trData=[];document.getElementById('trPreviewWrap').style.display='none';
+
+  const reader=new FileReader();
+  reader.onload=async e=>{
+    try{
+      const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+      const sheet=wb.Sheets[wb.SheetNames[0]];
+      const rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:''});
+      const maxCols=rows.reduce((m,r)=>Math.max(m,r.length),0);
+      for(let i=0;i<rows.length;i++){
+        const row=[...rows[i]];
+        while(row.length<maxCols)row.push('');
+        if(i===0){_trData.push(row);continue;}
+        if(row[1]!==null&&row[1]!==''&&row[1]!==undefined)row[1]=trShortenCaseNo(row[1]);
+        if(row[2]!==null&&row[2]!==''&&row[2]!==undefined){
+          trSetStatus(`🔤 Row ${i}/${rows.length-1} — "${String(row[2]).substring(0,35)}"`);
+          const hindi=await trTranslate(String(row[2]));
+          row[2]=trShortenHindi(hindi);
+          await _trSleep(100);
+        }
+        if(row[3]!==null&&row[3]!==''&&row[3]!==undefined)row[3]=trShortenSection(row[3]);
+        _trData.push(row);
+        trSetProgress(Math.round(i/rows.length*100));
+      }
+      trSetProgress(100);
+      trSetStatus(`✅ Complete! ${_trData.length} rows process hui. View/Download/Upload karein.`);
+      trSetBtns('done');
+    }catch(err){trSetStatus('❌ Error: '+err.message);trSetBtns('idle');}
+  };
+  reader.onerror=()=>{trSetStatus('❌ File read error!');trSetBtns('idle');};
+  reader.readAsArrayBuffer(file);
+}
+
+function trShowPreview(){
+  if(!_trData.length){showToast('⚠️ Pehle Process karo','w');return;}
+  const wrap=document.getElementById('trPreviewWrap');
+  const tbl=document.getElementById('trPreviewTable');
+  let h=`<table style="border-collapse:collapse;font-size:11px;min-width:100%"><thead><tr>`;
+  _trData[0].forEach((col,ci)=>{
+    h+=`<th style="background:#1e3272;color:#fff;padding:6px 8px;white-space:nowrap;border:1px solid #ccc">${esc(col||'Col '+(ci+1))}</th>`;
+  });
+  h+=`</tr></thead><tbody>`;
+  for(let i=1;i<_trData.length;i++){
+    h+=`<tr style="background:${i%2?'#f7f9fc':'#fff'}">`;
+    _trData[i].forEach(cell=>{h+=`<td style="padding:5px 8px;border:1px solid #e5e7eb;vertical-align:top">${esc(String(cell||''))}</td>`;});
+    h+=`</tr>`;
+  }
+  h+=`</tbody></table>`;
+  tbl.innerHTML=h;
+  wrap.style.display='block';
+}
+
+function trAskFileName(){
+  if(!_trData.length){showToast('⚠️ Pehle Process karo','w');return;}
+  document.getElementById('trFileNameInput').value='Court_Processed';
+  const ov=document.getElementById('trModalOverlay');
+  ov.style.display='flex';
+  setTimeout(()=>{const i=document.getElementById('trFileNameInput');i.focus();i.select();},100);
+}
+function trCloseModal(){document.getElementById('trModalOverlay').style.display='none';}
+async function trConfirmDL(){
+  let name=document.getElementById('trFileNameInput').value.trim()||'Court_Processed';
+  name=name.replace(/\.xlsx$/i,'');
+  trCloseModal();
+  trSetStatus('📦 Excel file bana raha hai…');
+  try{
+    // Use ExcelJS if available, else fallback to XLSX
+    if(typeof ExcelJS!=='undefined'){
+      const wb2=new ExcelJS.Workbook();
+      wb2.creator='Baghpat District Court';wb2.created=new Date();
+      const ws=wb2.addWorksheet('Processed',{pageSetup:{paperSize:9,orientation:'portrait',fitToPage:true,fitToWidth:1,fitToHeight:0}});
+      const thin={style:'thin',color:{argb:'FF000000'}};
+      const border={top:thin,left:thin,bottom:thin,right:thin};
+      _trData.forEach((rowData,ri)=>{
+        const row=ws.addRow(rowData.map(c=>c==null?'':c));
+        row.eachCell({includeEmpty:true},cell=>{
+          cell.border=border;cell.alignment={wrapText:true,vertical:'top',horizontal:'left'};
+          if(ri===0){cell.font={bold:true,size:10,color:{argb:'FF0D1B4B'}};cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFD4DCF0'}};}
+          else{cell.font={size:9};}
+        });
+      });
+      if(ws.columns)ws.columns.forEach((col,ci)=>{let mx=10;_trData.forEach(r=>{const v=r[ci]!=null?String(r[ci]):'';mx=Math.max(mx,Math.min(v.length,35));});col.width=mx+2;});
+      const buf=await wb2.xlsx.writeBuffer();
+      const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+      const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name+'.xlsx';document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+    }else{
+      // Fallback XLSX
+      const wb2=XLSX.utils.book_new();const ws=XLSX.utils.aoa_to_sheet(_trData);XLSX.utils.book_append_sheet(wb2,ws,'Processed');XLSX.writeFile(wb2,name+'.xlsx');
+    }
+    trSetStatus('📥 Download ho gayi: '+name+'.xlsx');
+  }catch(err){trSetStatus('❌ Download error: '+err.message);}
+}
+
+// Send translated data to Upload tab — inject as virtual file + switch tab
+async function trSendToUpload(){
+  if(!_trData.length){showToast('⚠️ Pehle Process karo','w');return;}
+  // Build XLSX blob from _trData
+  const wb2=XLSX.utils.book_new();
+  const ws=XLSX.utils.aoa_to_sheet(_trData);
+  XLSX.utils.book_append_sheet(wb2,ws,'Sheet1');
+  const buf=XLSX.write(wb2,{bookType:'xlsx',type:'array'});
+  const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  const file=new File([blob],'translated_data.xlsx',{type:blob.type});
+  // Inject into upload file input
+  const dt=new DataTransfer();dt.items.add(file);
+  const uploadInput=document.getElementById('excelFile');
+  uploadInput.files=dt.files;
+  // Switch to Upload tab
+  const uploadBtn=document.querySelector('[data-dp="dp-upload"]');
+  if(uploadBtn)switchDP(uploadBtn);
+  showToast('✅ Translated data Upload tab mein aa gaya! Ab Upload dabao.');
+}
+// ════ END TRANSLATE MODULE ════
+
 let _ctIdx=-1;
 function filterCaseTypes(val){
   const dd=document.getElementById('caseTypeDD');if(!dd)return;
@@ -1791,14 +2159,68 @@ async function saveNextDate(){
 }
 
 // ════ DOWNLOAD ════
-function downloadExcel(){
+async function downloadExcel(){
   if(!cData.length){showToast('⚠️ Data nahi hai','w');return;}
-  const ed=cData.map(r=>({"Sr.No":r.srno,"Case No":r.caseno,"Party Name":r.partyname,"Section":r.section,"PS":r.ps,"Sent":r.sent,"Received":r.received,"Recv.Date":r.receiveddate,"Next Date":r.nextdate,"Remark":r.remark}));
-  const ws=XLSX.utils.json_to_sheet(ed);
-  ws['!cols']=[{wch:6},{wch:18},{wch:28},{wch:20},{wch:16},{wch:10},{wch:12},{wch:13},{wch:13},{wch:30}];
-  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Court Data");
-  XLSX.writeFile(wb,"Court_"+workDate.value+"_v"+upV+".xlsx");
-  showToast('✅ Excel download ho raha hai!');closeDrawer();
+  showToast('📦 Excel bana raha hai…');
+
+  const headers=["Sr.No","Case No","Party Name","Section","PS","Sent","Received","Recv.Date","Next Date","Remark"];
+  const colWidths=[6,18,28,20,16,10,12,13,13,30];
+  const rows=cData.map(r=>[r.srno,r.caseno,r.partyname,r.section,r.ps,r.sent,r.received,r.receiveddate,r.nextdate,r.remark]);
+
+  try{
+    if(typeof ExcelJS!=='undefined'){
+      const wb=new ExcelJS.Workbook();
+      wb.creator='Baghpat District Court ACJM';wb.created=new Date();
+      const ws=wb.addWorksheet('Court Data',{
+        pageSetup:{
+          paperSize:9,orientation:'portrait',
+          fitToPage:true,fitToWidth:1,fitToHeight:0,
+          margins:{left:0.5,right:0.5,top:0.75,bottom:0.75,header:0.3,footer:0.3}
+        }
+      });
+      const thin={style:'thin',color:{argb:'FF000000'}};
+      const border={top:thin,left:thin,bottom:thin,right:thin};
+
+      // Header row
+      const hdr=ws.addRow(headers);
+      hdr.eachCell(cell=>{
+        cell.border=border;
+        cell.alignment={wrapText:true,vertical:'top',horizontal:'center'};
+        cell.font={bold:true,size:10,color:{argb:'FF0D1B4B'}};
+        cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFD4DCF0'}};
+      });
+
+      // Data rows
+      rows.forEach((rowData,ri)=>{
+        const row=ws.addRow(rowData.map(c=>c==null?'':c));
+        row.eachCell({includeEmpty:true},cell=>{
+          cell.border=border;
+          cell.alignment={wrapText:true,vertical:'top',horizontal:'left'};
+          cell.font={size:9};
+        });
+      });
+
+      // Column widths
+      ws.columns.forEach((col,ci)=>{col.width=colWidths[ci]||12;});
+
+      const buf=await wb.xlsx.writeBuffer();
+      const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');a.href=url;
+      a.download='Court_'+workDate.value+'_v'+upV+'.xlsx';
+      document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+      showToast('✅ Excel download ho gayi!');
+    }else{
+      // Fallback — basic XLSX
+      const ed=cData.map(r=>({"Sr.No":r.srno,"Case No":r.caseno,"Party Name":r.partyname,"Section":r.section,"PS":r.ps,"Sent":r.sent,"Received":r.received,"Recv.Date":r.receiveddate,"Next Date":r.nextdate,"Remark":r.remark}));
+      const ws=XLSX.utils.json_to_sheet(ed);
+      ws['!cols']=colWidths.map(w=>({wch:w}));
+      const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Court Data");
+      XLSX.writeFile(wb,"Court_"+workDate.value+"_v"+upV+".xlsx");
+      showToast('✅ Excel download ho gayi!');
+    }
+  }catch(e){showToast('❌ Download error: '+e.message,'d');}
+  closeDrawer();
 }
 
 // ════ DELETE OLD / BACKUP ════
@@ -2932,53 +3354,6 @@ async function loadUrgLog(){
 }
 
 // ════ SCANNER CONTEXT — urgent + addcase ════
-// ════ BUNDLE CHECK (Fix 6: sirf galat date) ════
-function runBundleCheck(){
-  const listEl=document.getElementById('bchk-inline');
-  if(!listEl)return;
-
-  // Sirf ek check: koi file galat date ki shelf mein rakhi hai?
-  // Matlab CFM mein next date alag hai aur bundle mein alag date par rakhi hai
-  const wrongDate=[];
-  Object.values(bFiles).forEach(f=>{
-    if(f.hidden||f.cat)return; // sent / category — skip
-    const cfmRec=cData.find(r=>caseMatch(r.caseno,f.id));
-    if(!cfmRec||!cfmRec.nextdate)return;
-    const cfmDay=parseInt(cfmRec.nextdate.split('-')[2]);
-    if(cfmDay && f.md!==cfmDay && f.sd==null){
-      wrongDate.push({f,cfmRec,cfmDay});
-    }
-  });
-
-  if(!wrongDate.length){
-    listEl.innerHTML=`<div style="color:var(--green);font-weight:700;font-size:14px;text-align:center;padding:20px 0">
-      ✅ Sab theek! Koi file galat date pe nahi rakhi.
-    </div>`;
-    return;
-  }
-
-  let h=`<div style="background:#fffbeb;border-radius:10px;padding:10px 12px;margin-bottom:12px">
-    <div style="color:var(--amber);font-weight:700;font-size:13px">📅 ${wrongDate.length} file${wrongDate.length>1?'s':''} galat date pe rakhi hain</div>
-    <div style="color:var(--mu);font-size:11px;margin-top:2px">CFM mein next date alag hai aur bundle mein alag shelf pe rakhi hai</div>
-  </div>`;
-  h+=wrongDate.map(({f,cfmRec,cfmDay})=>`
-    <div style="background:#fff;border:1.5px solid #fcd34d;border-radius:10px;padding:11px 13px;margin-bottom:7px">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start">
-        <div>
-          <div style="font-weight:700;font-size:14px;color:var(--navy)">${esc(f.id)}</div>
-          <div style="font-size:12px;color:var(--mu);margin-top:2px">👤 ${esc(cfmRec.partyname||'—')}</div>
-        </div>
-        <div style="text-align:right">
-          <div style="font-size:11px;font-weight:600;color:var(--mu)">Bundle: Date <strong>${f.md}</strong></div>
-          <div style="font-size:11px;font-weight:700;color:var(--blue);margin-top:2px">CFM Next: Date <strong>${cfmDay}</strong></div>
-        </div>
-      </div>
-    </div>`).join('');
-  listEl.innerHTML=h;
-}
-
-// ════ FIX 7: TODAY's DATE FILES — Koi almari mein to nahi reh gayi? ════
-// Aaj ki date ke CFM cases (nextdate = aaj) jo bundle mein abhi bhi hain (sent nahi hui)
 async function runBundleCheck(){
   const listEl=document.getElementById('bchk-inline');
   if(!listEl)return;
