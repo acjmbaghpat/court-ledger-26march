@@ -1808,19 +1808,26 @@ function trShowPreview(){
   if(!_trData.length){showToast('⚠️ Pehle Process karo','w');return;}
   const wrap=document.getElementById('trPreviewWrap');
   const tbl=document.getElementById('trPreviewTable');
-  let h=`<table style="border-collapse:collapse;font-size:11px;min-width:100%"><thead><tr>`;
-  _trData[0].forEach((col,ci)=>{
-    h+=`<th style="background:#1e3272;color:#fff;padding:6px 8px;white-space:nowrap;border:1px solid #ccc">${esc(col||'Col '+(ci+1))}</th>`;
-  });
-  h+=`</tr></thead><tbody>`;
-  for(let i=1;i<_trData.length;i++){
-    h+=`<tr style="background:${i%2?'#f7f9fc':'#fff'}">`;
-    _trData[i].forEach(cell=>{h+=`<td style="padding:5px 8px;border:1px solid #e5e7eb;vertical-align:top">${esc(String(cell||''))}</td>`;});
-    h+=`</tr>`;
-  }
-  h+=`</tbody></table>`;
-  tbl.innerHTML=h;
   wrap.style.display='block';
+  const totalRows=_trData.length-1;
+  tbl.innerHTML=`<div style="text-align:center;padding:16px;color:var(--mu);font-size:13px">⏳ ${totalRows} rows load ho rahi hain...</div>`;
+
+  setTimeout(()=>{
+    let h=`<table style="border-collapse:collapse;font-size:11px;min-width:100%"><thead><tr>`;
+    _trData[0].forEach((col,ci)=>{
+      h+=`<th style="background:#1e3272;color:#fff;padding:6px 8px;white-space:nowrap;border:1px solid #ccc;position:sticky;top:0">${esc(String(col||'Col '+(ci+1)))}</th>`;
+    });
+    h+=`</tr></thead><tbody>`;
+    for(let i=1;i<_trData.length;i++){
+      h+=`<tr style="background:${i%2?'#f7f9fc':'#fff'}">`;
+      _trData[i].forEach(cell=>{
+        h+=`<td style="padding:5px 8px;border:1px solid #e5e7eb;vertical-align:top;max-width:180px;word-break:break-word">${esc(String(cell==null?'':cell))}</td>`;
+      });
+      h+=`</tr>`;
+    }
+    h+=`</tbody></table><div style="text-align:center;padding:6px;font-size:11px;color:var(--mu);background:#f7f9fc">Total: ${totalRows} rows</div>`;
+    tbl.innerHTML=h;
+  },50);
 }
 
 function trAskFileName(){
@@ -1836,32 +1843,30 @@ async function trConfirmDL(){
   name=name.replace(/\.xlsx$/i,'');
   trCloseModal();
   trSetStatus('📦 Excel file bana raha hai…');
+
+  // Small delay to let UI update before heavy operation
+  await new Promise(r=>setTimeout(r,80));
+
   try{
-    // Use ExcelJS if available, else fallback to XLSX
-    if(typeof ExcelJS!=='undefined'){
-      const wb2=new ExcelJS.Workbook();
-      wb2.creator='Baghpat District Court';wb2.created=new Date();
-      const ws=wb2.addWorksheet('Processed',{pageSetup:{paperSize:9,orientation:'portrait',fitToPage:true,fitToWidth:1,fitToHeight:0}});
-      const thin={style:'thin',color:{argb:'FF000000'}};
-      const border={top:thin,left:thin,bottom:thin,right:thin};
-      _trData.forEach((rowData,ri)=>{
-        const row=ws.addRow(rowData.map(c=>c==null?'':c));
-        row.eachCell({includeEmpty:true},cell=>{
-          cell.border=border;cell.alignment={wrapText:true,vertical:'top',horizontal:'left'};
-          if(ri===0){cell.font={bold:true,size:10,color:{argb:'FF0D1B4B'}};cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFD4DCF0'}};}
-          else{cell.font={size:9};}
-        });
-      });
-      if(ws.columns)ws.columns.forEach((col,ci)=>{let mx=10;_trData.forEach(r=>{const v=r[ci]!=null?String(r[ci]):'';mx=Math.max(mx,Math.min(v.length,35));});col.width=mx+2;});
-      const buf=await wb2.xlsx.writeBuffer();
-      const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
-      const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name+'.xlsx';document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
-    }else{
-      // Fallback XLSX
-      const wb2=XLSX.utils.book_new();const ws=XLSX.utils.aoa_to_sheet(_trData);XLSX.utils.book_append_sheet(wb2,ws,'Processed');XLSX.writeFile(wb2,name+'.xlsx');
-    }
+    // Use fast XLSX (lighter than ExcelJS, no hang)
+    const wb2=XLSX.utils.book_new();
+    const ws=XLSX.utils.aoa_to_sheet(_trData.map(r=>r.map(c=>c==null?'':c)));
+
+    // Column widths
+    const colWidths=_trData[0].map((_,ci)=>{
+      const max=Math.min(35,Math.max(8,..._trData.slice(0,50).map(r=>String(r[ci]||'').length)));
+      return{wch:max+2};
+    });
+    ws['!cols']=colWidths;
+
+    XLSX.utils.book_append_sheet(wb2,ws,'Processed');
+    XLSX.writeFile(wb2,name+'.xlsx');
     trSetStatus('📥 Download ho gayi: '+name+'.xlsx');
-  }catch(err){trSetStatus('❌ Download error: '+err.message);}
+    showToast('✅ '+name+'.xlsx download ho gayi!');
+  }catch(err){
+    trSetStatus('❌ Download error: '+err.message);
+    showToast('❌ Download fail: '+err.message,'d');
+  }
 }
 
 // Send translated data to Upload tab — inject as virtual file + switch tab
