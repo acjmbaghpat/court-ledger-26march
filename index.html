@@ -1546,7 +1546,9 @@ async function uploadExcel(){
     try{
       const wb=XLSX.read(e.target.result,{type:'arraybuffer'});
       const ws=wb.Sheets[wb.SheetNames[0]];
-      const rows=XLSX.utils.sheet_to_json(ws,{defval:""});
+      const allRows=XLSX.utils.sheet_to_json(ws,{defval:""});
+      // Empty rows hato
+      const rows=allRows.filter(r=>Object.values(r).some(v=>String(v||'').trim()!==''));
       if(!rows.length)throw new Error("Sheet khali hai");
       function guessCol(raw){
         const h=String(raw).toLowerCase().replace(/[^a-z0-9]/g,'');
@@ -1778,7 +1780,10 @@ async function trProcess(){
     try{
       const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
       const sheet=wb.Sheets[wb.SheetNames[0]];
-      const rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:''});
+      const rawRows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:''});
+      // CRITICAL: Empty rows hato — Excel mein blank cells bhi rows bana deti hain
+      const rows=rawRows.filter((r,i)=>i===0||r.some(cell=>String(cell||'').trim()!==''));
+      trSetStatus(`📊 ${rows.length-1} actual rows mili (blank rows hata di)`);
       const maxCols=rows.reduce((m,r)=>Math.max(m,r.length),0);
       for(let i=0;i<rows.length;i++){
         const row=[...rows[i]];
