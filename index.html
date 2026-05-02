@@ -401,8 +401,9 @@ td input:focus{background:#fff;border-color:var(--blue)}
 #qrPrintArea{display:none;position:fixed;inset:0;background:white;z-index:99999;padding:10mm;flex-wrap:wrap;gap:6mm;align-content:flex-start;overflow:auto}
 @media print{
   body>*{display:none!important}
-  #qrPrintArea{display:flex!important;position:static!important}
-  #qrPrintArea .qr-card-print{box-shadow:none!important;border:0.5pt solid #ccc!important}
+  #qrPrintArea{display:block!important;position:static!important;overflow:visible!important}
+  #qrToolbar{display:none!important}
+  #qrPrintArea>div:last-child{padding:0!important}
 }
 </style>
 </head>
@@ -523,13 +524,13 @@ td input:focus{background:#fff;border-color:var(--blue)}
           <button id="qrTab2" onclick="qrSwitch(2)" class="btn" style="flex:1;margin-top:0;font-size:12px;padding:8px;background:#f7f9fc;color:var(--navy);border:1.5px solid var(--bdr)">🔁 Reprint</button>
         </div>
         <div id="qrPanel1">
-          <div style="font-size:11px;color:var(--mu);margin-bottom:6px">Pending QR queue (sent order mein):</div>
-          <div id="qrQueueList" style="max-height:180px;overflow-y:auto;border:1.5px solid var(--bdr);border-radius:8px;background:#f7f9fc;padding:6px;font-size:12px;font-family:monospace;color:var(--navy)">
-            <div style="color:var(--mu);text-align:center;padding:12px;font-family:inherit">Koi file pending nahi</div>
+          <div style="font-size:11px;color:var(--mu);margin-bottom:6px">Current date ki sent files (pending QR):</div>
+          <div id="qrQueueList" style="max-height:200px;overflow-y:auto;border:1.5px solid var(--bdr);border-radius:8px;background:#f7f9fc;padding:4px;font-size:12px">
+            <div style="color:var(--mu);text-align:center;padding:12px;font-family:inherit;font-size:12px">Drawer kholo tab refresh hoga</div>
           </div>
           <div style="display:flex;gap:6px;margin-top:8px">
             <button class="btn primary" onclick="qrGenerateQueue()" style="flex:1;margin-top:0;font-size:12px">⚡ Generate &amp; Print</button>
-            <button class="btn neutral" onclick="qrClearQueue()" style="margin-top:0;font-size:12px;padding:8px 10px" title="Queue clear karo">🗑</button>
+            <button class="btn neutral" onclick="qrRefreshPending()" style="margin-top:0;font-size:12px;padding:8px 10px" title="Refresh karo">🔄</button>
           </div>
         </div>
         <div id="qrPanel2" style="display:none">
@@ -561,11 +562,17 @@ td input:focus{background:#fff;border-color:var(--blue)}
         </div>
       </div>
     </div>
-    <div id="qrPrintArea" style="display:none;position:fixed;inset:0;background:white;z-index:99999;padding:10mm;overflow:auto">
-      <div style="display:flex;flex-wrap:wrap;gap:6mm;align-content:flex-start" id="qrPrintInner"></div>
-      <button onclick="qrDoPrint()" style="position:fixed;bottom:20px;right:20px;padding:12px 22px;background:#1e3272;color:white;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;z-index:100000">🖨 Print Karo</button>
-      <button onclick="qrDownloadPDF()" style="position:fixed;bottom:20px;right:150px;padding:12px 18px;background:#0891b2;color:white;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;z-index:100000">⬇ Download PDF</button>
-      <button onclick="document.getElementById('qrPrintArea').style.display='none'" style="position:fixed;bottom:20px;left:20px;padding:12px 22px;background:#6b7280;color:white;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;z-index:100000">✕ Band Karo</button>
+    <div id="qrPrintArea" style="display:none;position:fixed;inset:0;background:white;z-index:99999;overflow:auto">
+      <!-- Toolbar - hidden on print -->
+      <div id="qrToolbar" style="position:sticky;top:0;background:#1e3272;padding:10px 14px;display:flex;gap:8px;align-items:center;z-index:100000;flex-shrink:0">
+        <button onclick="qrDoPrint()" style="padding:10px 18px;background:#fff;color:#1e3272;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">🖨 Print</button>
+        <button onclick="qrDownloadPDF()" style="padding:10px 18px;background:#0891b2;color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">⬇ Download PDF</button>
+        <div style="flex:1"></div>
+        <button onclick="document.getElementById('qrPrintArea').style.display='none'" style="padding:10px 18px;background:#dc2626;color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">✕ Band Karo</button>
+      </div>
+      <div style="padding:8mm">
+        <div style="display:flex;flex-wrap:wrap;gap:4mm;align-content:flex-start" id="qrPrintInner"></div>
+      </div>
     </div>
 
     <!-- Panel: Translate -->
@@ -1123,6 +1130,7 @@ function switchDP(btn){
   document.querySelectorAll('.dpanel').forEach(p=>p.classList.remove('on'));
   btn.classList.add('on');
   document.getElementById(id).classList.add('on');
+  if(id==='dp-qr')qrRefreshPending();
 }
 // Shortcut: open drawer on specific panel
 function openDrawerOn(panelId){
@@ -1965,82 +1973,77 @@ async function trSendToUpload(){
 
 let _ctIdx=-1;
 // ════ QR CODE MODULE ════
-let _qrQueue=[];
+// _qrGenerated: caseno set — jo kabhi bhi kisi bhi date mein generate ho chuke
 let _qrGenerated=new Set();
 const QR_IDB_KEY='qr_generated';
-const QR_QUEUE_KEY='qr_queue';
 
+// Load generated set from IDB on startup
 async function qrLoad(){
   try{
     const gen=await idbGM(QR_IDB_KEY);
     if(gen&&Array.isArray(gen))_qrGenerated=new Set(gen);
-    const q=await idbGM(QR_QUEUE_KEY);
-    if(q&&Array.isArray(q)){_qrQueue=q;qrRenderQueue();}
   }catch(e){}
 }
 async function qrSave(){
-  try{await idbSM(QR_IDB_KEY,[..._qrGenerated]);await idbSM(QR_QUEUE_KEY,_qrQueue);}catch(e){}
+  try{await idbSM(QR_IDB_KEY,[..._qrGenerated]);}catch(e){}
 }
-async function qrOnSent(caseno,srno){
-  const cn=String(caseno).toUpperCase().trim();
-  if(_qrGenerated.has(cn))return; // kabhi bhi generate hua — skip
-  if(_qrQueue.find(x=>x.caseno===cn))return; // already in queue
-  _qrQueue.push({srno:srno||'',caseno:cn,sentAt:Date.now()});
-  qrRenderQueue();await qrSave();
+
+// Current date ki sent files sorted by senttime — jo generate nahi hui
+function qrGetPending(){
+  return cData
+    .filter(r=>r.sent==='Sent'&&!_qrGenerated.has(String(r.caseno).toUpperCase().trim()))
+    .sort((a,b)=>(a.senttime||0)-(b.senttime||0)); // sent time wise order
 }
-function qrRenderQueue(){
+
+// QR tab open hone par refresh
+function qrRefreshPending(){
   const el=document.getElementById('qrQueueList');if(!el)return;
-  // Sort by sentAt time (oldest first = first sent = first in stack)
-  const sorted=[..._qrQueue].sort((a,b)=>(a.sentAt||0)-(b.sentAt||0));
-  if(!sorted.length){el.innerHTML='<div style="color:var(--mu);text-align:center;padding:12px;font-family:inherit">Koi file pending nahi</div>';return;}
-  el.innerHTML=sorted.map((x,i)=>{
-    const t=x.sentAt?new Date(x.sentAt).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}):'';
-    return`<div style="display:flex;justify-content:space-between;align-items:center;padding:4px;border-bottom:1px solid var(--bdr)">
-      <span style="font-family:monospace;font-size:12px">${i+1}. <strong>${x.caseno}</strong>${x.srno?' <small style="color:var(--mu)">(Sr.'+x.srno+')</small>':''}</span>
-      <span style="display:flex;align-items:center;gap:6px">
-        ${t?`<small style="color:var(--mu);font-size:10px">${t}</small>`:''}
-        <span onclick="qrRemoveQueue('${x.caseno}')" style="cursor:pointer;color:var(--red);font-size:13px;padding:0 4px">✕</span>
-      </span>
+  const pending=qrGetPending();
+  if(!pending.length){
+    el.innerHTML='<div style="color:var(--green);text-align:center;padding:14px;font-size:12px;font-weight:600">✅ Sab sent files ka QR generate ho chuka hai</div>';
+    return;
+  }
+  el.innerHTML=pending.map((r,i)=>{
+    const t=r.senttime?new Date(r.senttime).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}):'';
+    return`<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 6px;border-bottom:1px solid var(--bdr)">
+      <span style="font-family:monospace;font-size:12px;color:var(--navy)">${i+1}. <strong>${esc(r.caseno)}</strong></span>
+      ${t?`<small style="color:var(--mu);font-size:10px">${t}</small>`:''}
     </div>`;
-  }).join('');
+  }).join('')+`<div style="padding:6px 6px 2px;font-size:11px;color:var(--mu);text-align:right;font-weight:600">${pending.length} file${pending.length>1?'s':''} pending</div>`;
 }
-function qrRemoveQueue(caseno){
-  _qrQueue=_qrQueue.filter(x=>x.caseno!==caseno);
-  qrRenderQueue();qrSave();
-}
-async function qrClearQueue(){if(!_qrQueue.length||!confirm('Queue clear karein?'))return;_qrQueue=[];qrRenderQueue();await qrSave();showToast('Queue clear ho gayi');}
+
 function qrSwitch(tab){
   document.getElementById('qrPanel1').style.display=tab===1?'':'none';
   document.getElementById('qrPanel2').style.display=tab===2?'':'none';
   const t1=document.getElementById('qrTab1'),t2=document.getElementById('qrTab2');
-  if(t1)t1.style.cssText=tab===1?'flex:1;margin-top:0;font-size:12px;padding:8px;background:var(--blue);color:white;border:none;border-radius:8px;font-weight:600;cursor:pointer':'flex:1;margin-top:0;font-size:12px;padding:8px;background:#f7f9fc;color:var(--navy);border:1.5px solid var(--bdr);border-radius:8px;font-weight:600;cursor:pointer';
-  if(t2)t2.style.cssText=tab===2?'flex:1;margin-top:0;font-size:12px;padding:8px;background:var(--blue);color:white;border:none;border-radius:8px;font-weight:600;cursor:pointer':'flex:1;margin-top:0;font-size:12px;padding:8px;background:#f7f9fc;color:var(--navy);border:1.5px solid var(--bdr);border-radius:8px;font-weight:600;cursor:pointer';
+  const on='flex:1;margin-top:0;font-size:12px;padding:8px;background:var(--blue);color:white;border:none;border-radius:8px;font-weight:600;cursor:pointer';
+  const off='flex:1;margin-top:0;font-size:12px;padding:8px;background:#f7f9fc;color:var(--navy);border:1.5px solid var(--bdr);border-radius:8px;font-weight:600;cursor:pointer';
+  if(t1)t1.style.cssText=tab===1?on:off;
+  if(t2)t2.style.cssText=tab===2?on:off;
+  if(tab===1)qrRefreshPending();
 }
+
 function qrMakeCard(caseno){
   const mm=parseInt(document.getElementById('qrSizeMM')?.value||35);
   const px=Math.round(mm*3.78);
   const eccKey=document.getElementById('qrECC')?.value||'M';
   const card=document.createElement('div');
   card.style.cssText='display:flex;flex-direction:column;align-items:center;background:white;border-radius:6px;padding:8px 6px 6px;border:0.5pt solid #ccc;break-inside:avoid;page-break-inside:avoid;margin:3mm';
-  const qrdiv=document.createElement('div');
-  card.appendChild(qrdiv);
+  const qrdiv=document.createElement('div');card.appendChild(qrdiv);
   try{
-    new QRCode(qrdiv,{
-      text:caseno,width:px,height:px,
+    new QRCode(qrdiv,{text:caseno,width:px,height:px,
       correctLevel:QRCode.CorrectLevel[eccKey]||QRCode.CorrectLevel.M,
-      colorDark:'#000000',colorLight:'#ffffff'
-    });
+      colorDark:'#000000',colorLight:'#ffffff'});
   }catch(e){qrdiv.textContent='QR Error';}
   const lbl=document.createElement('div');
   lbl.style.cssText=`margin-top:6px;font-family:monospace;font-size:${Math.max(7,Math.round(mm*0.22))}pt;font-weight:700;color:#000;text-align:center;word-break:break-all;max-width:${px}px;line-height:1.3`;
-  lbl.textContent=caseno;
-  card.appendChild(lbl);
+  lbl.textContent=caseno;card.appendChild(lbl);
   return card;
 }
-// Canvas -> img (fixes blank print/PDF)
+
+// Canvas → img (fixes blank PDF/print)
 function qrCanvasToImg(){
-  const inner=document.getElementById('qrPrintInner');
-  if(!inner)return;
+  const inner=document.getElementById('qrPrintInner');if(!inner)return;
   inner.querySelectorAll('canvas').forEach(canvas=>{
     try{
       const img=document.createElement('img');
@@ -2051,12 +2054,55 @@ function qrCanvasToImg(){
     }catch(e){}
   });
 }
-// Download as HTML (open in browser -> Print -> Save as PDF)
+
+// Generate current date pending files QR
+async function qrGenerateQueue(){
+  const pending=qrGetPending();
+  if(!pending.length){showToast('⚠️ Koi pending file nahi','w');return;}
+  if(typeof QRCode==='undefined'){showToast('⚠️ QR library load nahi hui, refresh karo','w');return;}
+  const inner=document.getElementById('qrPrintInner');inner.innerHTML='';
+  // cData order = sent order (sentdate/senttime ke hisaab se — jo pehle sent hua)
+  pending.forEach(r=>inner.appendChild(qrMakeCard(r.caseno)));
+  await new Promise(r=>setTimeout(r,400));
+  qrCanvasToImg();
+  // Mark all as generated
+  pending.forEach(r=>_qrGenerated.add(String(r.caseno).toUpperCase().trim()));
+  await qrSave();
+  qrRefreshPending();
+  document.getElementById('qrPrintArea').style.display='block';
+  closeDrawer();
+}
+
+// Reprint — specific cases
+async function qrGenerateReprint(){
+  const lines=document.getElementById('qrReprintInput').value.split('\n').map(s=>s.trim()).filter(Boolean);
+  if(!lines.length){showToast('⚠️ Koi case no. nahi','w');return;}
+  if(typeof QRCode==='undefined'){showToast('⚠️ QR library load nahi','w');return;}
+  const inner=document.getElementById('qrPrintInner');inner.innerHTML='';
+  lines.forEach(cn=>{
+    const rec=cData.find(r=>caseMatch(r.caseno,cn));
+    inner.appendChild(qrMakeCard(rec?rec.caseno:cn.toUpperCase()));
+  });
+  await new Promise(r=>setTimeout(r,400));
+  qrCanvasToImg();
+  document.getElementById('qrPrintArea').style.display='block';
+  closeDrawer();
+}
+
+// Auto-fill reprint from current sent
+function qrFromCurrentSent(){
+  const sent=cData.filter(r=>r.sent==='Sent');
+  if(!sent.length){showToast('⚠️ Koi sent file nahi','w');return;}
+  document.getElementById('qrReprintInput').value=sent.map(r=>r.caseno).join('\n');
+  showToast('✅ '+sent.length+' files fill ho gayi');
+}
+
+// Download as HTML → open in browser → Print → Save as PDF
 async function qrDownloadPDF(){
   const inner=document.getElementById('qrPrintInner');
   if(!inner||!inner.children.length){showToast('⚠️ Pehle generate karo','w');return;}
   qrCanvasToImg();
-  await new Promise(r=>setTimeout(r,200)); // wait for img conversion
+  await new Promise(r=>setTimeout(r,200));
   let cardsHtml='';
   Array.from(inner.children).forEach(card=>{cardsHtml+=card.outerHTML;});
   const html=`<!DOCTYPE html>
@@ -2074,40 +2120,9 @@ ${'<scr'+'ipt>'}window.onload=function(){window.print();}${'<'+'/script>'}
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');a.href=url;a.download='QR_Codes_ACJM.html';
   document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
-  showToast('✅ File download ho gayi — browser me open karo, phir Print > Save as PDF');
+  showToast('✅ File download — browser mein kholo, Print > Save as PDF');
 }
-async function qrGenerateQueue(){
-  if(!_qrQueue.length){showToast('⚠️ Queue khaali hai','w');return;}
-  if(typeof QRCode==='undefined'){showToast('⚠️ QR library load nahi hui, refresh karo','w');return;}
-  const sorted=[..._qrQueue].sort((a,b)=>(a.sentAt||0)-(b.sentAt||0));
-  const inner=document.getElementById('qrPrintInner');inner.innerHTML='';
-  sorted.forEach(({caseno})=>inner.appendChild(qrMakeCard(caseno)));
-  // Wait for QR render then convert canvas→img
-  await new Promise(r=>setTimeout(r,300));
-  qrCanvasToImg();
-  _qrQueue.forEach(({caseno})=>_qrGenerated.add(caseno));
-  _qrQueue=[];await qrSave();qrRenderQueue();
-  document.getElementById('qrPrintArea').style.display='block';closeDrawer();
-}
-async function qrGenerateReprint(){
-  const lines=document.getElementById('qrReprintInput').value.split('\n').map(s=>s.trim()).filter(Boolean);
-  if(!lines.length){showToast('⚠️ Koi case no. nahi','w');return;}
-  if(typeof QRCode==='undefined'){showToast('⚠️ QR library load nahi','w');return;}
-  const inner=document.getElementById('qrPrintInner');inner.innerHTML='';
-  lines.forEach(cn=>{
-    const rec=cData.find(r=>caseMatch(r.caseno,cn));
-    inner.appendChild(qrMakeCard(rec?rec.caseno:cn.toUpperCase()));
-  });
-  await new Promise(r=>setTimeout(r,300));
-  qrCanvasToImg();
-  document.getElementById('qrPrintArea').style.display='block';closeDrawer();
-}
-function qrFromCurrentSent(){
-  const sent=cData.filter(r=>r.sent==='Sent');
-  if(!sent.length){showToast('⚠️ Koi sent file nahi','w');return;}
-  document.getElementById('qrReprintInput').value=sent.map(r=>r.caseno).join('\n');
-  showToast('✅ '+sent.length+' files fill ho gayi');
-}
+
 function qrDoPrint(){window.print();}
 // ════ END QR MODULE ════
 
@@ -2337,9 +2352,9 @@ async function manualAction(mode){
   const actualCN=rec.caseno;
   if(mode==="SENT"){
     if(rec.sent==="Sent"){showMS("ℹ️ Already SENT: "+actualCN,"info");speak("Already sent");return;}
-    cData[idx].sent="Sent";cData[idx].sentdate=new Date().toISOString().split("T")[0];cData[idx].searchableText=gSrch(cData[idx]);
+    cData[idx].sent="Sent";cData[idx].sentdate=new Date().toISOString().split("T")[0];cData[idx].senttime=Date.now();cData[idx].searchableText=gSrch(cData[idx]);
     showMS("✅ SENT: "+actualCN,"ok");speak("File sent");haptic('success');manualCaseInput.value="";
-    await hideBundleEntry(actualCN);qrOnSent(actualCN,rec.srno);
+    await hideBundleEntry(actualCN);
   }else{
     if(rec.sent!=="Sent"){showMS("❌ Pehle SENT karo","err");speak("File not sent yet");return;}
     if(rec.received==="Received"){showMS("ℹ️ Already RECEIVED: "+actualCN,"info");speak("Already received");return;}
@@ -2580,9 +2595,8 @@ async function handleCFMScan(code,mode){
   const actualCN=cData[idx].caseno; // always use stored caseno, not raw scanned string
   if(mode==='SENT'){
     if(cData[idx].sent==="Sent"){showSC('ℹ️ Already Sent: '+actualCN,'#d97706');speak("Already sent");return;}
-    cData[idx].sent="Sent";cData[idx].sentdate=new Date().toISOString().split("T")[0];cData[idx].searchableText=gSrch(cData[idx]);
+    cData[idx].sent="Sent";cData[idx].sentdate=new Date().toISOString().split("T")[0];cData[idx].senttime=Date.now();cData[idx].searchableText=gSrch(cData[idx]);
     showSC('✅ SENT: '+actualCN,'#16a34a');speak("File sent");haptic('scan');await hideBundleEntry(actualCN);
-    qrOnSent(actualCN,cData[idx].srno);
   }else{
     if(cData[idx].sent!=="Sent"){showSC('❌ Pehle SENT karo: '+actualCN,'#dc2626');speak("File not sent yet");haptic('error');redFlash();return;}
     if(cData[idx].received==="Received"){showSC('ℹ️ Already Received: '+actualCN,'#d97706');speak("Already received");return;}
@@ -2881,7 +2895,7 @@ async function bAddFile(rawId,fromScan){
 }
 function bMKey(e){if(e.key==='Enter'){e.preventDefault();document.getElementById('b-mi').value.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean).forEach(p=>bAddFile(p,false));document.getElementById('b-mi').value='';}}
 function bMAdd(){document.getElementById('b-mi').value.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean).forEach(p=>bAddFile(p,false));document.getElementById('b-mi').value='';}
-function startBundleScan(){bUpdateST();openScan('bundle',`📷 Bundle → Date ${bAMD}${bASD!=null?'/'+bASD:''} ${dispCol(bAC)}`,true);}
+function startBundleScan(){bUpdateST();openScan('bundle',`📷 Bundle → Date ${bAMD}${bASD!=null?'/'+bASD:''} ${dispCol(bAC)}`,false);}
 function handleBundleScan(dec){bAddFile(dec,true);if(scanActive)bUpdateST();}
 function openMismatchModal(id,cfmDay){
   mmPending={id,cfmDay};mmSD=1;
