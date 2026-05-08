@@ -695,17 +695,17 @@ td input:focus{background:#fff;border-color:var(--blue)}
       <div class="hdr-logo">⚖️</div>
       <div>
         <div class="hdr-title" style="display:flex;align-items:center;gap:7px">
-          Court Manager
+          <span id="cmTitle" style="color:#4ade80;transition:color .3s">Court Manager</span>
           <span id="hdrDatePill" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.2);border-radius:20px;padding:2px 9px;font-size:11px;font-weight:600;color:rgba(255,255,255,.9);letter-spacing:.2px">—</span>
         </div>
         <div class="hdr-sub">ACJM · Baghpat</div>
       </div>
     </div>
     <div class="hdr-actions">
-      <div class="sync-pill" title="Firebase sync status">
-        <span id="syncDot" class="off"></span>
-        <span id="syncLbl">Offline</span>
-      </div>
+      <button onclick="openStatusModal()" title="File Status Check"
+        style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);border-radius:20px;padding:4px 11px;font-size:11px;font-weight:700;color:#fff;cursor:pointer;letter-spacing:.2px">
+        📋 Status
+      </button>
       <button class="hdr-btn-urg" onclick="openUrgentModal()" title="⚡ Urgent Scan">⚡</button>
       <button class="hdr-btn" onclick="openDrawer()" title="Tools & Settings">⚙️</button>
     </div>
@@ -1055,7 +1055,10 @@ td input:focus{background:#fff;border-color:var(--blue)}
     <div class="mt">⏰ Overdue Files</div>
     <div class="msub">7+ din Sent, Received nahi — follow-up karein</div>
     <div id="ovList"></div>
-    <button class="btn neutral" onclick="document.getElementById('ovModal').classList.remove('on')" style="margin-top:8px">✕ Band Karo</button>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button class="btn success" onclick="ovDownloadExcel()" style="flex:1;margin-top:0;font-size:12px">📊 Download Excel</button>
+      <button class="btn neutral" onclick="document.getElementById('ovModal').classList.remove('on')" style="margin-top:0;font-size:12px">✕ Band Karo</button>
+    </div>
   </div>
 </div>
 
@@ -1972,6 +1975,130 @@ async function trSendToUpload(){
 // ════ END TRANSLATE MODULE ════
 
 let _ctIdx=-1;
+// ════ STATUS MODAL ════
+function openStatusModal(){
+  document.getElementById('statusInput').value='';
+  document.getElementById('statusDD').style.display='none';
+  document.getElementById('statusResult').innerHTML='<div style="color:var(--mu);text-align:center;padding:20px;font-size:13px">Case No. type karo ya scan karo</div>';
+  document.getElementById('statusModal').classList.add('on');
+  setTimeout(()=>document.getElementById('statusInput').focus(),200);
+}
+function closeStatusModal(){
+  document.getElementById('statusModal').classList.remove('on');
+  document.getElementById('statusDD').style.display='none';
+}
+
+// Find all matching records across ALL IDB dates+versions for a caseno
+async function statusGetHistory(query){
+  const q=String(query||'').trim();
+  if(!q)return[];
+  const allKeys=await idbAMK();
+  const dataKeys=allKeys.filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k));
+  const events=[]; // {type, date, caseno, partyname, sentdate, receiveddate, nextdate, workDate}
+  for(const k of dataKeys){
+    const d=await idbGM(k);
+    if(!d||!Array.isArray(d))continue;
+    const rec=d.find(r=>caseMatch(r.caseno,q));
+    if(!rec)continue;
+    const wd=k.split('_')[0];
+    if(rec.sent==='Sent'&&rec.sentdate)
+      events.push({type:'sent',workDate:wd,caseno:rec.caseno,partyname:rec.partyname||'',sentdate:rec.sentdate,nextdate:rec.nextdate||''});
+    if(rec.received==='Received'&&rec.receiveddate)
+      events.push({type:'received',workDate:wd,caseno:rec.caseno,partyname:rec.partyname||'',receiveddate:rec.receiveddate,nextdate:rec.nextdate||''});
+  }
+  // Sort newest first
+  events.sort((a,b)=>{
+    const da=a.sentdate||a.receiveddate||a.workDate;
+    const db=b.sentdate||b.receiveddate||b.workDate;
+    return db.localeCompare(da);
+  });
+  return events;
+}
+
+async function statusShow(caseno){
+  const res=document.getElementById('statusResult');
+  res.innerHTML='<div style="text-align:center;padding:16px;color:var(--mu);font-size:13px">🔍 Loading...</div>';
+  document.getElementById('statusDD').style.display='none';
+
+  const events=await statusGetHistory(caseno);
+  if(!events.length){
+    res.innerHTML=`<div style="text-align:center;padding:20px;color:var(--red);font-size:13px;font-weight:600">❌ "${caseno}" — koi record nahi mila</div>`;
+    return;
+  }
+
+  const cn=events[0].caseno;
+  const party=events[0].partyname;
+  const last3=events.slice(0,6); // last 3 sent + 3 received (interleaved)
+  const sentEvents=events.filter(e=>e.type==='sent').slice(0,3);
+  const recvEvents=events.filter(e=>e.type==='received').slice(0,3);
+
+  let h=`<div style="background:var(--navy);border-radius:10px;padding:10px 13px;margin-bottom:12px;color:white">
+    <div style="font-weight:800;font-size:15px">${esc(cn)}</div>
+    ${party?`<div style="font-size:12px;opacity:.8;margin-top:2px">👤 ${esc(party)}</div>`:''}
+  </div>`;
+
+  // Sent events
+  if(sentEvents.length){
+    h+=`<div style="font-size:11px;font-weight:700;color:var(--mu);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">📤 Last ${sentEvents.length} Sent</div>`;
+    sentEvents.forEach((e,i)=>{
+      h+=`<div style="background:#fff;border:1.5px solid #fcd34d;border-radius:8px;padding:8px 12px;margin-bottom:6px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="font-size:12px;font-weight:700;color:var(--navy)">${fmtD(e.sentdate)}</span>
+          <span style="font-size:10px;background:#fff3cd;color:#92400e;padding:2px 7px;border-radius:20px;font-weight:700">Working: ${e.workDate.split('-').reverse().join('-')}</span>
+        </div>
+        ${e.nextdate?`<div style="font-size:11px;color:var(--mu);margin-top:3px">📅 Next Date: <strong>${fmtD(e.nextdate)}</strong></div>`:''}
+      </div>`;
+    });
+  }
+
+  // Received events
+  if(recvEvents.length){
+    h+=`<div style="font-size:11px;font-weight:700;color:var(--mu);text-transform:uppercase;letter-spacing:.5px;margin:8px 0 6px">📥 Last ${recvEvents.length} Received</div>`;
+    recvEvents.forEach(e=>{
+      h+=`<div style="background:#fff;border:1.5px solid #86efac;border-radius:8px;padding:8px 12px;margin-bottom:6px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="font-size:12px;font-weight:700;color:var(--navy)">${fmtD(e.receiveddate)}</span>
+          <span style="font-size:10px;background:#dcfce7;color:#15803d;padding:2px 7px;border-radius:20px;font-weight:700">Working: ${e.workDate.split('-').reverse().join('-')}</span>
+        </div>
+        ${e.nextdate?`<div style="font-size:11px;color:var(--mu);margin-top:3px">📅 Next Date: <strong>${fmtD(e.nextdate)}</strong></div>`:''}
+      </div>`;
+    });
+  }
+
+  res.innerHTML=h;
+}
+
+function statusOnInput(val){
+  const q=val.trim().toLowerCase();
+  const dd=document.getElementById('statusDD');
+  if(!q){dd.style.display='none';document.getElementById('statusResult').innerHTML='<div style="color:var(--mu);text-align:center;padding:20px;font-size:13px">Case No. type karo ya scan karo</div>';return;}
+  // Search in current cData + extract just numbers for partial match
+  const matches=cData.filter(r=>{
+    const cn=String(r.caseno||'').toLowerCase();
+    const nums=cn.replace(/[^0-9]/g,'');
+    return cn.includes(q)||nums.includes(q.replace(/[^0-9]/g,''));
+  }).slice(0,8);
+  if(!matches.length){dd.style.display='none';return;}
+  dd.innerHTML=matches.map(r=>`<div onclick="statusSelectCase('${esc(r.caseno)}')"
+    style="padding:10px 13px;cursor:pointer;border-bottom:1px solid var(--bdr);font-size:13px;font-weight:600"
+    onmousedown="event.preventDefault()">
+    ${esc(r.caseno)}<span style="font-size:11px;color:var(--mu);margin-left:6px">${esc(r.partyname||'')}</span>
+  </div>`).join('');
+  dd.style.display='block';
+}
+
+function statusSelectCase(caseno){
+  document.getElementById('statusInput').value=caseno;
+  document.getElementById('statusDD').style.display='none';
+  statusShow(caseno);
+}
+
+function startStatusScan(){
+  closeStatusModal();
+  openScan('status_check','📋 Status Check — Scan karo',false);
+}
+// ════ END STATUS MODAL ════
+
 // ════ QR CODE MODULE ════
 // _qrGenerated: caseno set — jo kabhi bhi kisi bhi date mein generate ho chuke
 let _qrGenerated=new Set();
@@ -2352,6 +2479,14 @@ async function manualAction(mode){
   const actualCN=rec.caseno;
   if(mode==="SENT"){
     if(rec.sent==="Sent"){showMS("ℹ️ Already SENT: "+actualCN,"info");speak("Already sent");return;}
+    // Check: kisi bhi pichli date mein received nahi?
+    const pendChk=await checkPendingReceive(actualCN);
+    if(pendChk.found){
+      const wdStr=pendChk.workDate.split('-').reverse().join('-');
+      const sdStr=pendChk.sentdate?fmtD(pendChk.sentdate):'';
+      showMS(`❌ Pehle receive karo! ${wdStr}${sdStr?' (Sent '+sdStr+')':''} mein pending hai`,"err");
+      speak("Pehle receive karo");haptic('mismatch');redFlash();return;
+    }
     cData[idx].sent="Sent";cData[idx].sentdate=new Date().toISOString().split("T")[0];cData[idx].senttime=Date.now();cData[idx].searchableText=gSrch(cData[idx]);
     showMS("✅ SENT: "+actualCN,"ok");speak("File sent");haptic('success');manualCaseInput.value="";
     await hideBundleEntry(actualCN);
@@ -2586,6 +2721,11 @@ function handleScanResult(dec){
     document.getElementById('ac-caseno').value=dec.trim().toUpperCase();
     closeScan();
     setTimeout(()=>document.getElementById('ac-party').focus(),100);
+  } else if(scanCtx==='status_check'){
+    closeScan();
+    openStatusModal();
+    document.getElementById('statusInput').value=dec.trim();
+    statusShow(dec.trim());
   }
 }
 function startCFMScan(mode){openScan(mode==='SENT'?'cfm_sent':'cfm_rcv',mode==='SENT'?'📤 Scanning for SENT...':'📥 Scanning for RECEIVED...',false);}
@@ -2595,6 +2735,14 @@ async function handleCFMScan(code,mode){
   const actualCN=cData[idx].caseno; // always use stored caseno, not raw scanned string
   if(mode==='SENT'){
     if(cData[idx].sent==="Sent"){showSC('ℹ️ Already Sent: '+actualCN,'#d97706');speak("Already sent");return;}
+    // Check: kisi bhi pichli date mein received nahi?
+    const pendChk=await checkPendingReceive(actualCN);
+    if(pendChk.found){
+      const wdStr=pendChk.workDate.split('-').reverse().join('-');
+      const sdStr=pendChk.sentdate?fmtD(pendChk.sentdate):'';
+      showSC(`❌ Pehle receive karo!\n📅 ${wdStr}${sdStr?' (Sent: '+sdStr+')':''} mein receive pending hai`,'#dc2626');
+      speak("Pehle receive karo");haptic('mismatch');redFlash();return;
+    }
     cData[idx].sent="Sent";cData[idx].sentdate=new Date().toISOString().split("T")[0];cData[idx].senttime=Date.now();cData[idx].searchableText=gSrch(cData[idx]);
     showSC('✅ SENT: '+actualCN,'#16a34a');speak("File sent");haptic('scan');await hideBundleEntry(actualCN);
   }else{
@@ -3017,6 +3165,13 @@ const FB_KEY='crtFBCfg';
 function setSyncDot(s){
   const d=document.getElementById('syncDot');if(d)d.className=s;
   const l=document.getElementById('syncLbl');if(l){l.textContent=s==='ok'?'Synced':s==='busy'?'Syncing...':s==='err'?'Sync Error':'Offline';}
+  const t=document.getElementById('cmTitle');
+  if(t){
+    if(s==='ok')t.style.color='#4ade80';
+    else if(s==='err')t.style.color='#f87171';
+    else if(s==='busy')t.style.color='#fbbf24';
+    else t.style.color='rgba(255,255,255,0.75)';
+  }
 }
 let _fbMsgTimer=null;
 function fbMsg(msg,cls){const el=document.getElementById('fbMsg');if(!el)return;el.textContent=msg;el.className=cls;el.style.display='block';clearTimeout(_fbMsgTimer);if(cls==='s-ok')_fbMsgTimer=setTimeout(()=>el.style.display='none',4000);}
@@ -3227,6 +3382,76 @@ async function fbPullAll(){
 let _ovRemSel={},_ovData=[],_ovCustomDays={};
 
 function isDisposed(r){ return r._disposed===true; }
+
+// Download overdue list as Excel
+async function ovDownloadExcel(){
+  if(!_ovData||!_ovData.length){showToast('⚠️ Koi overdue data nahi','w');return;}
+  showToast('📦 Excel bana raha hai...');
+  try{
+    const headers=['Sr.No','Case No','Party Name','Section','PS','Sent Date','Working Date','Days Overdue','Remark'];
+    const rows=_ovData.map((r,i)=>[
+      i+1,
+      r.caseno||'',
+      r.partyname||'',
+      r.section||'',
+      r.ps||'',
+      r.sentdate?fmtD(r.sentdate):'',
+      r._workDate?r._workDate.split('-').reverse().join('-'):'',
+      r._daysDiff||'',
+      r.remark||''
+    ]);
+    if(typeof ExcelJS!=='undefined'){
+      const wb=new ExcelJS.Workbook();wb.creator='ACJM Baghpat';
+      const ws=wb.addWorksheet('Overdue Files',{pageSetup:{paperSize:9,orientation:'landscape',fitToPage:true,fitToWidth:1,fitToHeight:0}});
+      const thin={style:'thin',color:{argb:'FF000000'}};
+      const border={top:thin,left:thin,bottom:thin,right:thin};
+      const hrow=ws.addRow(headers);
+      hrow.eachCell(cell=>{cell.border=border;cell.font={bold:true,size:10,color:{argb:'FF0D1B4B'}};cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFD4DCF0'}};cell.alignment={wrapText:true,vertical:'top',horizontal:'center'};});
+      rows.forEach(rowData=>{
+        const row=ws.addRow(rowData);
+        row.eachCell({includeEmpty:true},cell=>{cell.border=border;cell.alignment={wrapText:true,vertical:'top'};cell.font={size:9};});
+      });
+      const widths=[6,18,28,16,14,14,14,12,30];
+      ws.columns.forEach((col,ci)=>{col.width=widths[ci]||12;});
+      const buf=await wb.xlsx.writeBuffer();
+      const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+      const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;
+      a.download='Overdue_'+new Date().toISOString().split('T')[0]+'.xlsx';
+      document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+    }else{
+      const ws=XLSX.utils.aoa_to_sheet([headers,...rows]);
+      ws['!cols']=([6,18,28,16,14,14,14,12,30]).map(w=>({wch:w}));
+      const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Overdue Files');
+      XLSX.writeFile(wb,'Overdue_'+new Date().toISOString().split('T')[0]+'.xlsx');
+    }
+    showToast('✅ Overdue Excel download ho gayi!');
+  }catch(e){showToast('❌ Download error: '+e.message,'d');}
+}
+
+// Check: kya ye caseno kisi bhi pichli date mein sent hai par received nahi?
+// Agar haan → us date mein receive karo pehle, aage sent mat karo
+async function checkPendingReceive(caseno){
+  const cn=String(caseno).toUpperCase().trim();
+  const today=new Date();today.setHours(0,0,0,0);
+  const allKeys=await idbAMK();
+  const dataKeys=allKeys.filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k));
+  const curKey=dKey(); // current date+version
+  for(const k of dataKeys){
+    if(k===curKey)continue; // current date skip — sirf pichle check karo
+    const datePart=k.split('_')[0];
+    const wd=new Date(datePart+'T00:00:00');wd.setHours(0,0,0,0);
+    if(wd>=today)continue; // future ya aaj — skip
+    const d=await idbGM(k);
+    if(!d||!Array.isArray(d))continue;
+    const rec=d.find(r=>caseMatch(r.caseno,cn));
+    if(!rec)continue;
+    if(rec.sent==='Sent'&&rec.received!=='Received'&&!rec._disposed){
+      // Found — sent but not received in a past date
+      return{found:true,workDate:datePart,sentdate:rec.sentdate||'',rec};
+    }
+  }
+  return{found:false};
+}
 
 async function openOverdueModal(){
   const today=new Date();today.setHours(0,0,0,0);
@@ -3797,5 +4022,30 @@ function confirmDisposeNo(){
 
 
 </script>
+<!-- ════ STATUS MODAL ════ -->
+<div class="modal center" id="statusModal">
+  <div class="msh" style="max-width:430px;width:96%;max-height:90vh;overflow-y:auto">
+    <div class="mt">📋 File Status</div>
+    <div class="msub">Last 3 sent &amp; received history</div>
+
+    <!-- Input row -->
+    <div style="display:flex;gap:8px;margin-bottom:10px;position:relative">
+      <input type="text" id="statusInput" placeholder="Case No. ya number type karo..."
+        autocomplete="off"
+        style="flex:1;padding:10px 12px;border:1.5px solid var(--bdr);border-radius:10px;font-size:13px;outline:none;font-family:inherit"
+        oninput="statusOnInput(this.value)"
+        onkeydown="if(event.key==='Escape')closeStatusModal()">
+      <button onclick="startStatusScan()" style="padding:10px 14px;background:var(--blue);color:white;border:none;border-radius:10px;font-size:18px;cursor:pointer">📷</button>
+    </div>
+    <!-- Suggestions dropdown -->
+    <div id="statusDD" style="display:none;border:1.5px solid rgba(26,86,219,.3);border-radius:10px;background:#fff;max-height:160px;overflow-y:auto;margin-bottom:10px;box-shadow:var(--sh3)"></div>
+
+    <!-- Result area -->
+    <div id="statusResult" style="min-height:60px"></div>
+
+    <button class="btn neutral" onclick="closeStatusModal()" style="margin-top:10px;width:100%">✕ Band Karo</button>
+  </div>
+</div>
+
 </body>
 </html>
