@@ -2328,13 +2328,13 @@ function syncAddCaseDateLabel(){
   if(lbl)lbl.textContent=fmtD(workDate.value)||'—';
 }
 async function addCaseThenSend(){
-  // Pehle add karo
-  const added=await addCaseManually();
-  if(!added)return; // agar add fail ho gaya to stop
-  // Phir seedha SENT karo — manualCaseInput pe caseno set karo
+  // Caseno pehle save karo — addCaseManually form clear kar deta hai
   const cn=(document.getElementById('ac-caseno').value||'').trim().toUpperCase();
-  if(!cn)return;
-  // Find in cData and mark sent
+  if(!cn){showAcMsg('⚠️ Case No zaroori hai','err');return;}
+  // Add karo
+  const added=await addCaseManually();
+  if(!added)return;
+  // Ab cn se cData mein dhundho aur SENT karo
   const idx=findCaseIdx(cn);
   if(idx===-1){showToast('⚠️ Case add hua par sent nahi ho saka','w');return;}
   const pendChk=await checkPendingReceive(cData[idx].caseno);
