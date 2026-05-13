@@ -499,7 +499,10 @@ td input:focus{background:#fff;border-color:var(--blue)}
           <input type="text" id="ac-remark" placeholder="Koi note...">
         </div>
         <div id="ac-msg" class="smsg" style="margin-bottom:0"></div>
-        <button class="btn primary" onclick="addCaseManually()" style="margin-top:10px">✓ Case Add Karo</button>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px">
+          <button class="btn neutral" onclick="addCaseManually()" style="margin-top:0;font-size:13px">✓ Add Karo</button>
+          <button class="btn amber" onclick="addCaseThenSend()" style="margin-top:0;font-size:13px">✓ Add &amp; Send</button>
+        </div>
         <button class="btn neutral" onclick="clearAddCaseForm()" style="margin-top:8px">✕ Clear</button>
       </div>
     </div>
@@ -1809,10 +1812,38 @@ function trAutoAbbrev(text){
 }
 function trShortenSection(text){
   if(!text)return text;
-  let s=String(text);
+  let s=String(text).trim();
+
+  // Extract trailing numbers/sections first (e.g. "302", "35/3", "302/34 IPC")
+  // Pattern: act name + space + numbers/sections at end
+  const numSuffix=s.match(/[\d][0-9/,\s&]+(?:[A-Z]{1,4})?$/i);
+
   for(const[from,to]of TR_SEC_MAP){
     const re=new RegExp(from.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'gi');
-    if(re.test(s))return s.replace(re,to).trim();
+    if(re.test(s)){
+      // Replace act name but keep numbers
+      const replaced=s.replace(re,to).trim();
+      // If numbers got dropped (replaced is just abbreviation), re-append
+      if(numSuffix&&!replaced.includes(numSuffix[0].trim())){
+        return (to+' '+numSuffix[0].trim()).trim();
+      }
+      return replaced;
+    }
+  }
+
+  // No match — keep original if it has numbers (BNS 302, BNSS 35 etc)
+  // Only abbreviate if pure text with no numbers
+  if(/\d/.test(s)){
+    // Has numbers — try to shorten just the act part
+    const parts=s.match(/^([a-zA-Z\s.]+?)\s*([\d].*)$/);
+    if(parts){
+      const actPart=parts[1].trim();
+      const numPart=parts[2].trim();
+      // If act part is short already (BNS, IPC, CrPC etc) — keep as is
+      if(actPart.length<=6||actPart.toUpperCase()===actPart)return s;
+      return trAutoAbbrev(actPart)+' '+numPart;
+    }
+    return s; // just return as-is if has numbers
   }
   return trAutoAbbrev(s);
 }
@@ -2296,13 +2327,39 @@ function syncAddCaseDateLabel(){
   const lbl=document.getElementById('addcase-dateLabel');
   if(lbl)lbl.textContent=fmtD(workDate.value)||'—';
 }
+async function addCaseThenSend(){
+  // Pehle add karo
+  const added=await addCaseManually();
+  if(!added)return; // agar add fail ho gaya to stop
+  // Phir seedha SENT karo — manualCaseInput pe caseno set karo
+  const cn=(document.getElementById('ac-caseno').value||'').trim().toUpperCase();
+  if(!cn)return;
+  // Find in cData and mark sent
+  const idx=findCaseIdx(cn);
+  if(idx===-1){showToast('⚠️ Case add hua par sent nahi ho saka','w');return;}
+  const pendChk=await checkPendingReceive(cData[idx].caseno);
+  if(pendChk.found){
+    const wdStr=pendChk.workDate.split('-').reverse().join('-');
+    showToast(`❌ Pehle receive karo! ${wdStr} mein pending hai`,'d');
+    haptic('mismatch');redFlash();return;
+  }
+  cData[idx].sent='Sent';
+  cData[idx].sentdate=new Date().toISOString().split('T')[0];
+  cData[idx].senttime=Date.now();
+  cData[idx].searchableText=gSrch(cData[idx]);
+  await hideBundleEntry(cData[idx].caseno);
+  await saveLocal();drawTable(getFiltered());scrollToFile(cData[idx].caseno);await updateDash();
+  closeDrawer();
+  showToast('✅ '+cData[idx].caseno+' add aur SENT ho gaya!');
+  haptic('success');
+}
 async function addCaseManually(){
   const cn=(document.getElementById('ac-caseno').value||'').trim().toUpperCase();
-  if(!cn){showAcMsg('⚠️ Case No zaroori hai','err');return;}
-  if(cn.length<2){showAcMsg('⚠️ Case No bahut chhota hai','err');return;}
+  if(!cn){showAcMsg('⚠️ Case No zaroori hai','err');return false;}
+  if(cn.length<2){showAcMsg('⚠️ Case No bahut chhota hai','err');return false;}
   // Duplicate check
   if(cData.find(r=>String(r.caseno).toUpperCase()===cn)){
-    showAcMsg('⚠️ Ye Case No pehle se hai: '+cn,'err');return;
+    showAcMsg('⚠️ Ye Case No pehle se hai: '+cn,'err');return false;
   }
   const srno=cData.length?String(Math.max(...cData.map(r=>parseInt(r.srno)||0))+1):String(1);
   const newRow={
@@ -2322,8 +2379,8 @@ async function addCaseManually(){
   showAcMsg(`✅ "${cn}" add ho gaya!`,'ok');
   haptic('success');
   clearAddCaseForm();
-  // Re-sync label in case date changed
   syncAddCaseDateLabel();
+  return true; // for addCaseThenSend
 }
 
 // ════ TABLE ════
