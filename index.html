@@ -3327,9 +3327,9 @@ async function fbPushAll(){
   }
 }
 
-async function fbPush(){
-  if(!_fbDb||!cData.length)return;
-  try{setSyncDot('busy');await _fbDb.collection('cfm').doc(dKey()).set({data:cData,at:Date.now()});setSyncDot('ok');}
+async function fbPush(key = dKey(), data = cData){
+  if(!_fbDb||!data.length)return;
+  try{setSyncDot('busy');await _fbDb.collection('cfm').doc(key).set({data:data,at:Date.now()});setSyncDot('ok');}
   catch(e){setSyncDot('err');}
 }
 
@@ -3621,6 +3621,7 @@ async function ovSave(i){
         }
         keyData[idx].searchableText=gSrch(keyData[idx]);
         await idbSM(srcKey,keyData);
+        await fbPush(srcKey,keyData);
       }
     }
   }
@@ -3662,6 +3663,7 @@ async function ovDispose(i){
         delete keyData[idx]._reminder;
         keyData[idx].searchableText=gSrch(keyData[idx]);
         await idbSM(srcKey,keyData);
+        await fbPush(srcKey,keyData);
       }
     }
   }
@@ -3809,7 +3811,7 @@ async function urgAction(mode){
         const tx=db.transaction(SUL,'readwrite');
         const s=tx.objectStore(SUL);
         const r=s.put(existing);
-        r.onsuccess=res;r.onerror=rej;
+        r.onsuccess=()=>{res();scheduleUrgentPush();};r.onerror=rej;
       });
     } else {
       await ulAdd({caseno:cn,sentDate:todayISO,sentTime:timeStr,sentRemark:rem,receivedDate:'',receivedTime:'',receivedRemark:'',ts:now.toISOString()});
@@ -3826,7 +3828,7 @@ async function urgAction(mode){
         const tx=db.transaction(SUL,'readwrite');
         const s=tx.objectStore(SUL);
         const r=s.put(existing);
-        r.onsuccess=res;r.onerror=rej;
+        r.onsuccess=()=>{res();scheduleUrgentPush();};r.onerror=rej;
       });
     } else {
       await ulAdd({caseno:cn,sentDate:'',sentTime:'',sentRemark:'',receivedDate:todayISO,receivedTime:timeStr,receivedRemark:rem,ts:now.toISOString()});

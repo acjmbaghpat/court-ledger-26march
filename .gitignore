@@ -1,0 +1,7 @@
+node_modules/
+www/
+*.log
+extracted_script.js
+android/app/build/
+android/.gradle/
+android/local.properties
