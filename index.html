@@ -1204,7 +1204,22 @@ function showToast(msg,type){
   toastT=setTimeout(()=>t.style.display='none',2800);
 }
 function speak(msg,lang){
-  try{const u=new SpeechSynthesisUtterance(msg);u.lang=lang||'en-IN';u.rate=1;speechSynthesis.cancel();speechSynthesis.speak(u);}catch(e){}
+  if (window.Capacitor && Capacitor.isNativePlatform()) {
+    try {
+      Capacitor.Plugins.TextToSpeech.speak({
+        text: msg,
+        lang: lang || 'en-IN',
+        rate: 1.0,
+        pitch: 1.0,
+        volume: 1.0,
+        category: 'ambient'
+      });
+    } catch (e) {
+      console.error('TTS error:', e);
+    }
+  } else {
+    try{const u=new SpeechSynthesisUtterance(msg);u.lang=lang||'en-IN';u.rate=1;speechSynthesis.cancel();speechSynthesis.speak(u);}catch(e){}
+  }
 }
 
 async function saveBlob(blob, fileName) {
