@@ -271,10 +271,16 @@ td input:focus{background:#fff;border-color:var(--blue)}
 @keyframes toastPop{from{transform:translateX(-50%) scale(.85);opacity:0}to{transform:translateX(-50%) scale(1);opacity:1}}
 
 /* ═══════════════ SCANNER ═══════════════ */
-#scan-ov{display:none;position:fixed;inset:0;z-index:950;background:rgba(5,10,25,.93);flex-direction:column;align-items:center;justify-content:center;gap:16px;backdrop-filter:blur(6px)}
+body.barcode-scanner-active {
+  background: transparent !important;
+}
+body.barcode-scanner-active > *:not(#scan-ov):not(#toast) {
+  display: none !important;
+}
+#scan-ov{display:none;position:fixed;inset:0;z-index:950;background:transparent;flex-direction:column;align-items:center;justify-content:center;gap:16px}
 #scan-ov.on{display:flex}
-#scan-box{position:relative;width:min(86vw,290px);height:min(86vw,290px);border-radius:22px;overflow:hidden;box-shadow:0 0 0 1px rgba(255,255,255,.08),var(--sh3);background:#0a0f1e}
-#scan-vid{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+#scan-box{position:relative;width:min(86vw,290px);height:min(86vw,290px);border-radius:22px;overflow:hidden;box-shadow:0 0 0 1px rgba(255,255,255,.08),var(--sh3);background:transparent;border:2px solid rgba(255,255,255,0.3)}
+#scan-vid{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none}
 .cr,.cr2{position:absolute;inset:0;pointer-events:none}
 .cr::before,.cr::after,.cr2::before,.cr2::after{content:'';position:absolute;width:36px;height:36px;border-color:var(--gold2);border-style:solid}
 .cr::before{top:14px;left:14px;border-width:3px 0 0 3px;border-radius:7px 0 0 0}
@@ -937,12 +943,12 @@ td input:focus{background:#fff;border-color:var(--blue)}
     <div class="sline"></div>
     <div id="qr-hl"></div>
     <div id="scan-flash"></div>
-    <div id="scan-sb">📷 Camera shuru ho rahi hai...</div>
+    <div id="scan-sb">📷 Scanning...</div>
   </div>
   <div id="scan-card"></div>
   <div id="scan-ctrl">
     <div id="scan-ml">—</div>
-    <button id="cont-btn" onclick="toggleCont()">🔁 Continuous: OFF</button>
+    <button id="cont-btn" onclick="toggleCont()" style="display:none">🔁 Continuous: OFF</button>
     <button id="scan-close" onclick="closeScan()">✕ Band Karo</button>
   </div>
 </div>
@@ -2754,64 +2760,103 @@ async function importBackup(event){
   event.target.value="";
 }
 
-// ════ QR SCANNER ════
-let scanActive=false,scanStream=null,scanCtx='',contMode=false,scanLast='',scanCool=false;
-let scanDetector=null;
+// ════ QR SCANNER (NATIVE CAPACITOR) ════
+let scanActive=false,scanCtx='',contMode=false,scanLast='',scanCool=false;
+let scanListener=null;
+
 function showSC(msg,color){
   const c=document.getElementById('scan-card');
   c.textContent=msg;c.style.background=color;c.style.display='block';
   c.style.cursor='pointer';c.title='Tap to close';
-  // No auto-hide — stays until user taps it
   c.onclick=()=>{c.style.display='none';c.onclick=null;};
 }
-function setSS(msg){const el=document.getElementById('scan-sb');if(el)el.textContent=msg;}
+
 async function openScan(ctx,label,defaultCont){
-  scanCtx=ctx;contMode=defaultCont||false;scanLast='';scanCool=false;
-  document.getElementById('scan-ov').classList.add('on');
-  const cb=document.getElementById('cont-btn');cb.textContent='🔁 Continuous: '+(contMode?'ON':'OFF');cb.className=contMode?'on':'';
-  document.getElementById('scan-ml').textContent=label||'—';document.getElementById('scan-card').style.display='none';
-  setSS('📷 Camera shuru ho rahi hai...');
-  try{if(!scanDetector)scanDetector=new BarcodeDetector({formats:['qr_code']});}catch(e){setSS('❌ BarcodeDetector not supported');return;}
-  scanActive=true;
-  try{
-    const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:1280},height:{ideal:720}}});
-    scanStream=stream;
-    const vid=document.getElementById('scan-vid');vid.srcObject=stream;
-    vid.onloadedmetadata=()=>{vid.play();setSS('📷 QR code frame ke saamne laao');schedDet();};
-    if(vid.readyState>=2){vid.play();setSS('📷 QR code frame ke saamne laao');schedDet();}
-  }catch(err){setSS('❌ Camera: '+err.message);}
-}
-function schedDet(){if(!scanActive)return;setTimeout(doDet,80);}
-async function doDet(){
-  if(!scanActive)return;
-  const vid=document.getElementById('scan-vid');
-  if(!vid||vid.readyState<2||vid.paused||vid.videoWidth===0){schedDet();return;}
-  try{
-    const bs=await scanDetector.detect(vid);
-    if(bs&&bs.length&&!scanCool){
-      const dec=bs[0].rawValue.trim();
-      if(dec&&(!contMode||dec!==scanLast)){
-        scanLast=dec;scanCool=true;
-        showQRBox(bs[0].boundingBox,vid);
-        const fl=document.getElementById('scan-flash');fl.classList.remove('go');void fl.offsetWidth;fl.classList.add('go');
-        handleScanResult(dec);
-        if(!contMode){setTimeout(closeScan,700);return;}
-        else{setTimeout(()=>{scanCool=false;hideQRBox();},2200);schedDet();return;}
+  if (!window.Capacitor || !Capacitor.isNativePlatform()) {
+    showToast('⚠️ Native scanner sirf Mobile app mein chalta hai','w');
+    return;
+  }
+  const BarcodeScanner = Capacitor.Plugins.BarcodeScanner || Capacitor.Plugins.BarcodeScanning;
+  if (!BarcodeScanner) {
+    showToast('❌ Scanner plugin load nahi hua','d');
+    return;
+  }
+
+  try {
+    const status = await BarcodeScanner.checkPermissions();
+    if (status.camera !== 'granted') {
+      const req = await BarcodeScanner.requestPermissions();
+      if (req.camera !== 'granted') {
+        showToast('❌ Camera permission chahiye scanning ke liye','d');
+        return;
       }
     }
-  }catch(e){}
-  schedDet();
+
+    scanCtx=ctx;contMode=defaultCont||false;scanLast='';scanCool=false;
+
+    document.querySelector('body').classList.add('barcode-scanner-active');
+    document.getElementById('scan-ov').classList.add('on');
+    document.getElementById('scan-ml').textContent=label||'—';
+    document.getElementById('scan-card').style.display='none';
+
+    scanActive=true;
+
+    // Handle both singular (older/demo) and plural (current API) events
+    const scanHandler = async result => {
+      if (scanCool) return;
+      const barcode = result.barcode || (result.barcodes && result.barcodes[0]);
+      if (!barcode) return;
+
+      const dec = barcode.displayValue || barcode.rawValue;
+      if (dec && (!contMode || dec !== scanLast)) {
+        scanLast = dec;
+        haptic('scan');
+        const fl=document.getElementById('scan-flash');
+        fl.classList.remove('go');void fl.offsetWidth;fl.classList.add('go');
+
+        handleScanResult(dec);
+
+        if (!contMode) {
+          scanCool = true;
+          setTimeout(closeScan, 700);
+        } else {
+          scanCool = true;
+          setTimeout(() => { scanCool = false; }, 2000);
+        }
+      }
+    };
+
+    // Listen to both just in case of version variations
+    scanListener = await BarcodeScanner.addListener('barcodeScanned', scanHandler);
+    const scanListener2 = await BarcodeScanner.addListener('barcodesScanned', scanHandler);
+
+    // Wrap closeScan to remove both
+    const originalClose = closeScan;
+    closeScan = async () => {
+      if (scanListener2) await scanListener2.remove();
+      await originalClose();
+      closeScan = originalClose;
+    };
+
+    await BarcodeScanner.startScan();
+  } catch (err) {
+    showToast('❌ Scanner error: ' + err.message, 'd');
+    closeScan();
+  }
 }
-function showQRBox(rect,vid){
-  const b=document.getElementById('qr-hl'),w=document.getElementById('scan-box');
-  const sx=w.offsetWidth/vid.videoWidth,sy=w.offsetHeight/vid.videoHeight;
-  b.style.left=Math.round(rect.x*sx)+'px';b.style.top=Math.round(rect.y*sy)+'px';
-  b.style.width=Math.round(rect.width*sx)+'px';b.style.height=Math.round(rect.height*sy)+'px';b.style.display='block';
-}
-function hideQRBox(){document.getElementById('qr-hl').style.display='none';}
-function closeScan(){
-  scanActive=false;if(scanStream){scanStream.getTracks().forEach(t=>t.stop());scanStream=null;}
-  document.getElementById('scan-vid').srcObject=null;hideQRBox();document.getElementById('scan-ov').classList.remove('on');
+
+async function closeScan(){
+  scanActive=false;
+  if (window.Capacitor && Capacitor.isNativePlatform()) {
+    const BarcodeScanner = Capacitor.Plugins.BarcodeScanner || Capacitor.Plugins.BarcodeScanning;
+    if (scanListener && BarcodeScanner) {
+      await scanListener.remove();
+      scanListener = null;
+    }
+    await BarcodeScanner.stopScan();
+  }
+  document.querySelector('body').classList.remove('barcode-scanner-active');
+  document.getElementById('scan-ov').classList.remove('on');
 }
 function toggleCont(){contMode=!contMode;scanLast='';scanCool=false;const b=document.getElementById('cont-btn');b.textContent='🔁 Continuous: '+(contMode?'ON':'OFF');b.className=contMode?'on':'';}
 function handleScanResult(dec){
