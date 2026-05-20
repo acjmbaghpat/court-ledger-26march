@@ -1377,8 +1377,11 @@ function caseMatch(a,b){
   // 5. Abbreviation expand on slash-normalized
   const ase=expandAbbr(as.replace(/[^A-Z0-9]/g,'')),bse=expandAbbr(bs.replace(/[^A-Z0-9]/g,''));
   if(ase===bse)return true;
-  // 6. Contains (min 5 chars)
-  if(an.length>=5&&bn.length>=5&&(an.includes(bn)||bn.includes(an)))return true;
+  // 6. Contains — only if lengths are close (avoids 152/2020 matching WSC/7152/2020)
+  if(an.length>=6&&bn.length>=6){
+    const ratio=Math.min(an.length,bn.length)/Math.max(an.length,bn.length);
+    if(ratio>=0.7&&(an.includes(bn)||bn.includes(an)))return true;
+  }
   return false;
 }
 
