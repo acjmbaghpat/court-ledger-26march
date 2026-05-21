@@ -261,7 +261,8 @@ td input:focus{background:#fff;border-color:var(--blue)}
 
 /* ═══════════════ HIGHLIGHT ═══════════════ */
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
-.hl{background:#fef9c3!important;animation:pulse 1s 3}
+.hl{background:#fef08a!important;outline:2px solid #f59e0b!important;outline-offset:-1px;animation:hlFade 4s forwards}
+@keyframes hlFade{0%{background:#fde047!important}80%{background:#fef08a!important}100%{background:transparent!important;outline:none!important}}
 
 /* ═══════════════ TOAST ═══════════════ */
 #toast{position:fixed;bottom:92px;left:50%;transform:translateX(-50%);border-radius:50px;padding:10px 22px;font-size:13px;font-weight:700;z-index:1000;white-space:nowrap;max-width:90vw;overflow:hidden;text-overflow:ellipsis;display:none;color:#fff;box-shadow:var(--sh3);animation:toastPop .2s var(--ease)}
@@ -2564,9 +2565,16 @@ function scrollToManual(){
   setTimeout(()=>el.focus(),400);
 }
 function scrollToFile(cn){
-  const row=document.getElementById("row_"+sId(cn));if(!row)return;
-  row.scrollIntoView({behavior:"smooth",block:"center"});
-  row.classList.add("hl");setTimeout(()=>row.classList.remove("hl"),4000);
+  // requestAnimationFrame se ensure karo ki DOM render ho chuka hai
+  requestAnimationFrame(()=>{
+    requestAnimationFrame(()=>{
+      const row=document.getElementById("row_"+sId(cn));
+      if(!row)return;
+      row.scrollIntoView({behavior:"smooth",block:"center"});
+      row.classList.add("hl");
+      setTimeout(()=>row.classList.remove("hl"),4000);
+    });
+  });
 }
 
 // ════ NEXT DATE MODAL ════
