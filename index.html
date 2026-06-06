@@ -472,7 +472,7 @@ td input:focus{background:#fff;border-color:var(--blue)}
         </p>
         <div class="field"><label>Case No *</label>
           <div style="display:flex;gap:8px;align-items:flex-end">
-            <input type="text" id="ac-caseno" placeholder="Jaise: CC/123/2024" autocomplete="off" style="text-transform:uppercase;flex:1;margin-top:5px">
+            <input type="text" id="ac-caseno" placeholder="Jaise: CC/123/2024" maxlength="50" autocomplete="off" style="text-transform:uppercase;flex:1;margin-top:5px">
             <button onclick="acScan()" style="height:44px;width:44px;border-radius:var(--r8);border:1.5px solid var(--bdr);background:#f7f9fc;font-size:18px;cursor:pointer;flex-shrink:0" title="QR Scan se Case No scan karo">📷</button>
           </div>
         </div>
@@ -708,6 +708,9 @@ td input:focus{background:#fff;border-color:var(--blue)}
         style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);border-radius:20px;padding:4px 11px;font-size:11px;font-weight:700;color:#fff;cursor:pointer;letter-spacing:.2px">
         📋 Status
       </button>
+      <!-- Hidden legacy sync elements — referenced by setSyncDot -->
+      <span id="syncDot" style="display:none"></span>
+      <span id="syncLbl" style="display:none"></span>
       <button class="hdr-btn-urg" onclick="openUrgentModal()" title="⚡ Urgent Scan">⚡</button>
       <button class="hdr-btn" onclick="openDrawer()" title="Tools & Settings">⚙️</button>
     </div>
@@ -1066,7 +1069,7 @@ td input:focus{background:#fff;border-color:var(--blue)}
 
 <!-- ════ URGENT SCAN MODAL ════ -->
 <div class="modal center" id="urgentModal">
-  <div class="msh" style="max-width:420px;width:95%;max-height:88vh;overflow-y:auto">
+  <div class="msh" style="max-width:420px;width:95%;max-height:88vh;overflow-y:auto" onkeydown="if(event.key==='Escape')closeUrgentModal()">
     <div class="mt">⚡ Urgent Scan</div>
     <div class="msub">Kisi bhi file ko turant track karo — 90 din ka log save hoga</div>
     <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:10px">
@@ -1169,9 +1172,17 @@ function idbTx(store,mode,fn){
     let tx,s,r;
     try{tx=db.transaction(store,mode);s=tx.objectStore(store);r=fn(s);}
     catch(e){rej(e);return;}
-    r.onsuccess=()=>res(r.result);
-    r.onerror=e=>rej(e.target.error);
     tx.onerror=e=>rej(e.target.error);
+    tx.onabort=e=>rej(e.target.error);
+    if(mode==='readwrite'){
+      // Write: resolve on tx.oncomplete (data durably written)
+      tx.oncomplete=()=>res(r?r.result:undefined);
+      if(r)r.onerror=e=>rej(e.target.error);
+    }else{
+      // Read: resolve on r.onsuccess
+      r.onsuccess=()=>res(r.result);
+      r.onerror=e=>rej(e.target.error);
+    }
   });
 }
 const idbGV  =d=>idbTx(SV,'readonly',s=>s.get(d)).then(r=>r?r.versions:[]);
@@ -1255,7 +1266,10 @@ let sDeb;
 const rTimers={};
 function sId(id){return String(id||"").replace(/[^a-zA-Z0-9-_]/g,'_');}
 function gSrch(r){return DK.map(k=>r[k]||"").join(' ').toLowerCase();}
-function dKey(){return workDate.value+"_"+upV;}
+function dKey(){
+  const wd=(workDate&&workDate.value&&workDate.value.trim())||new Date().toISOString().split('T')[0];
+  return wd+'_'+(upV||1);
+}
 function fmtD(iso){if(!iso)return"";const p=iso.split("-");return p.length===3?p[2]+"-"+p[1]+"-"+p[0]:iso;}
 
 // ════ CASE TYPES ════
@@ -1378,10 +1392,24 @@ function caseMatch(a,b){
   // 5. Abbreviation expand on slash-normalized
   const ase=expandAbbr(as.replace(/[^A-Z0-9]/g,'')),bse=expandAbbr(bs.replace(/[^A-Z0-9]/g,''));
   if(ase===bse)return true;
-  // 6. Contains — only if lengths are close (avoids 152/2020 matching WSC/7152/2020)
+  // 6. Contains — only if similar length AND not a pure numeric suffix/prefix mismatch
   if(an.length>=6&&bn.length>=6){
     const ratio=Math.min(an.length,bn.length)/Math.max(an.length,bn.length);
-    if(ratio>=0.7&&(an.includes(bn)||bn.includes(an)))return true;
+    if(ratio>=0.7){
+      const aInB=bn.includes(an), bInA=an.includes(bn);
+      if(aInB||bInA){
+        // Prevent false positives: "1232020" inside "71232020"
+        // If one is purely numeric and is a substring of the other, reject
+        const shorter=an.length<=bn.length?an:bn;
+        const longer=an.length<=bn.length?bn:an;
+        const idx=longer.indexOf(shorter);
+        // If the char before/after the match is a digit — it's a number boundary issue
+        const before=idx>0?longer[idx-1]:'';
+        const after=idx+shorter.length<longer.length?longer[idx+shorter.length]:'';
+        if(/\d/.test(before)||/\d/.test(after)) return false;
+        return true;
+      }
+    }
   }
   return false;
 }
@@ -1480,7 +1508,12 @@ async function loadCurV(){
 async function saveLocal(){
   try{
     await idbSM(dKey(),cData);
-    fbPush();fbPushVersionMeta();
+    // Fire and forget — Firebase backup, not critical path
+    // But schedule properly to avoid race conditions
+    if(_fbDb){
+      fbPush().catch(e=>console.warn('fbPush:',e));
+      fbPushVersionMeta().catch(e=>console.warn('fbPushVersionMeta:',e));
+    }
   }
   catch(e){console.error('saveLocal fail:',e);showToast('⚠️ Data save fail! Storage full ho sakta hai.','d');}
 }
@@ -1656,13 +1689,13 @@ async function uploadExcel(){
       await loadVersions();versionSelect.value=upV;
       drawTable(getFiltered());await updateDash();updateSU();
       speak("Excel uploaded");
-      resetBtn();
       showToast('✅ Upload ho gaya! ('+cData.length+' records)');
       excelFile.value="";
       closeDrawer();
     }catch(err){
-      resetBtn();
       showToast('❌ Excel error: '+err.message,'d');
+    }finally{
+      resetBtn(); // hamesha button reset ho — chahe success ho ya error
     }
   };
   try{reader.readAsArrayBuffer(file);}
@@ -2405,7 +2438,7 @@ function drawTable(data){
       }else if(k==="remark"){
         const ca=String(r.caseno).replace(/"/g,'&quot;'),cj=String(r.caseno).replace(/\\/g,'\\\\').replace(/'/g,"\\'"),va=String(r[k]||"").replace(/"/g,'&quot;');
         const isDisposed=r._disposed;
-        row+=`<td>${isDisposed?'<span class="td-badge-dispose">✓ Disposed</span> ':''}<input data-caseno="${ca}" value="${va}" oninput="updateRemark('${cj}',this.value)" placeholder="Remark..." ${isDisposed?'disabled style="color:var(--mu);background:#f0f3f9;cursor:not-allowed"':''}></td>`;
+        row+=`<td>${isDisposed?'<span class="td-badge-dispose">✓ Disposed</span> ':''}<input data-caseno="${ca}" value="${va}" oninput="updateRemark('${cj}',this.value)" placeholder="Remark..." ${isDisposed?'disabled tabindex="-1" style="color:var(--mu);background:#f0f3f9;cursor:not-allowed"':''}></td>`;
       }else if(k==="receiveddate"){
         row+=`<td><span class="td-meta">${fmtD(r[k])}</span></td>`;
       }else if(k==="nextdate"){
@@ -2565,7 +2598,12 @@ function scrollToManual(){
   setTimeout(()=>el.focus(),400);
 }
 function scrollToFile(cn){
-  // requestAnimationFrame se ensure karo ki DOM render ho chuka hai
+  // CFM tab ensure karo
+  if(activeTab!=='cfm')switchTab('cfm');
+  // Filter reset karo — file visible honi chahiye
+  if(aFilter!=='all')setFilter('all');
+  if(searchBox&&searchBox.value){searchBox.value='';drawTable(getFiltered());}
+  // DOM render hone do — double rAF
   requestAnimationFrame(()=>{
     requestAnimationFrame(()=>{
       const row=document.getElementById("row_"+sId(cn));
@@ -2938,7 +2976,9 @@ function bMSetCol(c){bMC=c;bBuildMoveCR();bUpdateMP();}
 function bCC(arr){if(!arr||!arr.length)return'sc-e';if(arr.some(f=>f.st==='missing'))return'sc-m';return arr.length>=40?'sc-f':arr.length>=25?'sc-h':'sc-e';}
 function bRenderGrid(){
   const gc=document.getElementById('bgc');
-  const todayDay=new Date().getDate();
+  // workDate ka din use karo — real today nahi (historical dates pe kaam ho sakta hai)
+  const wdVal=document.getElementById('workDate')?.value||new Date().toISOString().split('T')[0];
+  const todayDay=parseInt(wdVal.split('-')[2]||new Date().getDate());
   const totalInBundle=Object.values(bFiles).filter(f=>!f.hidden).length;
   function totalStr(n){return n+' file'+(n!==1?'s':'');}
   let h=`<div style="background:#eef2ff;border-radius:10px;padding:9px 13px;margin-bottom:12px;font-size:12px;font-weight:600;color:var(--blue)">
@@ -3377,7 +3417,11 @@ async function fbPushUrgent(){
 // Pull EVERYTHING from Firebase
 async function fbPullAll(){
   if(!_fbDb){showToast('⚠️ Firebase connected nahi hai','w');return;}
+  if(!confirm('⚠️ Firebase se pull karne se local data replace ho jayega. Confirm karo?'))return;
   showToast('🔄 Sab data pull ho raha hai...','w');
+  // Backup current local state before destructive pull
+  const _backup_cData=[...cData];
+  const _backup_bFiles={...bFiles};
   try{
     // 1. CFM data — sabhi dates+versions
     const cfmSnaps=await _fbDb.collection('cfm').get();
@@ -3440,7 +3484,18 @@ async function fbPullAll(){
     showToast('✅ Sab data sync ho gaya!');
   }catch(e){
     console.error('fbPullAll:',e);
-    showToast('❌ Pull fail: '+e.message,'d');
+    showToast('❌ Pull fail: '+e.message+' — Local data restored.','d');
+    // Restore local IDB from memory backup (agar midway fail hua)
+    try{
+      if(_backup_cData&&Array.isArray(_backup_cData)){
+        cData=_backup_cData;
+        await saveLocal();
+      }
+      if(_backup_bFiles&&Object.keys(_backup_bFiles).length){
+        bFiles=_backup_bFiles;
+        for(const f of Object.values(bFiles)){try{await idbSBn(f);}catch(e2){}}
+      }
+    }catch(e3){console.error('Backup restore fail:',e3);}
   }
 }
 
@@ -3779,6 +3834,9 @@ function openUrgentModal(){
   document.getElementById('urgentModal').classList.add('on');
   loadUrgLog();
   setTimeout(()=>document.getElementById('urg-cn').focus(),120);
+}
+function closeUrgentModal(){
+  document.getElementById('urgentModal').classList.remove('on');
 }
 
 // QR scan for urgent
