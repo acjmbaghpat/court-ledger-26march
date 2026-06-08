@@ -3479,9 +3479,25 @@ async function fbPullAll(){
         }
       }
     }
-    // 5. Reload current view
+    // 5. Reload — latest date pe switch karo automatically
+    // Sabhi IDB keys dhundho jo date format mein hain
+    const allKeys=await idbAMK();
+    const dataKeys=allKeys
+      .filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k))
+      .sort().reverse(); // newest first
+
+    if(dataKeys.length){
+      // Latest key se date aur version nikalo
+      const latestKey=dataKeys[0];
+      const [latestDate,latestV]=latestKey.split('_');
+      // WorkDate aur version set karo
+      if(workDate&&latestDate)workDate.value=latestDate;
+      upV=parseInt(latestV)||1;
+    }
+
     await loadVersions();await loadCurV();await loadLocal();
-    showToast('✅ Sab data sync ho gaya!');
+    drawTable(getFiltered());await updateDash();updateSU();updateHdrDate();
+    showToast('✅ Pull complete! '+(dataKeys.length)+' dates ka data aa gaya.');
   }catch(e){
     console.error('fbPullAll:',e);
     showToast('❌ Pull fail: '+e.message+' — Local data restored.','d');
