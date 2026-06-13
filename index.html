@@ -1642,18 +1642,28 @@ async function getAllCDataOverall(){
 // ════ PESHGAR MISMATCH (CFM sent par Peshgar received nahi) ════
 let _pgData=null; // {caseno: {received,...}} current workDate ka peshgar data
 let _pgUnsub=null;
+let _pgListenErr='';
 function pgStartListen(){
-  if(!_fbDb){_pgData=null;updatePgMiss();return;}
+  if(!_fbDb){_pgData=null;_pgListenErr='Firebase connected nahi';updatePgMiss();return;}
   if(_pgUnsub)_pgUnsub();
   const date=(workDate&&workDate.value)||'';
-  if(!date)return;
+  if(!date){_pgListenErr='Koi date select nahi';return;}
+  _pgListenErr='';
   _pgUnsub=_fbDb.collection('peshgar').doc(date).onSnapshot(snap=>{
     if(snap.exists&&Array.isArray(snap.data().data)){
       _pgData={};
       snap.data().data.forEach(r=>{_pgData[String(r.caseno).toUpperCase().trim()]=r;});
-    }else{_pgData=null;}
+      _pgListenErr='';
+    }else{
+      _pgData=null;
+      _pgListenErr='Peshgar ne is date ('+date+') ki koi file abhi receive nahi ki';
+    }
     updatePgMiss();
-  },()=>{_pgData=null;updatePgMiss();});
+  },err=>{
+    _pgData=null;
+    _pgListenErr='Firebase read error: '+err.message;
+    updatePgMiss();
+  });
 }
 function getPgMissList(){
   // CM sent='Sent' par Peshgar mein received nahi
@@ -1667,12 +1677,16 @@ function getPgMissList(){
 function updatePgMiss(){
   const el=document.getElementById('pgMissCount');if(!el)return;
   const list=getPgMissList();
-  if(list===null){el.textContent='—';el.title='Peshgar data nahi mila';return;}
-  el.textContent=list.length;
+  if(list===null){el.textContent='—';el.title=_pgListenErr||'Peshgar data nahi mila';return;}
+  el.textContent=list.length;el.title='';
 }
 function openPgMismatchModal(){
   const list=getPgMissList();
-  if(list===null){showToast('⚠️ Peshgar ka data Firebase pe nahi — Peshgar app mein receive karo pehle','w');return;}
+  if(list===null){
+    const date=(workDate&&workDate.value)||'';
+    showToast('⚠️ '+(_pgListenErr||('Peshgar data nahi mila ('+date+')')),'w');
+    return;
+  }
   if(!list.length){showToast('✅ Sab sent files Peshgar ne receive kar li!');return;}
   let h='<div style="font-weight:700;font-size:14px;color:var(--red);margin-bottom:10px">⚠️ '+list.length+' files — CFM se sent par Peshgar ne receive NAHI ki:</div>';
   list.forEach((r,i)=>{
