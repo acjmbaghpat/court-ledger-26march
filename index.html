@@ -97,7 +97,9 @@ button{cursor:pointer}
 .cnt{padding:14px;max-width:1000px;margin:0 auto}
 
 /* ═══════════════ STAT CARDS ═══════════════ */
-.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-bottom:8px}
+.stats-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-bottom:8px}
+.urg-who-btn{padding:7px 12px;border-radius:20px;border:1.5px solid var(--bdr);background:#f7f9fc;color:var(--navy);font-size:12px;font-weight:700;cursor:pointer;font-family:inherit}
+.urg-who-btn:active,.urg-who-btn.on{background:var(--blue);color:#fff;border-color:var(--blue)}
 .stat-card{background:var(--sur);border-radius:8px;padding:6px 8px;border:1px solid rgba(221,229,244,.6);box-shadow:var(--sh1);position:relative;overflow:hidden;cursor:default}
 .stat-card::after{content:'';position:absolute;right:-6px;bottom:-6px;width:36px;height:36px;border-radius:50%;opacity:.06;background:var(--blue)}
 .stat-card.clickable{cursor:pointer}
@@ -733,6 +735,7 @@ td input:focus{background:#fff;border-color:var(--blue)}
     <div class="stat-card"><span class="stat-icon">📤</span><span class="stat-val" id="sentCount">0</span><span class="stat-lbl">Sent</span></div>
     <div class="stat-card"><span class="stat-icon">📥</span><span class="stat-val" id="receivedCount">0</span><span class="stat-lbl">Received</span></div>
     <div class="stat-card danger clickable" onclick="openOverdueModal()" id="ovCard"><span class="stat-icon">⏰</span><span class="stat-val" id="overdueCount">0</span><span class="stat-lbl">Overdue 7d+</span></div>
+    <div class="stat-card clickable" onclick="openPgMismatchModal()" id="pgMissCard" style="border:1px solid #fca5a5"><span class="stat-icon">⚠️</span><span class="stat-val" id="pgMissCount" style="color:var(--red)">—</span><span class="stat-lbl">Peshgar Miss</span></div>
   </div>
 
   <!-- Search + Filter -->
@@ -1080,8 +1083,15 @@ td input:focus{background:#fff;border-color:var(--blue)}
       <button onclick="urgScan()" style="height:46px;width:46px;border-radius:var(--r8);border:1.5px solid var(--bdr);background:#f7f9fc;font-size:20px;cursor:pointer;flex-shrink:0;margin-bottom:0" title="QR Scan">📷</button>
     </div>
     <div class="field" style="margin-bottom:8px">
-      <label>Remark * <span style="color:var(--red)">(zaroori hai)</span></label>
-      <input type="text" id="urg-rem" placeholder="Kyu gaya/aaya — Judge ne manga, urgent sunwai...">
+      <label>Kiske paas? * <span style="color:var(--red)">(zaroori hai)</span></label>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:5px">
+        <button type="button" class="urg-who-btn" onclick="urgSetWho('Babu')">👤 Babu</button>
+        <button type="button" class="urg-who-btn" onclick="urgSetWho('Peshgar')">📋 Peshgar</button>
+        <button type="button" class="urg-who-btn" onclick="urgSetWho('Steno')">🖊️ Steno</button>
+        <button type="button" class="urg-who-btn" onclick="urgSetWho('Judge')">⚖️ Judge</button>
+        <button type="button" class="urg-who-btn" onclick="urgSetWho('')">✏️ Other</button>
+      </div>
+      <input type="text" id="urg-rem" placeholder="Select karo ya yahan likho..." style="margin-top:6px">
     </div>
     <div id="urg-msg" class="smsg"></div>
     <div class="g2" style="margin-top:8px">
@@ -1507,6 +1517,7 @@ async function loadCurV(){
 }
 async function saveLocal(){
   try{
+    invalidateOvCache(); // data badla — overdue cache fresh karo
     await idbSM(dKey(),cData);
     // Fire and forget — Firebase backup, not critical path
     // But schedule properly to avoid race conditions
@@ -1529,6 +1540,7 @@ workDate.addEventListener("change",async()=>{
   _reminderShownToday=false; // reset so reminders re-check on date change
   updateHdrDate();syncAddCaseDateLabel();
   await loadVersions();await loadCurV();await loadLocal();fbStartListen();
+  pgStartListen();
 });
 versionSelect.addEventListener("change",async()=>{upV=parseInt(versionSelect.value);await saveCurV();await loadLocal();fbStartListen();});
 
@@ -1543,7 +1555,14 @@ function isToday(dateStr){
 // Har ek sent instance ko alag track karo — caseno duplicate ho sakta hai
 // Overdue: workDate vs today >= 7 din
 // Scan ALL keys to correctly detect received state, then filter by 7+ day old work dates
+let _ovCache=null,_ovCacheTime=0,_ovCacheKey='';
+function invalidateOvCache(){_ovCache=null;}
 async function getAllOverdueFiles(){
+  // Cache: 20 sec ya jab tak data change na ho (saveLocal invalidate karta hai)
+  const ck=workDate.value+'_'+cData.length;
+  if(_ovCache!==null&&_ovCacheKey===ck&&(Date.now()-_ovCacheTime)<20000){
+    return _ovCache;
+  }
   try{
     const allKeys=await idbAMK();
     const dataKeys=allKeys.filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k));
@@ -1582,7 +1601,9 @@ async function getAllOverdueFiles(){
         if(daysDiff>ex._daysDiff)caseMap[cn]={...r,_srcKey:k,_workDate:datePart,_daysDiff:daysDiff};
       });
     }
-    return Object.values(caseMap);
+    const result=Object.values(caseMap);
+    _ovCache=result;_ovCacheTime=Date.now();_ovCacheKey=ck;
+    return result;
   }catch(e){
     console.error('getAllOverdueFiles:',e);
     const today=new Date();today.setHours(0,0,0,0);
@@ -1616,6 +1637,54 @@ async function getAllCDataOverall(){
     });
     return Object.values(map);
   }catch(e){return cData;}
+}
+
+// ════ PESHGAR MISMATCH (CFM sent par Peshgar received nahi) ════
+let _pgData=null; // {caseno: {received,...}} current workDate ka peshgar data
+let _pgUnsub=null;
+function pgStartListen(){
+  if(!_fbDb){_pgData=null;updatePgMiss();return;}
+  if(_pgUnsub)_pgUnsub();
+  const date=(workDate&&workDate.value)||'';
+  if(!date)return;
+  _pgUnsub=_fbDb.collection('peshgar').doc(date).onSnapshot(snap=>{
+    if(snap.exists&&Array.isArray(snap.data().data)){
+      _pgData={};
+      snap.data().data.forEach(r=>{_pgData[String(r.caseno).toUpperCase().trim()]=r;});
+    }else{_pgData=null;}
+    updatePgMiss();
+  },()=>{_pgData=null;updatePgMiss();});
+}
+function getPgMissList(){
+  // CM sent='Sent' par Peshgar mein received nahi
+  if(!_pgData)return null; // peshgar data hi nahi — unknown
+  return cData.filter(r=>{
+    if(r.sent!=='Sent')return false;
+    const pg=_pgData[String(r.caseno).toUpperCase().trim()];
+    return !pg||pg.received!=='Received';
+  });
+}
+function updatePgMiss(){
+  const el=document.getElementById('pgMissCount');if(!el)return;
+  const list=getPgMissList();
+  if(list===null){el.textContent='—';el.title='Peshgar data nahi mila';return;}
+  el.textContent=list.length;
+}
+function openPgMismatchModal(){
+  const list=getPgMissList();
+  if(list===null){showToast('⚠️ Peshgar ka data Firebase pe nahi — Peshgar app mein receive karo pehle','w');return;}
+  if(!list.length){showToast('✅ Sab sent files Peshgar ne receive kar li!');return;}
+  let h='<div style="font-weight:700;font-size:14px;color:var(--red);margin-bottom:10px">⚠️ '+list.length+' files — CFM se sent par Peshgar ne receive NAHI ki:</div>';
+  list.forEach((r,i)=>{
+    h+=`<div style="background:#fef2f2;border:1.5px solid #fca5a5;border-radius:8px;padding:9px 12px;margin-bottom:6px">
+      <div style="font-weight:800;font-size:13px;color:var(--navy)">${i+1}. ${esc(r.caseno)}</div>
+      <div style="font-size:11px;color:var(--mu)">${esc(r.partyname||'')} ${r.sentdate?'· Sent: '+fmtD(r.sentdate):''}</div>
+    </div>`;
+  });
+  document.getElementById('ovList').innerHTML=h;
+  document.querySelector('#ovModal .mt').textContent='⚠️ Peshgar Mismatch';
+  document.querySelector('#ovModal .msub').textContent='Ye files Peshgar tak nahi pahunchi';
+  document.getElementById('ovModal').classList.add('on');
 }
 
 async function updateDash(){
@@ -2183,8 +2252,10 @@ async function qrSave(){
 
 // Current date ki sent files sorted by senttime — jo generate nahi hui
 function qrGetPending(){
+  // Sirf woh files skip karo jo SCAN se sent hui (unka QR pehle se hai)
+  // Manual sent files hamesha dikhe — chahe pehle generate ho chuki ho
   return cData
-    .filter(r=>r.sent==='Sent'&&!_qrGenerated.has(String(r.caseno).toUpperCase().trim()))
+    .filter(r=>r.sent==='Sent'&&!r._qrScanned)
     .sort((a,b)=>(a.senttime||0)-(b.senttime||0)); // sent time wise order
 }
 
@@ -2254,14 +2325,12 @@ async function qrGenerateQueue(){
   if(!pending.length){showToast('⚠️ Koi pending file nahi','w');return;}
   if(typeof QRCode==='undefined'){showToast('⚠️ QR library load nahi hui, refresh karo','w');return;}
   const inner=document.getElementById('qrPrintInner');inner.innerHTML='';
-  // cData order = sent order (sentdate/senttime ke hisaab se — jo pehle sent hua)
+  // senttime order — jo pehle sent hua wo pehle
   pending.forEach(r=>inner.appendChild(qrMakeCard(r.caseno)));
   await new Promise(r=>setTimeout(r,400));
   qrCanvasToImg();
-  // Mark all as generated
-  pending.forEach(r=>_qrGenerated.add(String(r.caseno).toUpperCase().trim()));
-  await qrSave();
-  qrRefreshPending();
+  // NOTE: _qrGenerated mark NAHI karte — manual files repeat generate ho sakti hain
+  // Sirf scan hone par hi pending se hatti hain (_qrScanned flag)
   document.getElementById('qrPrintArea').style.display='block';
   closeDrawer();
 }
@@ -2587,7 +2656,10 @@ async function manualAction(mode){
     if(rec.received==="Received"){showMS("ℹ️ Already RECEIVED: "+actualCN,"info");speak("Already received");return;}
     cData[idx].received="Received";cData[idx].receiveddate=new Date().toISOString().split("T")[0];
     lastRcvCase=actualCN;cData[idx].searchableText=gSrch(cData[idx]);
-    showMS("✅ RECEIVED: "+actualCN,"ok");speak("File received");haptic('success');manualCaseInput.value="";openNDModal(actualCN);
+    showMS("✅ RECEIVED: "+actualCN,"ok");speak("File received");haptic('success');manualCaseInput.value="";
+    drawTable(getFiltered());scrollToFile(actualCN);await saveLocal();await updateDash();
+    setTimeout(()=>openNDModal(actualCN),900); // highlight dikhne ke baad ND modal
+    return;
   }
   drawTable(getFiltered());scrollToFile(actualCN);await saveLocal();await updateDash();
 }
@@ -2847,15 +2919,17 @@ async function handleCFMScan(code,mode){
       showSC(`❌ Pehle receive karo!\n📅 ${wdStr}${sdStr?' (Sent: '+sdStr+')':''} mein receive pending hai`,'#dc2626');
       speak("Pehle receive karo");haptic('mismatch');redFlash();return;
     }
-    cData[idx].sent="Sent";cData[idx].sentdate=new Date().toISOString().split("T")[0];cData[idx].senttime=Date.now();cData[idx].searchableText=gSrch(cData[idx]);
+    cData[idx].sent="Sent";cData[idx].sentdate=new Date().toISOString().split("T")[0];cData[idx].senttime=Date.now();cData[idx]._qrScanned=true;cData[idx].searchableText=gSrch(cData[idx]);
+    // Scan se sent = QR pehle se hai — QR pending mein mat dikhao
     showSC('✅ SENT: '+actualCN,'#16a34a');speak("File sent");haptic('scan');await hideBundleEntry(actualCN);
   }else{
     if(cData[idx].sent!=="Sent"){showSC('❌ Pehle SENT karo: '+actualCN,'#dc2626');speak("File not sent yet");haptic('error');redFlash();return;}
     if(cData[idx].received==="Received"){showSC('ℹ️ Already Received: '+actualCN,'#d97706');speak("Already received");return;}
     cData[idx].received="Received";cData[idx].receiveddate=new Date().toISOString().split("T")[0];cData[idx].searchableText=gSrch(cData[idx]);lastRcvCase=actualCN;
     showSC('✅ RECEIVED: '+actualCN,'#16a34a');speak("File received");haptic('scan');
-    setTimeout(()=>{closeScan();openNDModal(actualCN);},800);
-    drawTable(getFiltered());scrollToFile(actualCN);await saveLocal();await updateDash();return;
+    closeScan();
+    drawTable(getFiltered());scrollToFile(actualCN);await saveLocal();await updateDash();
+    setTimeout(()=>openNDModal(actualCN),900);return;
   }
   drawTable(getFiltered());scrollToFile(actualCN);await saveLocal();await updateDash();
 }
@@ -3315,6 +3389,7 @@ async function fbInit(cfg){
     setSyncDot('ok');fbMsg('✅ Firebase connected!','s-ok');
     fbStartListen();
     fbStartListenBundle();
+    pgStartListen();
     // Connect hote hi current data push karo
     if(cData.length){await fbPush();await fbPushVersionMeta();}
     await fbPushBundle();
@@ -3843,6 +3918,16 @@ function showUrgMsg(msg,type){
   if(type==='ok')el._t=setTimeout(()=>el.className='smsg',3000);
 }
 
+function urgSetWho(who){
+  const inp=document.getElementById('urg-rem');
+  document.querySelectorAll('.urg-who-btn').forEach(b=>b.classList.remove('on'));
+  if(who){
+    inp.value=who;
+    if(event&&event.target)event.target.classList.add('on');
+  }else{
+    inp.value='';inp.focus(); // Other — manual entry
+  }
+}
 function openUrgentModal(){
   document.getElementById('urg-cn').value='';
   document.getElementById('urg-rem').value='';
@@ -4055,15 +4140,16 @@ async function checkTodayFiles(){
     });
   }
 
-  // Ab filter: dobara sent nahi hui
+  // Ab filter: us file ki next date pe dobara sent nahi hui
+  // Condition: received hui thi (ya sent nahi hui), nextdate aa gayi, dobara send nahi, dispose nahi
   const pending=[];
   Object.values(caseMap).forEach(r=>{
-    // Agar received hai aur sentdate < receiveddate → dobara sent nahi hui
+    if(r._disposed)return; // dispose ho gayi to skip
+    // Agar received hai aur sentdate <= receiveddate → wapas send nahi hui
     if(r.received==='Received'){
       const sd=r.sentdate||'';
       const rd=r.receiveddate||'';
       if(sd<=rd||!sd){
-        // Received hai, nextdate set hai, dobara sent nahi hui
         pending.push(r);
       }
     } else if(r.sent!=='Sent'){
@@ -4073,24 +4159,27 @@ async function checkTodayFiles(){
     // Agar sent='Sent' aur received nahi — ye overdue mein dikhegi, yahan nahi
   });
 
-  // Split: aaj ki aur pehle ki
+  // Split: aaj ki | pichle 7 din ki (reminder window) — 7 din se purani SKIP
+  const sevenDaysAgo=new Date(today);sevenDaysAgo.setDate(today.getDate()-7);
+  const sevenAgoISO=sevenDaysAgo.toISOString().split('T')[0];
   const aajKi=pending.filter(r=>r.nextdate===todayISO);
-  const pehleKi=pending.filter(r=>r.nextdate<todayISO);
-  pehleKi.sort((a,b)=>(a.nextdate||'').localeCompare(b.nextdate||''));
+  // Pehle ki: sirf last 7 days ki — isse purani nahi (reminder window)
+  const pehleKi=pending.filter(r=>r.nextdate<todayISO&&r.nextdate>=sevenAgoISO);
+  pehleKi.sort((a,b)=>(b.nextdate||'').localeCompare(a.nextdate||'')); // recent pehle
 
   let h=`<div style="background:#f7f9fc;border-radius:10px;padding:10px 13px;margin-bottom:14px">
-    <div style="font-weight:700;font-size:13px;color:var(--navy)">📅 Aaj ${todayDay}.${todayMon}.${todayYr} — CFM Next Date Check</div>
-    <div style="font-size:11px;color:var(--mu);margin-top:2px">Sabhi dates+versions — jinki fix date aaj ya nikal chuki, sent nahi hui</div>
+    <div style="font-weight:700;font-size:13px;color:var(--navy)">📅 Aaj ${todayDay}.${todayMon}.${todayYr} — Send Reminder</div>
+    <div style="font-size:11px;color:var(--mu);margin-top:2px">Jin files ki next date aaj ya pichle 7 din mein thi — wapas send honi chahiye thi (dispose chod kar)</div>
   </div>`;
 
   if(!aajKi.length&&!pehleKi.length){
-    h+=`<div style="color:var(--green);font-weight:700;font-size:14px;text-align:center;padding:20px 0">✅ Koi file pending nahi! Aaj ki date tk sab sent ho chuki hain.</div>`;
+    h+=`<div style="color:var(--green);font-weight:700;font-size:14px;text-align:center;padding:20px 0">✅ Koi file pending nahi! Sab apni date pe send ho chuki hain.</div>`;
     listEl.innerHTML=h;return;
   }
 
   if(aajKi.length){
     h+=`<div style="background:#fff3cd;border:1.5px solid #fcd34d;border-radius:10px;padding:9px 13px;margin-bottom:8px">
-      <div style="font-weight:700;font-size:13px;color:#856404">⚠️ Aaj (${todayDay}.${todayMon}) court jaani hain — sent nahi hui (${aajKi.length})</div>
+      <div style="font-weight:700;font-size:13px;color:#856404">⚠️ AAJ (${todayDay}.${todayMon}) send honi hain — abhi tak nahi hui (${aajKi.length})</div>
     </div>`;
     aajKi.forEach(r=>{
       const bf=bFiles[String(r.caseno).toUpperCase()];
@@ -4112,8 +4201,8 @@ async function checkTodayFiles(){
 
   if(pehleKi.length){
     h+=`<div style="background:#fef2f2;border:1.5px solid #fca5a5;border-radius:10px;padding:9px 13px;margin-bottom:8px;margin-top:${aajKi.length?'8':'0'}px">
-      <div style="font-weight:700;font-size:13px;color:var(--red)">🚨 Purani date — SENT NAHI HUI (${pehleKi.length})</div>
-      <div style="font-size:11px;color:var(--mu);margin-top:2px">Fix date nikal gayi, court jaani thi</div>
+      <div style="font-weight:700;font-size:13px;color:var(--red)">🚨 Pichle 7 din mein send honi thi — abhi tak nahi (${pehleKi.length})</div>
+      <div style="font-size:11px;color:var(--mu);margin-top:2px">Reminder: in files ki date nikal gayi, send karo</div>
     </div>`;
     pehleKi.forEach(r=>{
       const bf=bFiles[String(r.caseno).toUpperCase()];
