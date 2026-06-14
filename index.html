@@ -4279,6 +4279,27 @@ async function loadUrgLog(){
   try{
     const all=await ulGetAll();
     if(!all.length){listEl.innerHTML='<div class="bempty" style="margin-top:12px">Koi urgent log nahi abhi tak</div>';return;}
+
+    // CFM received status — saari dates se collect karo (urgent sent file CFM se receive ho sakti hai)
+    const cfmReceivedMap={}; // caseno → {date, sentdate}
+    try{
+      const allKeys=await idbAMK();
+      const dataKeys=allKeys.filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k));
+      for(const k of dataKeys){
+        const d=await idbGM(k);
+        if(!d||!Array.isArray(d))continue;
+        d.forEach(r=>{
+          const cn=String(r.caseno||'').trim().toUpperCase();
+          if(cn&&r.received==='Received'){
+            const ex=cfmReceivedMap[cn];
+            if(!ex||(r.receiveddate||'')>(ex.date||'')){
+              cfmReceivedMap[cn]={date:r.receiveddate||'',via:'CFM'};
+            }
+          }
+        });
+      }
+    }catch(e){}
+
     // Sort by latest activity
     all.sort((a,b)=>new Date(b.ts)-new Date(a.ts));
     listEl.innerHTML=all.slice(0,40).map(x=>{
@@ -4290,14 +4311,30 @@ async function loadUrgLog(){
             </div>
             ${x.sentRemark?`<span style="font-size:11px;color:var(--mu);font-style:italic">${esc(x.sentRemark)}</span>`:''}
           </div>`:'';
-      const rcvBadge=x.receivedDate
-        ?`<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0">
+      // Received badge: urgent se received, YA CFM se received (auto-detect)
+      let rcvBadge='';
+      if(x.receivedDate){
+        // Urgent scan se received
+        rcvBadge=`<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0">
             <div>
               <span style="background:#dcfce7;color:#15803d;font-size:10px;padding:2px 7px;border-radius:20px;font-weight:700">📥 Received</span>
               <span style="font-size:11px;color:var(--mu);margin-left:6px">${fmtD(x.receivedDate)} ${x.receivedTime||''}</span>
             </div>
             ${x.receivedRemark?`<span style="font-size:11px;color:var(--mu);font-style:italic">${esc(x.receivedRemark)}</span>`:''}
-          </div>`:'';
+          </div>`;
+      } else {
+        // Urgent received nahi — CFM mein check karo
+        const cfmRcv=cfmReceivedMap[x.caseno];
+        if(cfmRcv){
+          rcvBadge=`<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0">
+              <div>
+                <span style="background:#dcfce7;color:#15803d;font-size:10px;padding:2px 7px;border-radius:20px;font-weight:700">📥 Received</span>
+                <span style="font-size:11px;color:var(--mu);margin-left:6px">${fmtD(cfmRcv.date)}</span>
+                <span style="background:#dbeafe;color:#1e40af;font-size:9px;padding:1px 6px;border-radius:20px;font-weight:700;margin-left:4px">CFM se</span>
+              </div>
+            </div>`;
+        }
+      }
       return`<div class="ulog-row">
         <span class="ulog-cn">${esc(x.caseno)}</span>
         <div style="margin-top:6px">${sentBadge}${rcvBadge}</div>
@@ -4375,68 +4412,65 @@ async function checkTodayFiles(){
   const todayDay=today.getDate();
   const todayMon=String(today.getMonth()+1).padStart(2,'0');
   const todayYr=today.getFullYear();
+  const curMonth=today.getMonth(); // 0-11
+  const curYear=today.getFullYear();
 
-  // Logic: Sabhi IDB dates+versions se CFM data lo
-  // Jo files ki nextdate <= aaj hai AUR dobara sent nahi hui
-  // "Dobara sent nahi" = ya to sent hi nahi, ya received ke baad sentdate < receiveddate
-  const allKeys=await idbAMK();
-  const dataKeys=allKeys.filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k));
+  // ════ BUNDLE-BASED LOGIC ════
+  // Jo files bundle mein RAKHI hain (hidden=false = abhi CFM se send nahi hui),
+  // unki respected date (bundle ki 'md' day) AAJ ya PEHLE aa chuki hai,
+  // aur file dispose nahi hui — wo "send karni hain" list mein dikhe.
+  //
+  // Bundle se file send hone par hidden=true ho jaati hai (CFM SENT pe),
+  // toh hidden=false matlab abhi almari mein hai, send nahi hui.
 
-  // caseno → best record (latest state)
-  const caseMap={};
-  for(const k of dataKeys){
-    const d=await idbGM(k);
-    if(!d||!Array.isArray(d))continue;
-    d.forEach(r=>{
-      const cn=String(r.caseno||'').trim().toUpperCase();
-      if(!cn||!r.nextdate)return;
-      if(r._disposed)return;
-      if(r.nextdate>todayISO)return; // future nextdate — skip
+  const aajKi=[]; // respected date = aaj
+  const pehleKi=[]; // respected date pehle nikal gayi (7-day reminder window)
+  const sevenDaysAgo=new Date(today);sevenDaysAgo.setDate(today.getDate()-7);
 
-      const ex=caseMap[cn];
-      if(!ex){caseMap[cn]={...r,_srcKey:k};return;}
-      // Agar received hai — prefer karo (latest state)
-      if(r.received==='Received'&&ex.received!=='Received'){caseMap[cn]={...r,_srcKey:k};return;}
-      if(ex.received==='Received'&&r.received!=='Received')return;
-      // Latest nextdate rakho
-      if((r.nextdate||'')>=(ex.nextdate||''))caseMap[cn]={...r,_srcKey:k};
-    });
-  }
+  Object.values(bFiles).forEach(bf=>{
+    if(!bf||bf.hidden)return; // hidden = CFM se send ho chuki, skip
+    if(bf.cat)return; // category files (OLD/JAIL/STAY etc) ki fixed date nahi — skip
+    const cfmRec=getCFMRecord(bf.id);
+    if(!cfmRec)return; // CFM mein nahi — skip
+    if(cfmRec._disposed)return; // dispose ho gayi — skip
 
-  // Ab filter: us file ki next date pe dobara sent nahi hui
-  // Condition: received hui thi (ya sent nahi hui), nextdate aa gayi, dobara send nahi, dispose nahi
-  const pending=[];
-  Object.values(caseMap).forEach(r=>{
-    if(r._disposed)return; // dispose ho gayi to skip
-    // Agar received hai aur sentdate <= receiveddate → wapas send nahi hui
-    if(r.received==='Received'){
-      const sd=r.sentdate||'';
-      const rd=r.receiveddate||'';
-      if(sd<=rd||!sd){
-        pending.push(r);
-      }
-    } else if(r.sent!=='Sent'){
-      // Kabhi sent hi nahi hui, nextdate hai aur nikal gayi
-      pending.push(r);
+    // Bundle ki 'md' = respected date ka din. Iski poori date banao.
+    // md current month ka din hai (bundle current month-cycle ke liye hota hai)
+    const day=parseInt(bf.md);
+    if(isNaN(day)||day<1||day>31)return;
+    // Respected date — current month/year ke saath
+    const respDate=new Date(curYear,curMonth,day);respDate.setHours(0,0,0,0);
+    const respISO=respDate.toISOString().split('T')[0];
+
+    const fileInfo={
+      caseno:cfmRec.caseno,
+      partyname:cfmRec.partyname,
+      section:cfmRec.section,
+      receiveddate:cfmRec.receiveddate,
+      received:cfmRec.received,
+      _bf:bf,
+      _respISO:respISO,
+      _respDay:day
+    };
+
+    if(respISO===todayISO){
+      aajKi.push(fileInfo);
+    } else if(respDate<today && respDate>=sevenDaysAgo){
+      fileInfo._late=Math.floor((today-respDate)/86400000);
+      pehleKi.push(fileInfo);
     }
-    // Agar sent='Sent' aur received nahi — ye overdue mein dikhegi, yahan nahi
   });
 
-  // Split: aaj ki | pichle 7 din ki (reminder window) — 7 din se purani SKIP
-  const sevenDaysAgo=new Date(today);sevenDaysAgo.setDate(today.getDate()-7);
-  const sevenAgoISO=sevenDaysAgo.toISOString().split('T')[0];
-  const aajKi=pending.filter(r=>r.nextdate===todayISO);
-  // Pehle ki: sirf last 7 days ki — isse purani nahi (reminder window)
-  const pehleKi=pending.filter(r=>r.nextdate<todayISO&&r.nextdate>=sevenAgoISO);
-  pehleKi.sort((a,b)=>(b.nextdate||'').localeCompare(a.nextdate||'')); // recent pehle
+  pehleKi.sort((a,b)=>(b._respISO||'').localeCompare(a._respISO||''));
+  aajKi.sort((a,b)=>(a._bf.col||'').localeCompare(b._bf.col||''));
 
   let h=`<div style="background:#f7f9fc;border-radius:10px;padding:10px 13px;margin-bottom:14px">
     <div style="font-weight:700;font-size:13px;color:var(--navy)">📅 Aaj ${todayDay}.${todayMon}.${todayYr} — Send Reminder</div>
-    <div style="font-size:11px;color:var(--mu);margin-top:2px">Jin files ki next date aaj ya pichle 7 din mein thi — wapas send honi chahiye thi (dispose chod kar)</div>
+    <div style="font-size:11px;color:var(--mu);margin-top:2px">Bundle mein rakhi files jinki date aa gayi — CFM se send karni hain (dispose chhod kar)</div>
   </div>`;
 
   if(!aajKi.length&&!pehleKi.length){
-    h+=`<div style="color:var(--green);font-weight:700;font-size:14px;text-align:center;padding:20px 0">✅ Koi file pending nahi! Sab apni date pe send ho chuki hain.</div>`;
+    h+=`<div style="color:var(--green);font-weight:700;font-size:14px;text-align:center;padding:20px 0">✅ Koi file pending nahi! Bundle ki sabhi due files send ho chuki hain.</div>`;
     listEl.innerHTML=h;return;
   }
 
@@ -4445,17 +4479,16 @@ async function checkTodayFiles(){
       <div style="font-weight:700;font-size:13px;color:#856404">⚠️ AAJ (${todayDay}.${todayMon}) send honi hain — abhi tak nahi hui (${aajKi.length})</div>
     </div>`;
     aajKi.forEach(r=>{
-      const bf=bFiles[String(r.caseno).toUpperCase()];
+      const bf=r._bf;
       h+=`<div style="background:#fff;border:1.5px solid #fcd34d;border-radius:10px;padding:10px 13px;margin-bottom:6px">
         <div style="display:flex;justify-content:space-between;align-items:flex-start">
           <div>
             <div style="font-weight:800;font-size:14px;color:var(--navy)">${esc(r.caseno)}</div>
             <div style="font-size:12px;color:var(--mu);margin-top:2px">👤 ${esc(r.partyname||'—')}${r.section?' · '+esc(r.section):''}</div>
-            ${r.received==='Received'?`<div style="font-size:11px;color:var(--teal);margin-top:2px">↩ Last recv: ${fmtD(r.receiveddate)}</div>`:''}
+            ${r.received==='Received'?`<div style="font-size:11px;color:var(--teal);margin-top:2px">↩ Recv: ${fmtD(r.receiveddate)}</div>`:''}
           </div>
           <div style="text-align:right;flex-shrink:0;margin-left:8px">
-            <div style="font-size:10px;font-weight:700;background:#fff3cd;color:#856404;padding:2px 8px;border-radius:20px">Next: ${fmtD(r.nextdate)}</div>
-            ${bf&&!bf.hidden?`<div style="font-size:10px;color:var(--mu);margin-top:3px">📍 Date ${bf.md} ${dispCol(bf.col)}</div>`:''}
+            <div style="font-size:10px;font-weight:700;background:#dbeafe;color:#1e40af;padding:2px 8px;border-radius:20px">📍 Date ${bf.md}${bf.sd!=null?'/'+bf.sd:''} ${dispCol(bf.col)}</div>
           </div>
         </div>
       </div>`;
@@ -4465,23 +4498,20 @@ async function checkTodayFiles(){
   if(pehleKi.length){
     h+=`<div style="background:#fef2f2;border:1.5px solid #fca5a5;border-radius:10px;padding:9px 13px;margin-bottom:8px;margin-top:${aajKi.length?'8':'0'}px">
       <div style="font-weight:700;font-size:13px;color:var(--red)">🚨 Pichle 7 din mein send honi thi — abhi tak nahi (${pehleKi.length})</div>
-      <div style="font-size:11px;color:var(--mu);margin-top:2px">Reminder: in files ki date nikal gayi, send karo</div>
+      <div style="font-size:11px;color:var(--mu);margin-top:2px">Bundle mein rakhi hain, date nikal gayi — send karo</div>
     </div>`;
     pehleKi.forEach(r=>{
-      const bf=bFiles[String(r.caseno).toUpperCase()];
-      const nd=new Date(r.nextdate+'T00:00:00');nd.setHours(0,0,0,0);
-      const late=Math.floor((today-nd)/86400000);
+      const bf=r._bf;
       h+=`<div style="background:#fff;border:2px solid var(--red);border-radius:10px;padding:10px 13px;margin-bottom:6px">
         <div style="display:flex;justify-content:space-between;align-items:flex-start">
           <div>
             <div style="font-weight:800;font-size:14px;color:var(--navy)">${esc(r.caseno)}</div>
             <div style="font-size:12px;color:var(--mu);margin-top:2px">👤 ${esc(r.partyname||'—')}${r.section?' · '+esc(r.section):''}</div>
-            ${r.received==='Received'?`<div style="font-size:11px;color:var(--teal);margin-top:2px">↩ Last recv: ${fmtD(r.receiveddate)}</div>`:''}
+            ${r.received==='Received'?`<div style="font-size:11px;color:var(--teal);margin-top:2px">↩ Recv: ${fmtD(r.receiveddate)}</div>`:''}
           </div>
           <div style="text-align:right;flex-shrink:0;margin-left:8px">
-            <div style="font-size:10px;font-weight:700;background:#fee2e2;color:var(--red);padding:2px 8px;border-radius:20px">${late} din late</div>
-            <div style="font-size:11px;color:var(--mu);margin-top:3px">Fix: ${fmtD(r.nextdate)}</div>
-            ${bf&&!bf.hidden?`<div style="font-size:10px;color:var(--mu);margin-top:2px">📍 Date ${bf.md} ${dispCol(bf.col)}</div>`:''}
+            <div style="font-size:10px;font-weight:700;background:#fee2e2;color:var(--red);padding:2px 8px;border-radius:20px">${r._late} din late</div>
+            <div style="font-size:10px;color:var(--mu);margin-top:3px">📍 Date ${bf.md}${bf.sd!=null?'/'+bf.sd:''} ${dispCol(bf.col)}</div>
           </div>
         </div>
       </div>`;
