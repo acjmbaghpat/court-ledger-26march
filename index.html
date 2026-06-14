@@ -14,32 +14,94 @@
 /* ═══════════════ RESET & ROOT ═══════════════ */
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 :root{
+  /* ── Premium Brand (Deep Indigo + Royal Blue) ── */
   --navy:#0d1b3e;
   --navy2:#162450;
   --navy3:#1e3272;
   --gold:#c9a227;
   --gold2:#e8be44;
-  --bg:#f0f3f9;
+  /* ── Surfaces (Light) ── */
+  --bg:#eef1f8;
+  --bg2:#e6eaf4;
   --sur:#ffffff;
   --sur2:#f7f9fc;
+  --sur3:#eef2fa;
   --txt:#0a1628;
+  --txt2:#26334d;
   --mu:#6b7a99;
   --bdr:#dde5f4;
-  --blue:#1a56db;
-  --blueh:#1446c0;
+  --bdr2:#e8edf7;
+  /* ── Accents ── */
+  --blue:#2563eb;
+  --blueh:#1d4ed8;
+  --blue-soft:#eff4ff;
   --red:#dc2626;
+  --red-soft:#fef2f2;
   --green:#16a34a;
+  --green-soft:#f0fdf4;
   --amber:#d97706;
+  --amber-soft:#fffbeb;
   --teal:#0891b2;
-  --r8:8px;--r12:12px;--r16:16px;--r20:20px;--r24:24px;
-  --sh1:0 1px 3px rgba(13,27,62,.08),0 2px 8px rgba(13,27,62,.05);
-  --sh2:0 4px 16px rgba(13,27,62,.12),0 1px 4px rgba(13,27,62,.06);
-  --sh3:0 8px 32px rgba(13,27,62,.18),0 2px 8px rgba(13,27,62,.1);
+  /* ── Glass ── */
+  --glass-bg:rgba(255,255,255,.72);
+  --glass-brd:rgba(255,255,255,.5);
+  --glass-blur:blur(20px) saturate(180%);
+  /* ── Radii ── */
+  --r8:10px;--r12:14px;--r16:18px;--r20:22px;--r24:26px;
+  /* ── Elevation (softer, layered) ── */
+  --sh1:0 1px 2px rgba(13,27,62,.06),0 2px 6px rgba(13,27,62,.04);
+  --sh2:0 2px 8px rgba(13,27,62,.08),0 8px 24px rgba(13,27,62,.06);
+  --sh3:0 8px 32px rgba(13,27,62,.14),0 16px 48px rgba(13,27,62,.08);
+  --sh-blue:0 4px 16px rgba(37,99,235,.28);
+  --sh-navy:0 6px 22px rgba(13,27,62,.32);
+  /* ── Motion ── */
   --ease:cubic-bezier(.4,0,.2,1);
+  --ease-out:cubic-bezier(.16,1,.3,1);
+  --ease-spring:cubic-bezier(.34,1.56,.64,1);
 }
-html,body{font-family:'Plus Jakarta Sans',system-ui,sans-serif;background:var(--bg);color:var(--txt);min-height:100vh;-webkit-font-smoothing:antialiased;padding-bottom:84px}
+/* ═══ DARK MODE ═══ */
+html[data-theme="dark"]{
+  --navy:#1a2547;
+  --navy2:#212e54;
+  --navy3:#2a3a6e;
+  --bg:#0a0f1f;
+  --bg2:#0d1326;
+  --sur:#141b30;
+  --sur2:#1a2238;
+  --sur3:#202940;
+  --txt:#e8edf7;
+  --txt2:#c0cce4;
+  --mu:#8492b0;
+  --bdr:#28324d;
+  --bdr2:#222b42;
+  --blue:#4d82f5;
+  --blueh:#3b73ed;
+  --blue-soft:#1a2547;
+  --red:#f05252;
+  --red-soft:#2a1618;
+  --green:#34d058;
+  --green-soft:#16241a;
+  --amber:#f5a623;
+  --amber-soft:#2a2010;
+  --teal:#22b8d4;
+  --glass-bg:rgba(20,27,48,.72);
+  --glass-brd:rgba(255,255,255,.08);
+  --sh1:0 1px 2px rgba(0,0,0,.3),0 2px 6px rgba(0,0,0,.2);
+  --sh2:0 2px 8px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.25);
+  --sh3:0 8px 32px rgba(0,0,0,.5),0 16px 48px rgba(0,0,0,.3);
+  --sh-blue:0 4px 16px rgba(77,130,245,.35);
+  --sh-navy:0 6px 22px rgba(0,0,0,.5);
+}
+*{transition:background-color .3s var(--ease),border-color .3s var(--ease),color .2s var(--ease)}
+html,body{font-family:'Plus Jakarta Sans',system-ui,sans-serif;background:var(--bg);color:var(--txt);min-height:100vh;-webkit-font-smoothing:antialiased;padding-bottom:84px;background-image:radial-gradient(circle at 0% 0%,var(--bg2) 0%,transparent 50%),radial-gradient(circle at 100% 100%,var(--bg2) 0%,transparent 50%)}
 button,input,select,textarea{font-family:inherit}
 button{cursor:pointer}
+::selection{background:var(--blue);color:#fff}
+/* Premium scrollbar */
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--bdr);border-radius:8px}
+::-webkit-scrollbar-thumb:hover{background:var(--mu)}
 
 /* ═══════════════ LOGIN ═══════════════ */
 #loginScreen{
@@ -406,6 +468,108 @@ td input:focus{background:#fff;border-color:var(--blue)}
   #qrToolbar{display:none!important}
   #qrPrintArea>div:last-child{padding:0!important}
 }
+
+/* ════════════════════════════════════════════
+   ✦ PREMIUM POLISH LAYER ✦
+   Glassmorphism · Animations · Micro-interactions
+   (Pure CSS — no logic touched)
+════════════════════════════════════════════ */
+
+/* ── Glass header with subtle depth ── */
+#app-hdr{
+  background:linear-gradient(135deg,var(--navy) 0%,var(--navy3) 55%,var(--navy2) 100%)!important;
+  box-shadow:var(--sh-navy)!important;
+  backdrop-filter:var(--glass-blur);
+  position:sticky;top:0;z-index:200;
+}
+#app-hdr::after{
+  content:'';position:absolute;left:0;right:0;bottom:0;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.18),transparent);
+}
+.hdr-logo{box-shadow:inset 0 1px 0 rgba(255,255,255,.15),0 2px 8px rgba(0,0,0,.2)}
+
+/* ── Stat cards: lift + animated entrance ── */
+.stat-card{
+  border-radius:var(--r12)!important;
+  border:1px solid var(--bdr2)!important;
+  transition:transform .25s var(--ease-spring),box-shadow .25s var(--ease)!important;
+  animation:cardIn .45s var(--ease-out) backwards;
+}
+.stat-card:nth-child(1){animation-delay:.02s}
+.stat-card:nth-child(2){animation-delay:.06s}
+.stat-card:nth-child(3){animation-delay:.10s}
+.stat-card:nth-child(4){animation-delay:.14s}
+.stat-card:nth-child(5){animation-delay:.18s}
+.stat-card.clickable:active{transform:scale(.96)!important}
+@media(hover:hover){.stat-card.clickable:hover{transform:translateY(-2px);box-shadow:var(--sh2)!important}}
+@keyframes cardIn{from{opacity:0;transform:translateY(10px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+
+/* ── Bottom nav: floating glass bar ── */
+.bnav{
+  background:var(--glass-bg)!important;
+  backdrop-filter:var(--glass-blur);
+  border-bottom:1px solid var(--glass-brd)!important;
+}
+
+/* ── Tab pills smooth ── */
+.tab-btn{position:relative}
+.tab-btn.on{color:#fff!important}
+.tab-btn.on::after{
+  content:'';position:absolute;bottom:-1px;left:50%;transform:translateX(-50%);
+  width:32px;height:3px;border-radius:3px;background:var(--gold2);
+  box-shadow:0 0 12px var(--gold2);
+}
+
+/* ── Inputs: refined focus glow ── */
+input,select,textarea{transition:border-color .2s,box-shadow .2s,background .2s!important}
+input:focus,select:focus,textarea:focus{
+  border-color:var(--blue)!important;
+  box-shadow:0 0 0 4px var(--blue-soft)!important;
+  outline:none;
+}
+
+/* ── Buttons: press feedback everywhere ── */
+button:active{transform:scale(.97)}
+button{transition:transform .12s var(--ease),filter .2s,background .2s}
+
+/* ── Page / tab content fade-slide in ── */
+.tab-c.on{animation:tabIn .35s var(--ease-out)}
+@keyframes tabIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+
+/* ── Modal entrance polish ── */
+.modal.on .msh,.modal.on .modal-sheet,.modal.on>div{animation:modalIn .3s var(--ease-spring)}
+@keyframes modalIn{from{opacity:0;transform:scale(.94) translateY(12px)}to{opacity:1;transform:scale(1) translateY(0)}}
+
+/* ── Table rows: subtle stagger + hover ── */
+#cfmTable tbody tr{transition:background .15s var(--ease)}
+@media(hover:hover){#cfmTable tbody tr:hover{background:var(--sur3)}}
+
+/* ── Highlight pulse (received/sent scroll-to) richer ── */
+.hl{
+  background:var(--amber-soft)!important;
+  box-shadow:inset 3px 0 0 var(--amber),0 0 0 1px var(--amber)!important;
+  animation:hlPulse 1.2s var(--ease) 2!important;
+}
+@keyframes hlPulse{0%,100%{box-shadow:inset 3px 0 0 var(--amber),0 0 0 1px var(--amber)}50%{box-shadow:inset 3px 0 0 var(--amber),0 0 0 4px var(--amber-soft)}}
+
+/* ── Loading shimmer (for skeleton states) ── */
+.shimmer{background:linear-gradient(90deg,var(--sur2) 25%,var(--sur3) 50%,var(--sur2) 75%);background-size:200% 100%;animation:shimmer 1.4s infinite}
+@keyframes shimmer{from{background-position:200% 0}to{background-position:-200% 0}}
+
+/* ── Toast premium ── */
+#toast,.toast{backdrop-filter:blur(12px);box-shadow:var(--sh3)!important;border-radius:var(--r12)!important}
+
+/* ── FAB / scan buttons glow ── */
+.fab,[class*="scan"]:not(input){transition:transform .2s var(--ease-spring),box-shadow .25s}
+
+/* ── Reduce motion respect ── */
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}
+}
+
+/* ── Theme toggle button shimmer ── */
+#themeToggle{transition:transform .4s var(--ease-spring)}
+#themeToggle:active{transform:rotate(180deg) scale(.9)}
 </style>
 </head>
 <body>
@@ -715,6 +879,7 @@ td input:focus{background:#fff;border-color:var(--blue)}
       <span id="syncLbl" style="display:none"></span>
       <button class="hdr-btn-urg" onclick="openUrgentModal()" title="⚡ Urgent Scan">⚡</button>
       <button class="hdr-btn" onclick="openDrawer()" title="Tools & Settings">⚙️</button>
+      <button class="hdr-btn" id="themeToggle" onclick="toggleTheme()" title="Dark/Light Mode">🌙</button>
     </div>
   </div>
   <div id="tab-bar">
@@ -1242,6 +1407,7 @@ function haptic(type){
     if(!navigator.vibrate)return;
     if(type==='success')navigator.vibrate(55);
     else if(type==='scan')navigator.vibrate(30);
+    else if(type==='tap')navigator.vibrate(12); // subtle UI feedback
     else if(type==='error')navigator.vibrate([100,50,100,50,100]); // strong triple pulse
     else if(type==='mismatch')navigator.vibrate([200,100,200,100,200]); // very strong — attention!
     else if(type==='warn')navigator.vibrate(120);
@@ -1275,6 +1441,25 @@ let cData=[],upV=1,aFilter='all',lastRcvCase=null,dropIdx=-1;
 let sDeb;
 const rTimers={};
 function sId(id){return String(id||"").replace(/[^a-zA-Z0-9-_]/g,'_');}
+
+// ═══ DARK / LIGHT THEME ═══
+function applyTheme(t){
+  document.documentElement.setAttribute('data-theme',t);
+  const btn=document.getElementById('themeToggle');
+  if(btn)btn.textContent=t==='dark'?'☀️':'🌙';
+  try{localStorage.setItem('cm_theme',t);}catch(e){}
+}
+function toggleTheme(){
+  const cur=document.documentElement.getAttribute('data-theme')==='dark'?'dark':'light';
+  applyTheme(cur==='dark'?'light':'dark');
+  haptic('tap');
+}
+// Init theme on load (before paint to avoid flash)
+(function(){
+  let saved='light';
+  try{saved=localStorage.getItem('cm_theme')||'light';}catch(e){}
+  applyTheme(saved);
+})();
 function gSrch(r){return DK.map(k=>r[k]||"").join(' ').toLowerCase();}
 function dKey(){
   const wd=(workDate&&workDate.value&&workDate.value.trim())||new Date().toISOString().split('T')[0];
@@ -1442,7 +1627,10 @@ function getMatchedCaseNo(query){
 function getCFMDay(caseNo){
   const r=cData.find(x=>caseMatch(x.caseno,caseNo));
   if(!r||!r.nextdate)return null;
-  return parseInt(r.nextdate.split('-')[2]);
+  const parts=String(r.nextdate).split('-');
+  if(parts.length<3)return null; // malformed date guard
+  const day=parseInt(parts[2],10);
+  return isNaN(day)?null:day; // NaN guard
 }
 function getCFMRecord(caseNo){
   return cData.find(x=>caseMatch(x.caseno,caseNo));
@@ -1666,38 +1854,98 @@ function pgStartListen(){
   });
 }
 function getPgMissList(){
-  // CM sent='Sent' par Peshgar mein received nahi
-  if(!_pgData)return null; // peshgar data hi nahi — unknown
+  // CM sent='Sent' par Peshgar mein received nahi (normal mismatch)
+  if(!_pgData)return null;
   return cData.filter(r=>{
     if(r.sent!=='Sent')return false;
     const pg=_pgData[String(r.caseno).toUpperCase().trim()];
     return !pg||pg.received!=='Received';
   });
 }
+function getPgReverseList(){
+  // Peshgar ne RECEIVED ki par CFM ne sent NAHI ki (ulta mismatch — galat!)
+  if(!_pgData)return null;
+  const reverse=[];
+  Object.values(_pgData).forEach(pg=>{
+    if(pg.received!=='Received')return;
+    const cn=String(pg.caseno).toUpperCase().trim();
+    // CFM mein dhundho — sent hui ya nahi
+    const cmFile=cData.find(r=>String(r.caseno).toUpperCase().trim()===cn);
+    if(!cmFile||cmFile.sent!=='Sent'){
+      reverse.push({caseno:pg.caseno,partyname:(cmFile&&cmFile.partyname)||'',location:pg.location||''});
+    }
+  });
+  return reverse;
+}
 function updatePgMiss(){
   const el=document.getElementById('pgMissCount');if(!el)return;
-  const list=getPgMissList();
-  if(list===null){el.textContent='—';el.title=_pgListenErr||'Peshgar data nahi mila';return;}
-  el.textContent=list.length;el.title='';
+  const card=document.getElementById('pgMissCard');
+  const normal=getPgMissList();
+  const reverse=getPgReverseList();
+  if(normal===null){
+    el.textContent='—';el.title=_pgListenErr||'Peshgar data nahi mila';
+    if(card)card.style.background='';
+    return;
+  }
+  const rev=reverse?reverse.length:0;
+  // Format: reverse/normal  (1/10 = 1 received-not-sent, 10 sent-not-received)
+  el.textContent=rev+'/'+normal.length;
+  el.title='';
+  // Reverse mismatch (sent hue bina received) = CRITICAL — full red card
+  if(card){
+    if(rev>0){
+      card.style.background='var(--red)';
+      card.style.borderColor='var(--red)';
+      el.style.color='#fff';
+      card.querySelectorAll('.stat-lbl,.stat-icon').forEach(e=>e.style.color='#fff');
+    }else{
+      card.style.background='';
+      card.style.borderColor='#fca5a5';
+      el.style.color='var(--red)';
+      card.querySelectorAll('.stat-lbl').forEach(e=>e.style.color='');
+      card.querySelectorAll('.stat-icon').forEach(e=>e.style.color='');
+    }
+  }
 }
 function openPgMismatchModal(){
-  const list=getPgMissList();
-  if(list===null){
+  const normal=getPgMissList();
+  const reverse=getPgReverseList();
+  if(normal===null){
     const date=(workDate&&workDate.value)||'';
     showToast('⚠️ '+(_pgListenErr||('Peshgar data nahi mila ('+date+')')),'w');
     return;
   }
-  if(!list.length){showToast('✅ Sab sent files Peshgar ne receive kar li!');return;}
-  let h='<div style="font-weight:700;font-size:14px;color:var(--red);margin-bottom:10px">⚠️ '+list.length+' files — CFM se sent par Peshgar ne receive NAHI ki:</div>';
-  list.forEach((r,i)=>{
-    h+=`<div style="background:#fef2f2;border:1.5px solid #fca5a5;border-radius:8px;padding:9px 12px;margin-bottom:6px">
-      <div style="font-weight:800;font-size:13px;color:var(--navy)">${i+1}. ${esc(r.caseno)}</div>
-      <div style="font-size:11px;color:var(--mu)">${esc(r.partyname||'')} ${r.sentdate?'· Sent: '+fmtD(r.sentdate):''}</div>
-    </div>`;
-  });
+  if(!normal.length&&(!reverse||!reverse.length)){
+    showToast('✅ Sab files match hain! Koi mismatch nahi.');return;
+  }
+  let h='';
+  // Reverse mismatch FIRST (critical — sent hue bina received)
+  if(reverse&&reverse.length){
+    h+='<div style="background:var(--red);color:#fff;border-radius:10px;padding:10px 13px;margin-bottom:12px">';
+    h+='<div style="font-weight:800;font-size:14px">🚨 CRITICAL: '+reverse.length+' file(s) — Peshgar ne RECEIVE ki par CFM se SENT NAHI hui!</div>';
+    h+='<div style="font-size:11px;opacity:.9;margin-top:2px">Ye galat hai — bina office se nikle Peshgar ke paas pahunch gayi</div>';
+    h+='</div>';
+    reverse.forEach((r,i)=>{
+      const loc=r.location==='steno'?'🖊️ Steno':r.location==='judge'?'⚖️ Judge':'';
+      h+=`<div style="background:#fef2f2;border:2px solid var(--red);border-radius:8px;padding:9px 12px;margin-bottom:6px">
+        <div style="font-weight:800;font-size:13px;color:var(--red)">⚠️ ${i+1}. ${esc(r.caseno)}</div>
+        <div style="font-size:11px;color:var(--mu)">${esc(r.partyname||'')} ${loc}</div>
+      </div>`;
+    });
+  }
+  // Normal mismatch
+  if(normal.length){
+    h+='<div style="font-weight:700;font-size:14px;color:var(--amber);margin:12px 0 10px">⏳ '+normal.length+' file(s) — CFM se sent par Peshgar ne receive NAHI ki:</div>';
+    normal.forEach((r,i)=>{
+      h+=`<div style="background:#fffbeb;border:1.5px solid #fcd34d;border-radius:8px;padding:9px 12px;margin-bottom:6px">
+        <div style="font-weight:800;font-size:13px;color:var(--navy)">${i+1}. ${esc(r.caseno)}</div>
+        <div style="font-size:11px;color:var(--mu)">${esc(r.partyname||'')} ${r.sentdate?'· Sent: '+fmtD(r.sentdate):''}</div>
+      </div>`;
+    });
+  }
   document.getElementById('ovList').innerHTML=h;
   document.querySelector('#ovModal .mt').textContent='⚠️ Peshgar Mismatch';
-  document.querySelector('#ovModal .msub').textContent='Ye files Peshgar tak nahi pahunchi';
+  document.querySelector('#ovModal .msub').textContent=(reverse&&reverse.length?reverse.length+' critical · ':'')+normal.length+' pending';
   document.getElementById('ovModal').classList.add('on');
 }
 
@@ -3387,7 +3635,8 @@ function fbSaveConfig(){
   const aid=(document.getElementById('fbAid').value||'').trim();
   if(!apiKey||!aid){fbMsg('❌ API Key aur App ID zaroori hain','s-err');return;}
   const pid=(document.getElementById('fbPid')?.value||'').trim();
-  const storedCfg=JSON.parse(localStorage.getItem(FB_KEY)||'null');
+  let storedCfg=null;
+  try{storedCfg=JSON.parse(localStorage.getItem(FB_KEY)||'null');}catch(e){storedCfg=null;}
   const projectId=pid||storedCfg?.projectId||'court-file-system';
   const authDomain=projectId+'.firebaseapp.com';
   const storageBucket=projectId+'.appspot.com';
