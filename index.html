@@ -2852,12 +2852,49 @@ async function updateRemark(cn,val){
 
 // ════ CASE DETAIL + UNDO ════
 let _cdCN=null,_undoAction=null;
-function openCaseDetail(cn){
+async function openCaseDetail(cn){
   _cdCN=cn;_undoAction=null;
   const r=cData.find(x=>x.caseno===cn);if(!r)return;
   document.getElementById('cd-title').textContent='📁 '+cn;
   document.getElementById('cd-sub').textContent=r.partyname||'';
-  const rows=[['Party',r.partyname||'—'],['Section',r.section||'—'],['PS',r.ps||'—'],['Sent',r.sent==='Sent'?'✅ Sent ('+fmtD(r.sentdate)+')':'⏳ Pending'],['Received',r.received==='Received'?'✅ Received ('+fmtD(r.receiveddate)+')':'⏳ Pending'],['Next Date',r.nextdate?fmtD(r.nextdate):'—'],['Remark',r.remark||'—']];
+
+  // Last Fixed Date — previous hearing ki next date (doosri-aakhri received record ki nextdate)
+  // Saari IDB dates scan karke is case ke saare records nikalo, date-wise sort karo
+  let lastFixedDate='—';
+  try{
+    const allKeys=await idbAMK();
+    const dataKeys=allKeys.filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k)).sort();
+    const history=[]; // {key, date, nextdate, received}
+    for(const k of dataKeys){
+      const d=await idbGM(k);
+      if(!d||!Array.isArray(d))continue;
+      const rec=d.find(x=>caseMatch(x.caseno,cn));
+      if(rec&&rec.nextdate){
+        history.push({key:k,date:k.split('_')[0],nextdate:rec.nextdate});
+      }
+    }
+    // History mein unique nextdates — current ke alawa pichli sabse recent
+    // Current record ki nextdate = r.nextdate. Usse alag jo pichli thi.
+    const uniqueNd=[...new Set(history.map(h=>h.nextdate))].sort();
+    const curIdx=uniqueNd.indexOf(r.nextdate);
+    if(curIdx>0){
+      lastFixedDate=fmtD(uniqueNd[curIdx-1]);
+    }else if(curIdx===-1&&uniqueNd.length){
+      // Current nextdate history mein nahi — sabse recent ko last fixed maano
+      lastFixedDate=fmtD(uniqueNd[uniqueNd.length-1]);
+    }
+  }catch(e){console.error('lastFixedDate:',e);}
+
+  const rows=[
+    ['Party',r.partyname||'—'],
+    ['Section',r.section||'—'],
+    ['PS',r.ps||'—'],
+    ['Sent',r.sent==='Sent'?'✅ Sent ('+fmtD(r.sentdate)+')':'⏳ Pending'],
+    ['Received',r.received==='Received'?'✅ Received ('+fmtD(r.receiveddate)+')':'⏳ Pending'],
+    ['Last Fixed Date',lastFixedDate],
+    ['Next Date',r.nextdate?fmtD(r.nextdate):'—'],
+    ['Remark',r.remark||'—']
+  ];
   document.getElementById('cd-info').innerHTML=rows.map(([k,v])=>`<div class="info-row"><span class="info-key">${k}</span><span class="info-val">${esc(String(v))}</span></div>`).join('');
   let btns='';
   if(r.sent==='Sent')btns+=`<button class="btn danger" style="margin-top:0" onclick="initUndo('unsent')">↩ SENT Undo karo</button>`;
@@ -2946,10 +2983,16 @@ async function manualAction(mode){
     cData[idx].received="Received";cData[idx].receiveddate=new Date().toISOString().split("T")[0];
     lastRcvCase=actualCN;cData[idx].searchableText=gSrch(cData[idx]);
     showMS("✅ RECEIVED: "+actualCN,"ok");speak("File received");haptic('success');manualCaseInput.value="";
+    // Search/filter clear karo TABHI taaki row visible ho highlight ke liye
+    if(searchBox&&searchBox.value)searchBox.value='';
+    if(aFilter!=='all')aFilter='all';
     drawTable(getFiltered());scrollToFile(actualCN);await saveLocal();await updateDash();
     setTimeout(()=>openNDModal(actualCN),900); // highlight dikhne ke baad ND modal
     return;
   }
+  // Search/filter clear karo highlight ke liye
+  if(searchBox&&searchBox.value)searchBox.value='';
+  if(aFilter!=='all')aFilter='all';
   drawTable(getFiltered());scrollToFile(actualCN);await saveLocal();await updateDash();
 }
 function scrollToManual(){
@@ -3217,9 +3260,15 @@ async function handleCFMScan(code,mode){
     cData[idx].received="Received";cData[idx].receiveddate=new Date().toISOString().split("T")[0];cData[idx].searchableText=gSrch(cData[idx]);lastRcvCase=actualCN;
     showSC('✅ RECEIVED: '+actualCN,'#16a34a');speak("File received");haptic('scan');
     closeScan();
+    // Search/filter clear for highlight
+    if(searchBox&&searchBox.value)searchBox.value='';
+    if(aFilter!=='all')aFilter='all';
     drawTable(getFiltered());scrollToFile(actualCN);await saveLocal();await updateDash();
     setTimeout(()=>openNDModal(actualCN),900);return;
   }
+  // Search/filter clear for highlight
+  if(searchBox&&searchBox.value)searchBox.value='';
+  if(aFilter!=='all')aFilter='all';
   drawTable(getFiltered());scrollToFile(actualCN);await saveLocal();await updateDash();
 }
 
