@@ -825,7 +825,7 @@ button{transition:transform .12s var(--ease),filter .2s,background .2s}
         <div class="field"><label>API Key</label><input type="text" id="fbKey" placeholder="AIzaSy..."></div>
         <div class="field"><label>Messaging Sender ID</label><input type="text" id="fbMid" placeholder="123456789"></div>
         <div class="field"><label>App ID</label><input type="text" id="fbAid" placeholder="1:xxx:web:xxx"></div>
-        <div class="field"><label>Project ID <span style="color:var(--mu);font-weight:400">(optional)</span></label><input type="text" id="fbPid" placeholder="court-file-system"></div>
+        <div class="field"><label>Project ID <span style="color:var(--mu);font-weight:400">(optional)</span></label><input type="text" id="fbPid" placeholder="court-file-system-acjm"></div>
         <div class="g2" style="margin-top:4px">
           <button class="btn amber" onclick="fbSaveConfig()" style="margin-top:0">💾 Connect</button>
           <button class="btn neutral" onclick="fbReset()" style="margin-top:0">🗑 Reset</button>
@@ -3637,7 +3637,7 @@ function fbSaveConfig(){
   const pid=(document.getElementById('fbPid')?.value||'').trim();
   let storedCfg=null;
   try{storedCfg=JSON.parse(localStorage.getItem(FB_KEY)||'null');}catch(e){storedCfg=null;}
-  const projectId=pid||storedCfg?.projectId||'court-file-system';
+  const projectId=pid||storedCfg?.projectId||'court-file-system-acjm';
   const authDomain=projectId+'.firebaseapp.com';
   const storageBucket=projectId+'.appspot.com';
   const cfg={apiKey,messagingSenderId:mid,appId:aid,projectId,authDomain,storageBucket};
@@ -3687,30 +3687,61 @@ function fbStartListenBundle(){
 }
 // Push ALL data — CFM sabhi dates, bundle, urgent
 async function fbPushAll(){
-  if(!_fbDb){showToast('⚠️ Firebase connected nahi hai','w');return;}
+  if(!_fbDb){showToast('⚠️ Firebase connect nahi hai! Pehle credentials daal kar Connect karo.','d');return;}
   showToast('☁️ Sab data push ho raha hai...','w');
+  let cfmCount=0,metaCount=0,recordCount=0,failCount=0;
+  const failedDates=[];
   try{
     // 1. CFM — sabhi IDB keys
     const allKeys=await idbAMK();
     const dataKeys=allKeys.filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k));
+    if(dataKeys.length===0){
+      showToast('⚠️ Local mein koi CFM data nahi mila push karne ke liye!','d');
+      return;
+    }
+    // Har date alag se push karo — ek fail ho to baaki na ruke
     for(const k of dataKeys){
-      const d=await idbGM(k);
-      if(d&&Array.isArray(d))await _fbDb.collection('cfm').doc(k).set({data:d,at:Date.now()});
+      try{
+        const d=await idbGM(k);
+        if(d&&Array.isArray(d)&&d.length){
+          // Firestore 1MB/doc limit check
+          const sizeKB=Math.round(JSON.stringify(d).length/1024);
+          if(sizeKB>900){
+            failCount++;failedDates.push(k+' (bohot bada: '+sizeKB+'KB)');
+            continue;
+          }
+          await _fbDb.collection('cfm').doc(k).set({data:d,at:Date.now()});
+          cfmCount++;recordCount+=d.length;
+          // Progress har 5 dates pe
+          if(cfmCount%5===0)showToast('☁️ '+cfmCount+'/'+dataKeys.length+' dates push hui...','w');
+        }
+      }catch(docErr){
+        failCount++;failedDates.push(k+' ('+docErr.message+')');
+        console.error('Push fail for',k,docErr);
+      }
     }
-    // 2. Version metadata — sabhi dates
-    const vKeys=await idbAVK();
-    for(const date of vKeys){
-      const vs=await idbGV(date);
-      const cv=await idbGM('cv_'+date);
-      await _fbDb.collection('cfm_meta').doc(date).set({versions:vs||[],cv:cv||1,at:Date.now()});
+    // 2. Version metadata
+    try{
+      const vKeys=await idbAVK();
+      for(const date of vKeys){
+        const vs=await idbGV(date);
+        const cv=await idbGM('cv_'+date);
+        await _fbDb.collection('cfm_meta').doc(date).set({versions:vs||[],cv:cv||1,at:Date.now()});
+        metaCount++;
+      }
+    }catch(e){console.error('meta push:',e);}
+    // 3. Bundle + 4. Urgent
+    try{await fbPushBundle();}catch(e){console.error('bundle:',e);}
+    try{await fbPushUrgent();}catch(e){console.error('urgent:',e);}
+
+    if(failCount>0){
+      showToast('⚠️ '+cfmCount+' dates push hui, '+failCount+' fail. Fail: '+failedDates.slice(0,2).join(', '),'d');
+    }else{
+      showToast('✅ Push complete! '+cfmCount+' dates, '+recordCount+' files Firebase pe gaye.');
     }
-    // 3. Bundle
-    await fbPushBundle();
-    // 4. Urgent
-    await fbPushUrgent();
-    showToast('✅ Sab data push ho gaya!');
   }catch(e){
-    showToast('❌ Push fail: '+e.message,'d');
+    console.error('fbPushAll:',e);
+    showToast('❌ Push fail ('+cfmCount+' dates gaye): '+e.message,'d');
   }
 }
 
