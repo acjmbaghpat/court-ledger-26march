@@ -830,6 +830,32 @@ button{transition:transform .12s var(--ease),filter .2s,background .2s}
           <button class="btn amber" onclick="fbSaveConfig()" style="margin-top:0">💾 Connect</button>
           <button class="btn neutral" onclick="fbReset()" style="margin-top:0">🗑 Reset</button>
         </div>
+
+        <!-- Device Role -->
+        <div style="margin-top:14px;padding:12px;background:var(--sur2);border-radius:12px;border:1px solid var(--bdr)">
+          <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px">📱 Is Phone Ka Role</div>
+          <div id="deviceRoleLabel" style="font-size:12px;color:var(--mu);margin-bottom:10px">Role select nahi kiya</div>
+          <div class="g2">
+            <button class="btn" id="roleMainBtn" onclick="setDeviceRole('main')" style="margin-top:0;background:linear-gradient(135deg,var(--green),#15803d);color:#fff">⭐ Main Banao</button>
+            <button class="btn" id="roleSecBtn" onclick="setDeviceRole('secondary')" style="margin-top:0;background:linear-gradient(135deg,var(--blue),var(--blueh));color:#fff">👁️ Secondary (Backup)</button>
+          </div>
+          <p style="font-size:11px;color:var(--mu);margin-top:8px;line-height:1.4">
+            <b>Main:</b> Iska data master hai — auto Firebase pe jaata hai.<br>
+            <b>Secondary:</b> Main ka data auto-receive karta hai (sirf dekhne ke liye, edit nahi).
+          </p>
+        </div>
+
+        <!-- Progress bar -->
+        <div id="fbProgWrap" style="display:none;margin-top:12px">
+          <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:700;color:var(--navy);margin-bottom:5px">
+            <span id="fbProgLabel">Push ho raha hai...</span>
+            <span id="fbProgPct">0%</span>
+          </div>
+          <div style="height:8px;background:var(--sur3);border-radius:8px;overflow:hidden">
+            <div id="fbProgBar" style="height:100%;width:0%;background:linear-gradient(90deg,var(--blue),var(--green));transition:width .3s var(--ease);border-radius:8px"></div>
+          </div>
+        </div>
+
         <button class="btn primary" onclick="fbPushAll()" style="margin-top:8px">☁️ Sabhi Data Push Karo</button>
         <button class="btn primary" onclick="fbPullAll()" style="margin-top:6px;background:linear-gradient(135deg,#0891b2,#0e7490)">⬇️ Sabhi Data Pull Karo</button>
         <p class="fb-note">Firebase Console → Project Settings → Web App → Config</p>
@@ -1301,6 +1327,7 @@ function openDrawer(){
   document.getElementById('drawer').classList.add('on');
   document.getElementById('drawerOverlay').classList.add('on');
   document.body.style.overflow='hidden';
+  updateRoleUI(); // device role label refresh
 }
 function closeDrawer(){
   document.getElementById('drawer').classList.remove('on');
@@ -3650,13 +3677,20 @@ async function fbInit(cfg){
     if(firebase.apps.length)await Promise.all(firebase.apps.map(a=>a.delete()));
     firebase.initializeApp(cfg);_fbDb=firebase.firestore();
     setSyncDot('ok');fbMsg('✅ Firebase connected!','s-ok');
-    fbStartListen();
-    fbStartListenBundle();
-    pgStartListen();
-    // Connect hote hi current data push karo
-    if(cData.length){await fbPush();await fbPushVersionMeta();}
-    await fbPushBundle();
-    await fbPushUrgent();
+    updateRoleUI();
+    if(deviceRole==='secondary'){
+      // Secondary: Main ka data receive karo (push nahi)
+      startSecondarySync();
+      fbStartListenBundle();
+    }else{
+      // Main ya role-unset: normal — local push
+      fbStartListen();
+      fbStartListenBundle();
+      pgStartListen();
+      if(cData.length){await fbPush();await fbPushVersionMeta();}
+      await fbPushBundle();
+      await fbPushUrgent();
+    }
   }catch(e){_fbDb=null;setSyncDot('err');fbMsg('❌ '+e.message,'s-err');}
 }
 function fbStartListen(){
@@ -3685,61 +3719,150 @@ function fbStartListenBundle(){
     setSyncDot('ok');
   },()=>{});
 }
-// Push ALL data — CFM sabhi dates, bundle, urgent
+// ═══════════════════════════════════════
+//  DEVICE ROLE — Main vs Secondary
+//  Main: data master, auto-push to Firebase
+//  Secondary: auto-receive Main's data (view backup)
+// ═══════════════════════════════════════
+const ROLE_KEY='cm_device_role';
+let deviceRole=localStorage.getItem(ROLE_KEY)||''; // '', 'main', 'secondary'
+let _secSyncUnsub=null;
+
+function setDeviceRole(role){
+  deviceRole=role;
+  localStorage.setItem(ROLE_KEY,role);
+  updateRoleUI();
+  if(role==='main'){
+    showToast('⭐ Ye phone ab MAIN hai — iska data master hai');
+    // Main bante hi apna data push karo
+    if(_fbDb)fbPushAll();
+    // Secondary listener band karo (main khud receive nahi karta)
+    if(_secSyncUnsub){_secSyncUnsub();_secSyncUnsub=null;}
+  }else if(role==='secondary'){
+    showToast('👁️ Ye phone ab SECONDARY hai — Main ka data auto-aayega');
+    // Secondary listener chalu karo
+    startSecondarySync();
+  }
+}
+function updateRoleUI(){
+  const lbl=document.getElementById('deviceRoleLabel');
+  const mainBtn=document.getElementById('roleMainBtn');
+  const secBtn=document.getElementById('roleSecBtn');
+  if(!lbl)return;
+  if(deviceRole==='main'){
+    lbl.innerHTML='⭐ <b style="color:var(--green)">MAIN DEVICE</b> — iska data master hai';
+    if(mainBtn)mainBtn.style.opacity='1';
+    if(secBtn)secBtn.style.opacity='.5';
+  }else if(deviceRole==='secondary'){
+    lbl.innerHTML='👁️ <b style="color:var(--blue)">SECONDARY</b> — Main ka data auto-receive';
+    if(mainBtn)mainBtn.style.opacity='.5';
+    if(secBtn)secBtn.style.opacity='1';
+  }else{
+    lbl.textContent='Role select nahi kiya — Main ya Secondary chuno';
+    if(mainBtn)mainBtn.style.opacity='1';
+    if(secBtn)secBtn.style.opacity='1';
+  }
+}
+
+// Secondary device: Main ke data ko auto-receive karo (live)
+function startSecondarySync(){
+  if(!_fbDb||deviceRole!=='secondary')return;
+  if(_secSyncUnsub){_secSyncUnsub();}
+  showToast('🔄 Main device se data sync ho raha hai...','w');
+  // Saari cfm dates live suno
+  _secSyncUnsub=_fbDb.collection('cfm').onSnapshot(async snap=>{
+    let updated=0;
+    for(const doc of snap.docs){
+      const k=doc.id;
+      if(!/^\d{4}-\d{2}-\d{2}_\d+$/.test(k))continue;
+      const d=doc.data();
+      if(d&&Array.isArray(d.data)){
+        await idbSM(k,d.data); // local IDB update karo (secondary = mirror)
+        updated++;
+      }
+    }
+    // Current view refresh karo
+    if(updated>0){
+      await loadVersions();await loadLocal();drawTable(getFiltered());await updateDash();
+      setSyncDot('ok');
+    }
+  },e=>{console.error('secondary sync:',e);setSyncDot('err');});
+}
+
+// Progress bar helpers
+function fbProg(pct,label){
+  const wrap=document.getElementById('fbProgWrap');
+  const bar=document.getElementById('fbProgBar');
+  const pctEl=document.getElementById('fbProgPct');
+  const lblEl=document.getElementById('fbProgLabel');
+  if(!wrap)return;
+  if(pct<0){wrap.style.display='none';return;}
+  wrap.style.display='block';
+  bar.style.width=pct+'%';
+  pctEl.textContent=pct+'%';
+  if(label)lblEl.textContent=label;
+}
+
+// Push ALL data with PERCENTAGE progress
 async function fbPushAll(){
   if(!_fbDb){showToast('⚠️ Firebase connect nahi hai! Pehle credentials daal kar Connect karo.','d');return;}
-  showToast('☁️ Sab data push ho raha hai...','w');
   let cfmCount=0,metaCount=0,recordCount=0,failCount=0;
   const failedDates=[];
+  fbProg(0,'Data ready kar rahe hain...');
   try{
-    // 1. CFM — sabhi IDB keys
     const allKeys=await idbAMK();
     const dataKeys=allKeys.filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k));
     if(dataKeys.length===0){
+      fbProg(-1);
       showToast('⚠️ Local mein koi CFM data nahi mila push karne ke liye!','d');
       return;
     }
-    // Har date alag se push karo — ek fail ho to baaki na ruke
+    const total=dataKeys.length;
+    let done=0;
     for(const k of dataKeys){
       try{
         const d=await idbGM(k);
         if(d&&Array.isArray(d)&&d.length){
-          // Firestore 1MB/doc limit check
           const sizeKB=Math.round(JSON.stringify(d).length/1024);
           if(sizeKB>900){
-            failCount++;failedDates.push(k+' (bohot bada: '+sizeKB+'KB)');
-            continue;
+            failCount++;failedDates.push(k+' ('+sizeKB+'KB bohot bada)');
+          }else{
+            await _fbDb.collection('cfm').doc(k).set({data:d,at:Date.now()});
+            cfmCount++;recordCount+=d.length;
           }
-          await _fbDb.collection('cfm').doc(k).set({data:d,at:Date.now()});
-          cfmCount++;recordCount+=d.length;
-          // Progress har 5 dates pe
-          if(cfmCount%5===0)showToast('☁️ '+cfmCount+'/'+dataKeys.length+' dates push hui...','w');
         }
       }catch(docErr){
-        failCount++;failedDates.push(k+' ('+docErr.message+')');
-        console.error('Push fail for',k,docErr);
+        failCount++;failedDates.push(k);
+        console.error('Push fail',k,docErr);
       }
+      done++;
+      const pct=Math.round((done/total)*90); // 90% for CFM
+      fbProg(pct,'CFM push: '+done+'/'+total+' dates');
     }
-    // 2. Version metadata
+    // Meta (90-95%)
+    fbProg(92,'Version meta push...');
     try{
       const vKeys=await idbAVK();
       for(const date of vKeys){
-        const vs=await idbGV(date);
-        const cv=await idbGM('cv_'+date);
+        const vs=await idbGV(date);const cv=await idbGM('cv_'+date);
         await _fbDb.collection('cfm_meta').doc(date).set({versions:vs||[],cv:cv||1,at:Date.now()});
         metaCount++;
       }
-    }catch(e){console.error('meta push:',e);}
-    // 3. Bundle + 4. Urgent
+    }catch(e){console.error('meta:',e);}
+    // Bundle + Urgent (95-100%)
+    fbProg(96,'Bundle + Urgent push...');
     try{await fbPushBundle();}catch(e){console.error('bundle:',e);}
     try{await fbPushUrgent();}catch(e){console.error('urgent:',e);}
+    fbProg(100,'Complete!');
+    setTimeout(()=>fbProg(-1),1500);
 
     if(failCount>0){
-      showToast('⚠️ '+cfmCount+' dates push hui, '+failCount+' fail. Fail: '+failedDates.slice(0,2).join(', '),'d');
+      showToast('⚠️ '+cfmCount+' dates push hui, '+failCount+' fail: '+failedDates.slice(0,2).join(', '),'d');
     }else{
       showToast('✅ Push complete! '+cfmCount+' dates, '+recordCount+' files Firebase pe gaye.');
     }
   }catch(e){
+    fbProg(-1);
     console.error('fbPushAll:',e);
     showToast('❌ Push fail ('+cfmCount+' dates gaye): '+e.message,'d');
   }
