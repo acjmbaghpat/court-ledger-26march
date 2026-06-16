@@ -5,11 +5,12 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>Court Manager — ACJM Baghpat</title>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="lib/xlsx.full.min.js"></script>
+<script src="lib/firebase-app-compat.js"></script>
+<script src="lib/firebase-firestore-compat.js"></script>
+<script src="lib/exceljs.min.js"></script>
+<script src="lib/qrcode.min.js"></script>
+<script src="capacitor.js"></script>
 <style>
 /* ═══════════════ RESET & ROOT ═══════════════ */
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -1415,7 +1416,57 @@ function showToast(msg,type){
   toastT=setTimeout(()=>t.style.display='none',2800);
 }
 function speak(msg,lang){
-  try{const u=new SpeechSynthesisUtterance(msg);u.lang=lang||'en-IN';u.rate=1;speechSynthesis.cancel();speechSynthesis.speak(u);}catch(e){}
+  if (window.Capacitor && Capacitor.isNativePlatform()) {
+    try {
+      Capacitor.Plugins.TextToSpeech.speak({
+        text: msg,
+        lang: lang || 'en-IN',
+        rate: 1.0,
+        pitch: 1.0,
+        volume: 1.0,
+        category: 'ambient'
+      });
+    } catch (e) {
+      console.error('TTS error:', e);
+    }
+  } else {
+    try{const u=new SpeechSynthesisUtterance(msg);u.lang=lang||'en-IN';u.rate=1;speechSynthesis.cancel();speechSynthesis.speak(u);}catch(e){}
+  }
+}
+
+async function saveBlob(blob, fileName) {
+  if (window.Capacitor && Capacitor.isNativePlatform()) {
+    try {
+      const reader = new FileReader();
+      reader.readAsDataURL(blob);
+      reader.onloadend = async () => {
+        const base64Data = reader.result.split(',')[1];
+        const savedFile = await Capacitor.Plugins.Filesystem.writeFile({
+          path: fileName,
+          data: base64Data,
+          directory: 'CACHE'
+        });
+        await Capacitor.Plugins.Share.share({
+          title: fileName,
+          text: 'Save your file',
+          url: savedFile.uri,
+          dialogTitle: 'Save File'
+        });
+      };
+    } catch (e) {
+      console.error('Save error:', e);
+      showToast('❌ Save error: ' + e.message, 'd');
+    }
+  } else {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
 }
 
 // Hindi mein date bolne ka function
@@ -2400,7 +2451,9 @@ async function trConfirmDL(){
     ws['!cols']=colWidths;
 
     XLSX.utils.book_append_sheet(wb2,ws,'Processed');
-    XLSX.writeFile(wb2,name+'.xlsx');
+      const buf = XLSX.write(wb2, { type: 'array', bookType: 'xlsx' });
+      const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      await saveBlob(blob, name + '.xlsx');
     trSetStatus('📥 Download ho gayi: '+name+'.xlsx');
     showToast('✅ '+name+'.xlsx download ho gayi!');
   }catch(err){
@@ -2700,9 +2753,7 @@ body{margin:0;padding:4mm;background:white;font-family:monospace}
 ${'<scr'+'ipt>'}window.onload=function(){window.print();}${'<'+'/script>'}
 </body></html>`;
   const blob=new Blob([html],{type:'text/html'});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');a.href=url;a.download='QR_Codes_ACJM.html';
-  document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+  await saveBlob(blob, 'QR_Codes_ACJM.html');
   showToast('✅ File download — browser mein kholo, Print > Save as PDF');
 }
 
@@ -3117,10 +3168,7 @@ async function downloadExcel(){
 
       const buf=await wb.xlsx.writeBuffer();
       const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
-      const url=URL.createObjectURL(blob);
-      const a=document.createElement('a');a.href=url;
-      a.download='Court_'+workDate.value+'_v'+upV+'.xlsx';
-      document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+      await saveBlob(blob, 'Court_' + workDate.value + '_v' + upV + '.xlsx');
       showToast('✅ Excel download ho gayi!');
     }else{
       // Fallback — basic XLSX
@@ -3128,7 +3176,9 @@ async function downloadExcel(){
       const ws=XLSX.utils.json_to_sheet(ed);
       ws['!cols']=colWidths.map(w=>({wch:w}));
       const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Court Data");
-      XLSX.writeFile(wb,"Court_"+workDate.value+"_v"+upV+".xlsx");
+      const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+      const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      await saveBlob(blob, 'Court_' + workDate.value + '_v' + upV + '.xlsx');
       showToast('✅ Excel download ho gayi!');
     }
   }catch(e){showToast('❌ Download error: '+e.message,'d');}
@@ -3163,9 +3213,7 @@ async function exportBackup(){
     const allB=await idbAB();
     const bk={exportedAt:new Date().toISOString(),appVersion:"3.0",versionsStore:vd,metadataStore:md,bundlesStore:allB};
     const blob=new Blob([JSON.stringify(bk,null,2)],{type:"application/json"});
-    const url=URL.createObjectURL(blob),a=document.createElement("a");
-    a.href=url;a.download="CourtBundleBackup_"+new Date().toISOString().split("T")[0]+".json";
-    document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+    await saveBlob(blob, "CourtBundleBackup_" + new Date().toISOString().split("T")[0] + ".json");
     stEl.textContent="✅ Backup export ho gaya!";stEl.className="smsg s-ok";clearTimeout(stEl._t);stEl._t=setTimeout(()=>stEl.className="smsg",3000);
   }catch(err){stEl.textContent="❌ Export fail: "+err;stEl.className="smsg s-err";}
 }
@@ -3964,9 +4012,9 @@ async function fbPushAll(){
   }
 }
 
-async function fbPush(){
-  if(!_fbDb||!cData.length)return;
-  try{setSyncDot('busy');await _fbDb.collection('cfm').doc(dKey()).set({data:cData,at:Date.now()});setSyncDot('ok');}
+async function fbPush(key = dKey(), data = cData){
+  if(!_fbDb||!data.length)return;
+  try{setSyncDot('busy');await _fbDb.collection('cfm').doc(key).set({data:data,at:Date.now()});setSyncDot('ok');}
   catch(e){setSyncDot('err');}
 }
 
@@ -4140,14 +4188,14 @@ async function ovDownloadExcel(){
       ws.columns.forEach((col,ci)=>{col.width=widths[ci]||12;});
       const buf=await wb.xlsx.writeBuffer();
       const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
-      const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;
-      a.download='Overdue_'+new Date().toISOString().split('T')[0]+'.xlsx';
-      document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+      await saveBlob(blob, 'Overdue_' + new Date().toISOString().split('T')[0] + '.xlsx');
     }else{
       const ws=XLSX.utils.aoa_to_sheet([headers,...rows]);
       ws['!cols']=([6,18,28,16,14,14,14,12,30]).map(w=>({wch:w}));
       const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Overdue Files');
-      XLSX.writeFile(wb,'Overdue_'+new Date().toISOString().split('T')[0]+'.xlsx');
+      const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+      const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      await saveBlob(blob, 'Overdue_' + new Date().toISOString().split('T')[0] + '.xlsx');
     }
     showToast('✅ Overdue Excel download ho gayi!');
   }catch(e){showToast('❌ Download error: '+e.message,'d');}
@@ -4289,6 +4337,7 @@ async function ovSave(i){
         }
         keyData[idx].searchableText=gSrch(keyData[idx]);
         await idbSM(srcKey,keyData);
+        await fbPush(srcKey,keyData);
       }
     }
   }
@@ -4330,6 +4379,7 @@ async function ovDispose(i){
         delete keyData[idx]._reminder;
         keyData[idx].searchableText=gSrch(keyData[idx]);
         await idbSM(srcKey,keyData);
+        await fbPush(srcKey,keyData);
       }
     }
   }
@@ -4490,7 +4540,7 @@ async function urgAction(mode){
         const tx=db.transaction(SUL,'readwrite');
         const s=tx.objectStore(SUL);
         const r=s.put(existing);
-        r.onsuccess=res;r.onerror=rej;
+        r.onsuccess=()=>{res();scheduleUrgentPush();};r.onerror=rej;
       });
     } else {
       await ulAdd({caseno:cn,sentDate:todayISO,sentTime:timeStr,sentRemark:rem,receivedDate:'',receivedTime:'',receivedRemark:'',ts:now.toISOString()});
@@ -4507,7 +4557,7 @@ async function urgAction(mode){
         const tx=db.transaction(SUL,'readwrite');
         const s=tx.objectStore(SUL);
         const r=s.put(existing);
-        r.onsuccess=res;r.onerror=rej;
+        r.onsuccess=()=>{res();scheduleUrgentPush();};r.onerror=rej;
       });
     } else {
       await ulAdd({caseno:cn,sentDate:'',sentTime:'',sentRemark:'',receivedDate:todayISO,receivedTime:timeStr,receivedRemark:rem,ts:now.toISOString()});
