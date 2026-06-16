@@ -2858,32 +2858,29 @@ async function openCaseDetail(cn){
   document.getElementById('cd-title').textContent='📁 '+cn;
   document.getElementById('cd-sub').textContent=r.partyname||'';
 
-  // Last Fixed Date — previous hearing ki next date (doosri-aakhri received record ki nextdate)
-  // Saari IDB dates scan karke is case ke saare records nikalo, date-wise sort karo
-  let lastFixedDate='—';
+  // Previous Fixed Date — second-last fixed date (current se DO hearings pehle)
+  // Saari IDB dates scan karke is case ki saari nextdates nikalo, sort karo
+  let prevFixedDate='—';
   try{
     const allKeys=await idbAMK();
     const dataKeys=allKeys.filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k)).sort();
-    const history=[]; // {key, date, nextdate, received}
+    const ndSet=new Set();
     for(const k of dataKeys){
       const d=await idbGM(k);
       if(!d||!Array.isArray(d))continue;
       const rec=d.find(x=>caseMatch(x.caseno,cn));
-      if(rec&&rec.nextdate){
-        history.push({key:k,date:k.split('_')[0],nextdate:rec.nextdate});
-      }
+      if(rec&&rec.nextdate)ndSet.add(rec.nextdate);
     }
-    // History mein unique nextdates — current ke alawa pichli sabse recent
-    // Current record ki nextdate = r.nextdate. Usse alag jo pichli thi.
-    const uniqueNd=[...new Set(history.map(h=>h.nextdate))].sort();
+    const uniqueNd=[...ndSet].sort(); // chronological
     const curIdx=uniqueNd.indexOf(r.nextdate);
-    if(curIdx>0){
-      lastFixedDate=fmtD(uniqueNd[curIdx-1]);
-    }else if(curIdx===-1&&uniqueNd.length){
-      // Current nextdate history mein nahi — sabse recent ko last fixed maano
-      lastFixedDate=fmtD(uniqueNd[uniqueNd.length-1]);
+    // Second-last: current se 2 pehle
+    if(curIdx>=2){
+      prevFixedDate=fmtD(uniqueNd[curIdx-2]);
+    }else if(curIdx===-1&&uniqueNd.length>=2){
+      // Current history mein nahi — last se ek pehle (second-last overall)
+      prevFixedDate=fmtD(uniqueNd[uniqueNd.length-2]);
     }
-  }catch(e){console.error('lastFixedDate:',e);}
+  }catch(e){console.error('prevFixedDate:',e);}
 
   const rows=[
     ['Party',r.partyname||'—'],
@@ -2891,7 +2888,7 @@ async function openCaseDetail(cn){
     ['PS',r.ps||'—'],
     ['Sent',r.sent==='Sent'?'✅ Sent ('+fmtD(r.sentdate)+')':'⏳ Pending'],
     ['Received',r.received==='Received'?'✅ Received ('+fmtD(r.receiveddate)+')':'⏳ Pending'],
-    ['Last Fixed Date',lastFixedDate],
+    ['Previous Fixed Date',prevFixedDate],
     ['Next Date',r.nextdate?fmtD(r.nextdate):'—'],
     ['Remark',r.remark||'—']
   ];
@@ -3544,18 +3541,37 @@ async function bAddFile(rawId,fromScan){
     if(fromScan){showSC(msg,'#dc2626');haptic('mismatch');redFlash();}else{showToast(msg,'d');}
     speak("File pehle se bundle mein hai");haptic('error');return false;
   }
-  if(fromScan&&!bActiveCat){
+  // DATE VALIDATION — MAIN DATE hamesha CFM ki fixed date (din) se match honi chahiye
+  // Sub-date sirf PHYSICAL placement hai (jab main date ki almari full ho) — uska CFM se match nahi
+  // Lekin main date (bAMD) toh CFM ki nextdate ke din ke barabar honi HI chahiye, chahe sub-date ho
+  // Category files (bActiveCat) ki fixed date nahi hoti — skip
+  if(!bActiveCat){
     const cfmDay=cfmRec?getCFMDay(id):null;
-    if(cfmDay!==null&&cfmDay!==bAMD&&bASD===null){
-      scanCool=true;
-      if(contMode){scanActive=false;if(scanStream){scanStream.getTracks().forEach(t=>t.stop());scanStream=null;}document.getElementById('scan-vid').srcObject=null;hideQRBox();document.getElementById('scan-ov').classList.remove('on');}
-      openMismatchModal(id,cfmDay);haptic('mismatch');redFlash();return false;
+    if(cfmDay!==null&&cfmDay!==bAMD){
+      // MAIN date galat hai — CFM ki date alag hai (sub-date ho ya na ho, main date toh sahi honi chahiye)
+      if(fromScan){
+        scanCool=true;
+        if(contMode){scanActive=false;if(scanStream){scanStream.getTracks().forEach(t=>t.stop());scanStream=null;}document.getElementById('scan-vid').srcObject=null;hideQRBox();document.getElementById('scan-ov').classList.remove('on');}
+        openMismatchModal(id,cfmDay);haptic('mismatch');redFlash();
+      }else{
+        const cfmRec2=getCFMRecord(id);
+        const ndStr=cfmRec2&&cfmRec2.nextdate?fmtD(cfmRec2.nextdate):'';
+        showToast('⚠️ "'+id+'" ki CFM date '+cfmDay+' hai (aap main date '+bAMD+' pe daal rahe ho). Sahi main date: '+cfmDay+(ndStr?' ('+ndStr+')':''),'d');
+        speak("Galat date");haptic('mismatch');
+      }
+      return false;
     }
   }
   const obj={id,md:bActiveCat?0:bAMD,sd:bActiveCat?null:bASD,col:bAC,cat:bActiveCat||null,at:Date.now(),st:'placed',hidden:false};
   bFiles[id]=obj;await idbSBn(obj);scheduleBundlePush();
   const slotLabel=bActiveCat?((CAT_LABELS[bActiveCat]||bActiveCat)+'-'+dispCol(bAC)):('Date '+bAMD+(bASD!=null?'/'+bASD:'')+'-'+dispCol(bAC));
-  if(fromScan){showSC('✅ '+id+' → '+slotLabel,'#16a34a');speak(bActiveCat||String(bAMD)+' '+dispCol(bAC),'hi-IN');haptic('scan');}
+  if(fromScan){
+    showSC('✅ '+id+' → '+slotLabel,'#16a34a');
+    // Date number bolo (1, 2, 3...) + column — Hindi
+    const spk=bActiveCat?(CAT_LABELS[bActiveCat]||bActiveCat):('Date '+bAMD+(bASD!=null?' sub '+bASD:''));
+    speak(spk,'hi-IN');
+    haptic('scan');
+  }
   else{showToast('✅ '+id+' → '+slotLabel);haptic('success');}
   bUpdateSP();bRenderGrid();return true;
 }
@@ -3566,21 +3582,22 @@ function handleBundleScan(dec){bAddFile(dec,true);if(scanActive)bUpdateST();}
 function openMismatchModal(id,cfmDay){
   mmPending={id,cfmDay};mmSD=1;
   document.getElementById('mm-title').textContent=`⚠ Case: ${id}`;
-  document.getElementById('mm-body').textContent=`CFM next date day = ${cfmDay}, aap Date ${bAMD} mein rakh rahe ho. Mismatch!`;
-  function rebuildMMSDG(){bBDG('mm-sdg',mmSD,d=>{mmSD=d;document.getElementById('mm-prev').textContent=`Date ${bAMD}/${d} — ${dispCol(bAC)}`;rebuildMMSDG();});}
-  rebuildMMSDG();document.getElementById('mm-prev').textContent=`Date ${bAMD}/${mmSD} — ${dispCol(bAC)}`;
+  document.getElementById('mm-body').textContent=`Is file ki CFM date ${cfmDay} hai (aap ${bAMD} pe daal rahe the). Sahi MAIN date ${cfmDay} pe rakho — agar almari full hai to sub-date choose karo:`;
+  // CORRECT date (cfmDay) pe sub-date choose karo — galat bAMD pe nahi
+  function rebuildMMSDG(){bBDG('mm-sdg',mmSD,d=>{mmSD=d;document.getElementById('mm-prev').textContent=`Date ${cfmDay}/${d} — ${dispCol(bAC)}`;rebuildMMSDG();});}
+  rebuildMMSDG();document.getElementById('mm-prev').textContent=`Date ${cfmDay}/${mmSD} — ${dispCol(bAC)}`;
   document.getElementById('mmModal').classList.add('on');
 }
 async function confirmMismatch(){
-  const id=mmPending.id,prevSD=bASD;
-  bASD=mmSD;
+  const id=mmPending.id,cfmDay=mmPending.cfmDay,prevMD=bAMD,prevSD=bASD;
+  // Main date = CFM ki SAHI date (cfmDay), sub-date = jahan physically rakha (almari full)
   try{
-    const obj={id,md:bAMD,sd:bASD,col:bAC,cat:bActiveCat||null,at:Date.now(),st:'placed',hidden:false};
+    const obj={id,md:cfmDay,sd:mmSD,col:bAC,cat:bActiveCat||null,at:Date.now(),st:'placed',hidden:false};
     bFiles[id]=obj;await idbSBn(obj);scheduleBundlePush();
-    speak(bAMD+' '+dispCol(bAC),'hi-IN');haptic('scan');
+    showSC('✅ '+id+' → Date '+cfmDay+'/'+mmSD+' '+dispCol(bAC),'#16a34a');
+    speak('Date '+cfmDay+' sub '+mmSD,'hi-IN');haptic('scan');
     bUpdateSP();bRenderGrid();
   }finally{
-    bASD=prevSD;
     document.getElementById('mmModal').classList.remove('on');
     mmPending={id:'',cfmDay:0};
   }
