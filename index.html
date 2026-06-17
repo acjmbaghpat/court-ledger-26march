@@ -366,7 +366,7 @@ td input:focus{background:#fff;border-color:var(--blue)}
 .blbl.mt0{margin-top:0}
 .dgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;margin-bottom:4px}
 .db{background:#f0f3f9;color:var(--mu);border:1.5px solid var(--bdr);border-radius:8px;padding:7px 2px;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s}
-.db.on{background:var(--navy);color:#fff;border-color:var(--navy);box-shadow:0 2px 8px rgba(13,27,62,.25)}
+.db.on{background:var(--blue);color:#fff;border-color:var(--blue);box-shadow:0 0 0 3px var(--blue-soft),0 3px 10px rgba(37,99,235,.4);transform:scale(1.08);font-weight:800}
 .db:active{transform:scale(.92)}
 .crow{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:4px}
 .cb{background:#f0f3f9;color:var(--mu);border:1.5px solid var(--bdr);border-radius:10px;padding:9px 18px;font-size:15px;font-weight:700;cursor:pointer;transition:all .15s}
@@ -1183,19 +1183,23 @@ button{transition:transform .12s var(--ease),filter .2s,background .2s}
 <!-- MISMATCH MODAL -->
 <div class="modal center" id="mmModal">
   <div class="msh">
-    <div class="mt">⚠️ Date Mismatch!</div>
+    <div class="mt">⚠️ Galat Date!</div>
     <div class="mm-warn">
       <div class="mw-title" id="mm-title">—</div>
       <div class="mw-body" id="mm-body">—</div>
     </div>
-    <div style="font-size:13px;color:var(--mu);margin-bottom:12px;font-weight:500">
-      Overflow case hai? <strong style="color:var(--txt)">Sub-Date fill karo:</strong>
+    <div style="background:var(--green-soft);border:1.5px solid var(--green);border-radius:10px;padding:10px 13px;margin-bottom:12px">
+      <div style="font-size:12px;color:var(--mu);font-weight:600">Sahi Main Date (CFM se):</div>
+      <div style="font-size:20px;font-weight:800;color:var(--green)" id="mm-correct-date">—</div>
     </div>
-    <span class="blbl mt0" style="display:block">Sub-Date (mandatory)</span>
+    <div style="font-size:13px;color:var(--txt);margin-bottom:8px;font-weight:600">
+      📦 Overflow — jis date pe space hai wahan rakho:
+    </div>
+    <span class="blbl mt0" style="display:block;margin-bottom:6px">Overflow Date choose karo (highlight hoga):</span>
     <div class="dgrid" id="mm-sdg"></div>
-    <div class="nloc">Location → <strong id="mm-prev">—</strong></div>
+    <div class="nloc" style="margin-top:10px">Yahan rakhenge → <strong id="mm-prev" style="color:var(--blue)">—</strong></div>
     <div class="g2">
-      <button class="btn primary" onclick="confirmMismatch()" style="margin-top:0">✓ Sub-Date se Add</button>
+      <button class="btn primary" onclick="confirmMismatch()" style="margin-top:0">✓ Add Karo</button>
       <button class="btn danger" onclick="cancelMismatch()" style="margin-top:0">❌ Cancel</button>
     </div>
   </div>
@@ -3610,17 +3614,25 @@ function bMAdd(){document.getElementById('b-mi').value.split(/[\n,]+/).map(s=>s.
 function startBundleScan(){bUpdateST();openScan('bundle',`📷 Bundle → Date ${bAMD}${bASD!=null?'/'+bASD:''} ${dispCol(bAC)}`,false);}
 function handleBundleScan(dec){bAddFile(dec,true);if(scanActive)bUpdateST();}
 function openMismatchModal(id,cfmDay){
-  mmPending={id,cfmDay};mmSD=1;
-  document.getElementById('mm-title').textContent=`⚠ Case: ${id}`;
-  document.getElementById('mm-body').textContent=`Is file ki CFM date ${cfmDay} hai (aap ${bAMD} pe daal rahe the). Sahi MAIN date ${cfmDay} pe rakho — agar almari full hai to sub-date choose karo:`;
-  // CORRECT date (cfmDay) pe sub-date choose karo — galat bAMD pe nahi
-  function rebuildMMSDG(){bBDG('mm-sdg',mmSD,d=>{mmSD=d;document.getElementById('mm-prev').textContent=`Date ${cfmDay}/${d} — ${dispCol(bAC)}`;rebuildMMSDG();});}
-  rebuildMMSDG();document.getElementById('mm-prev').textContent=`Date ${cfmDay}/${mmSD} — ${dispCol(bAC)}`;
+  mmPending={id,cfmDay};mmSD=null; // koi overflow date select nahi initially
+  document.getElementById('mm-title').textContent=`File: ${id}`;
+  document.getElementById('mm-body').textContent=`Aap Date ${bAMD} pe daal rahe the, par is file ki sahi date ${cfmDay} hai.`;
+  document.getElementById('mm-correct-date').textContent='Date '+cfmDay;
+  // Overflow date grid — koi select nahi, user choose karega (clear highlight)
+  function rebuildMMSDG(){
+    bBDG('mm-sdg',mmSD,d=>{mmSD=d;document.getElementById('mm-prev').textContent='Date '+cfmDay+'/'+d+' — '+dispCol(bAC);rebuildMMSDG();});
+  }
+  rebuildMMSDG();
+  document.getElementById('mm-prev').textContent='Overflow date choose karo...';
   document.getElementById('mmModal').classList.add('on');
 }
 async function confirmMismatch(){
-  const id=mmPending.id,cfmDay=mmPending.cfmDay,prevMD=bAMD,prevSD=bASD;
-  // Main date = CFM ki SAHI date (cfmDay), sub-date = jahan physically rakha (almari full)
+  const id=mmPending.id,cfmDay=mmPending.cfmDay;
+  if(mmSD===null){
+    showToast('⚠️ Pehle overflow date choose karo (jahan space hai)','w');
+    return;
+  }
+  // Main date = CFM ki SAHI date (cfmDay), sub-date = overflow (jahan space hai)
   try{
     const obj={id,md:cfmDay,sd:mmSD,col:bAC,cat:bActiveCat||null,at:Date.now(),st:'placed',hidden:false};
     bFiles[id]=obj;await idbSBn(obj);scheduleBundlePush();
@@ -3629,7 +3641,7 @@ async function confirmMismatch(){
     bUpdateSP();bRenderGrid();
   }finally{
     document.getElementById('mmModal').classList.remove('on');
-    mmPending={id:'',cfmDay:0};
+    mmPending={id:'',cfmDay:0};mmSD=null;
   }
 }
 function cancelMismatch(){document.getElementById('mmModal').classList.remove('on');mmPending={id:'',cfmDay:0};showSC('❌ Scan reject: date mismatch','#dc2626');}
@@ -4677,20 +4689,39 @@ async function checkTodayFiles(){
   const pehleKi=[]; // respected date pehle nikal gayi (7-day reminder window)
   const sevenDaysAgo=new Date(today);sevenDaysAgo.setDate(today.getDate()-7);
 
+  // CFM ki saari records (sabhi dates) ek map mein — taaki har bundle file ka actual nextdate mile
+  const cfmMap={}; // caseno(upper) → record (received prefer, latest)
+  try{
+    const allKeys=await idbAMK();
+    const dataKeys=allKeys.filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k)).sort().reverse();
+    for(const k of dataKeys){
+      const d=await idbGM(k);
+      if(!d||!Array.isArray(d))continue;
+      d.forEach(r=>{
+        const cn=String(r.caseno||'').trim().toUpperCase();
+        if(!cn)return;
+        const ex=cfmMap[cn];
+        if(!ex){cfmMap[cn]=r;return;}
+        // Received wala ya jyada recent nextdate wala prefer
+        if(r.received==='Received'&&ex.received!=='Received'){cfmMap[cn]=r;}
+        else if((r.nextdate||'')>(ex.nextdate||'')){cfmMap[cn]=r;}
+      });
+    }
+  }catch(e){console.error('cfmMap build:',e);}
+
   Object.values(bFiles).forEach(bf=>{
     if(!bf||bf.hidden)return; // hidden = CFM se send ho chuki, skip
-    if(bf.cat)return; // category files (OLD/JAIL/STAY etc) ki fixed date nahi — skip
-    const cfmRec=getCFMRecord(bf.id);
+    if(bf.cat)return; // category files (OLD/JAIL/STAY) ki fixed date nahi — skip
+    const cfmRec=cfmMap[String(bf.id).toUpperCase()]; // saari dates se (sirf current nahi)
     if(!cfmRec)return; // CFM mein nahi — skip
     if(cfmRec._disposed)return; // dispose ho gayi — skip
+    if(!cfmRec.nextdate)return; // nextdate nahi — skip
 
-    // Bundle ki 'md' = respected date ka din. Iski poori date banao.
-    // md current month ka din hai (bundle current month-cycle ke liye hota hai)
-    const day=parseInt(bf.md);
-    if(isNaN(day)||day<1||day>31)return;
-    // Respected date — current month/year ke saath
-    const respDate=new Date(curYear,curMonth,day);respDate.setHours(0,0,0,0);
-    const respISO=respDate.toISOString().split('T')[0];
+    // ACTUAL respected date = CFM ki nextdate (poori date, sirf 'din' nahi)
+    // Isse 1-July, 1-Aug, 1-Sept alag-alag treat honge (bf.md sabka 1 hota par nextdate alag)
+    const respDate=new Date(cfmRec.nextdate+'T00:00:00');respDate.setHours(0,0,0,0);
+    if(isNaN(respDate))return;
+    const respISO=cfmRec.nextdate;
 
     const fileInfo={
       caseno:cfmRec.caseno,
@@ -4700,7 +4731,7 @@ async function checkTodayFiles(){
       received:cfmRec.received,
       _bf:bf,
       _respISO:respISO,
-      _respDay:day
+      _respDay:respDate.getDate()
     };
 
     if(respISO===todayISO){
