@@ -2311,6 +2311,8 @@ async function trTranslate(text,retries=5){
 async function trProcess(){
   const file=document.getElementById('trFileInput').files[0];
   if(!file){showToast('⚠️ Pehle file select karo','w');return;}
+  // Translate ke liye net zaroori (Google API)
+  if(!navigator.onLine){showToast('📡 Translate ke liye internet chahiye. Net on karke try karo.','d');return;}
   trSetBtns('processing');trSetStatus('📂 File read ho rahi hai…');trSetProgress(0);
   _trData=[];document.getElementById('trPreviewWrap').style.display='none';
 
@@ -2648,7 +2650,7 @@ function qrCanvasToImg(){
 async function qrGenerateQueue(){
   const pending=qrGetPending();
   if(!pending.length){showToast('⚠️ Koi pending file nahi','w');return;}
-  if(typeof QRCode==='undefined'){showToast('⚠️ QR library load nahi hui, refresh karo','w');return;}
+  if(typeof QRCode==='undefined'){showToast('⚠️ QR library load nahi hui. Net on karke refresh karo (ya APK use karo jisme offline kaam karta hai).','d');return;}
   const inner=document.getElementById('qrPrintInner');inner.innerHTML='';
   // senttime order — jo pehle sent hua wo pehle
   pending.forEach(r=>inner.appendChild(qrMakeCard(r.caseno)));
@@ -2664,7 +2666,7 @@ async function qrGenerateQueue(){
 async function qrGenerateReprint(){
   const lines=document.getElementById('qrReprintInput').value.split('\n').map(s=>s.trim()).filter(Boolean);
   if(!lines.length){showToast('⚠️ Koi case no. nahi','w');return;}
-  if(typeof QRCode==='undefined'){showToast('⚠️ QR library load nahi','w');return;}
+  if(typeof QRCode==='undefined'){showToast('⚠️ QR library load nahi hui. Net chahiye ya APK use karo.','d');return;}
   const inner=document.getElementById('qrPrintInner');inner.innerHTML='';
   lines.forEach(cn=>{
     const rec=cData.find(r=>caseMatch(r.caseno,cn));
@@ -3601,8 +3603,11 @@ async function bAddFile(rawId,fromScan){
   const slotLabel=bActiveCat?((CAT_LABELS[bActiveCat]||bActiveCat)+'-'+dispCol(bAC)):('Date '+bAMD+(bASD!=null?'/'+bASD:'')+'-'+dispCol(bAC));
   if(fromScan){
     showSC('✅ '+id+' → '+slotLabel,'#16a34a');
-    // Date number bolo (1, 2, 3...) + column — Hindi
-    const spk=bActiveCat?(CAT_LABELS[bActiveCat]||bActiveCat):('Date '+bAMD+(bASD!=null?' sub '+bASD:''));
+    // Bolo: date+column (jaise "1 A", "2 D") — ya category+column
+    const colLetter=dispCol(bAC);
+    const spk=bActiveCat
+      ?((CAT_LABELS[bActiveCat]||bActiveCat)+' '+colLetter)
+      :(bAMD+(bASD!=null?' sub '+bASD:'')+' '+colLetter);
     speak(spk,'hi-IN');
     haptic('scan');
   }
@@ -3637,7 +3642,7 @@ async function confirmMismatch(){
     const obj={id,md:cfmDay,sd:mmSD,col:bAC,cat:bActiveCat||null,at:Date.now(),st:'placed',hidden:false};
     bFiles[id]=obj;await idbSBn(obj);scheduleBundlePush();
     showSC('✅ '+id+' → Date '+cfmDay+'/'+mmSD+' '+dispCol(bAC),'#16a34a');
-    speak('Date '+cfmDay+' sub '+mmSD,'hi-IN');haptic('scan');
+    speak(cfmDay+' sub '+mmSD+' '+dispCol(bAC),'hi-IN');haptic('scan');
     bUpdateSP();bRenderGrid();
   }finally{
     document.getElementById('mmModal').classList.remove('on');
