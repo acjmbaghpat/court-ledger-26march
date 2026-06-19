@@ -857,7 +857,7 @@ button{transition:transform .12s var(--ease),filter .2s,background .2s}
         </div>
 
         <button class="btn primary" onclick="fbPushAll()" style="margin-top:8px">☁️ Sabhi Data Push Karo</button>
-        <button class="btn primary" onclick="fbPullAll()" style="margin-top:6px;background:linear-gradient(135deg,#0891b2,#0e7490)">⬇️ Sabhi Data Pull Karo</button>
+        <button class="btn primary" id="fbPullBtn" onclick="fbPullAll()" style="margin-top:6px;background:linear-gradient(135deg,#0891b2,#0e7490)">⬇️ Sabhi Data Pull Karo</button>
         <p class="fb-note">Firebase Console → Project Settings → Web App → Config</p>
       </div>
     </div>
@@ -1147,14 +1147,15 @@ button{transition:transform .12s var(--ease),filter .2s,background .2s}
   <div class="msh">
     <div class="mt">📅 Next Hearing Date</div>
     <div class="msub" id="nd-lbl"></div>
+    <div style="font-size:12px;color:var(--amber);font-weight:600;margin:4px 0 8px">⚠️ Date bharo ya Skip karo</div>
     <input type="date" id="ndInput">
     <span class="jo-lbl">📋 Case Type (optional)</span>
     <div class="jo-row">
       <button class="jo-btn j" id="jBtn" onclick="toggleJO('J')">🔒 J — Jail</button>
       <button class="jo-btn o" id="oBtn" onclick="toggleJO('O')">📂 O — Old</button>
     </div>
-    <button class="btn success" onclick="saveNextDate()" style="margin-top:14px">✅ Save Date</button>
-    <button class="btn neutral" onclick="closeNDModal()" style="margin-top:8px">Skip</button>
+    <button class="btn success" onclick="saveNextDate()" style="margin-top:14px">✅ Date Save Karo</button>
+    <button class="btn neutral" onclick="closeNDModal()" style="margin-top:8px">⏭️ Skip (abhi date nahi)</button>
   </div>
 </div>
 
@@ -1712,6 +1713,7 @@ window.onload=async()=>{
     workDate.value=new Date().toISOString().split("T")[0];
     await loadVersions();await loadCurV();await loadLocal();
     updateSU();updateHdrDate();syncAddCaseDateLabel();bInit();checkReminders();qrLoad();
+    pgCacheLoad(workDate.value); // purana peshgar mismatch dikhao (Firebase connect hone tak)
   }catch(e){console.error("Init:",e);}
 };
 
@@ -1894,24 +1896,42 @@ async function getAllCDataOverall(){
 let _pgData=null; // {caseno: {received,...}} current workDate ka peshgar data
 let _pgUnsub=null;
 let _pgListenErr='';
+// Peshgar data ko IDB mein cache karo (key: pgcache_DATE) — taaki connect hone tak purana data dikhe
+async function pgCacheLoad(date){
+  if(!date)return;
+  try{
+    const cached=await idbGM('pgcache_'+date);
+    if(cached&&typeof cached==='object'){
+      _pgData=cached;
+      _pgListenErr='';
+      updatePgMiss();
+    }
+  }catch(e){}
+}
+async function pgCacheSave(date){
+  if(!date||!_pgData)return;
+  try{await idbSM('pgcache_'+date,_pgData);}catch(e){}
+}
 function pgStartListen(){
-  if(!_fbDb){_pgData=null;_pgListenErr='Firebase connected nahi';updatePgMiss();return;}
-  if(_pgUnsub)_pgUnsub();
   const date=(workDate&&workDate.value)||'';
+  // Pehle cache se purana data dikhao (connect hone tak)
+  pgCacheLoad(date);
+  if(!_fbDb){_pgListenErr='Firebase connected nahi';updatePgMiss();return;}
+  if(_pgUnsub)_pgUnsub();
   if(!date){_pgListenErr='Koi date select nahi';return;}
-  _pgListenErr='';
   _pgUnsub=_fbDb.collection('peshgar').doc(date).onSnapshot(snap=>{
     if(snap.exists&&Array.isArray(snap.data().data)){
       _pgData={};
       snap.data().data.forEach(r=>{_pgData[String(r.caseno).toUpperCase().trim()]=r;});
       _pgListenErr='';
+      pgCacheSave(date); // fresh data IDB mein cache karo
     }else{
-      _pgData=null;
-      _pgListenErr='Peshgar ne is date ('+date+') ki koi file abhi receive nahi ki';
+      // Firebase pe is date ka data nahi — par cache mein ho sakta hai, usse mat hatao
+      if(!_pgData){_pgListenErr='Peshgar ne is date ('+date+') ki koi file abhi receive nahi ki';}
     }
     updatePgMiss();
   },err=>{
-    _pgData=null;
+    // Error pe cache wala data rehne do (null mat karo)
     _pgListenErr='Firebase read error: '+err.message;
     updatePgMiss();
   });
@@ -3861,19 +3881,24 @@ function updateRoleUI(){
   const lbl=document.getElementById('deviceRoleLabel');
   const mainBtn=document.getElementById('roleMainBtn');
   const secBtn=document.getElementById('roleSecBtn');
+  const pullBtn=document.getElementById('fbPullBtn');
   if(!lbl)return;
   if(deviceRole==='main'){
     lbl.innerHTML='⭐ <b style="color:var(--green)">MAIN DEVICE</b> — iska data master hai';
     if(mainBtn)mainBtn.style.opacity='1';
     if(secBtn)secBtn.style.opacity='.5';
+    // Main pe pull off — data master hai
+    if(pullBtn){pullBtn.style.opacity='.4';pullBtn.style.pointerEvents='none';pullBtn.textContent='⬇️ Pull OFF (Main device)';}
   }else if(deviceRole==='secondary'){
     lbl.innerHTML='👁️ <b style="color:var(--blue)">SECONDARY</b> — Main ka data auto-receive';
     if(mainBtn)mainBtn.style.opacity='.5';
     if(secBtn)secBtn.style.opacity='1';
+    if(pullBtn){pullBtn.style.opacity='1';pullBtn.style.pointerEvents='auto';pullBtn.textContent='⬇️ Sabhi Data Pull Karo';}
   }else{
     lbl.textContent='Role select nahi kiya — Main ya Secondary chuno';
     if(mainBtn)mainBtn.style.opacity='1';
     if(secBtn)secBtn.style.opacity='1';
+    if(pullBtn){pullBtn.style.opacity='1';pullBtn.style.pointerEvents='auto';pullBtn.textContent='⬇️ Sabhi Data Pull Karo';}
   }
 }
 
@@ -4022,6 +4047,11 @@ async function fbPushUrgent(){
 // Pull EVERYTHING from Firebase
 async function fbPullAll(){
   if(!_fbDb){showToast('⚠️ Firebase connected nahi hai','w');return;}
+  // Main device ka data MASTER hai — usko pull se overwrite nahi karna chahiye
+  if(deviceRole==='main'){
+    showToast('⭐ Ye MAIN device hai — iska data master hai, pull off hai. (Pull sirf Secondary pe)','d');
+    return;
+  }
   if(!confirm('⚠️ Firebase se pull karne se local data replace ho jayega. Confirm karo?'))return;
   showToast('🔄 Sab data pull ho raha hai...','w');
   // Backup current local state before destructive pull
