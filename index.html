@@ -1458,14 +1458,18 @@ function redFlash(){
   setTimeout(()=>{el.style.opacity='0';},750);
 }
 let activeTab='cfm';
-function switchTab(t){
+async function switchTab(t){
   activeTab=t;
   document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('on',['cfm','bundle'][i]===t));
   document.getElementById('cfm-tab').classList.toggle('on',t==='cfm');
   document.getElementById('bundle-tab').classList.toggle('on',t==='bundle');
   document.getElementById('cfmFlt').style.display=t==='cfm'?'flex':'none';
   document.getElementById('bundleFlt').style.display=t==='bundle'?'flex':'none';
-  if(t==='bundle'){bRenderGrid();bUpdateST();}
+  if(t==='bundle'){
+    // IDB se fresh bundle load karo (pull/sync ke baad latest data dikhe)
+    try{const all=await idbAB();bFiles={};all.forEach(b=>{bFiles[b.id]=b;});}catch(e){}
+    bRenderGrid();bUpdateST();
+  }
 }
 
 // ════ CFM STATE ════
@@ -4204,7 +4208,10 @@ async function fbPullAll(){
 
     await loadVersions();await loadCurV();await loadLocal();
     drawTable(getFiltered());await updateDash();updateSU();updateHdrDate();
-    showToast('✅ Pull complete! '+(dataKeys.length)+' dates ka data aa gaya.');
+    // Bundle grid refresh karo (pull ke baad turant dikhe)
+    const bundleCount=Object.keys(bFiles).length;
+    if(activeTab==='bundle'){bRenderGrid();bUpdateST&&bUpdateST();}
+    showToast('✅ Pull complete! '+(dataKeys.length)+' dates CFM + '+bundleCount+' bundle files aa gaye.');
   }catch(e){
     console.error('fbPullAll:',e);
     showToast('❌ Pull fail: '+e.message+' — Local data restored.','d');
