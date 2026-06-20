@@ -1147,15 +1147,16 @@ button{transition:transform .12s var(--ease),filter .2s,background .2s}
   <div class="msh">
     <div class="mt">📅 Next Hearing Date</div>
     <div class="msub" id="nd-lbl"></div>
-    <div style="font-size:12px;color:var(--amber);font-weight:600;margin:4px 0 8px">⚠️ Date bharo ya Skip karo</div>
+    <div style="font-size:12px;color:var(--amber);font-weight:600;margin:4px 0 8px">⚠️ Date bharo, ya dispose hui to remark mein "Dispose" likho</div>
     <input type="date" id="ndInput">
     <span class="jo-lbl">📋 Case Type (optional)</span>
     <div class="jo-row">
       <button class="jo-btn j" id="jBtn" onclick="toggleJO('J')">🔒 J — Jail</button>
       <button class="jo-btn o" id="oBtn" onclick="toggleJO('O')">📂 O — Old</button>
     </div>
-    <button class="btn success" onclick="saveNextDate()" style="margin-top:14px">✅ Date Save Karo</button>
-    <button class="btn neutral" onclick="closeNDModal()" style="margin-top:8px">⏭️ Skip (abhi date nahi)</button>
+    <span class="jo-lbl" style="margin-top:10px;display:block">📝 Remark (dispose / koi note)</span>
+    <input type="text" id="ndRemark" placeholder="Dispose, ya koi remark... (optional)">
+    <button class="btn success" onclick="saveNextDate()" style="margin-top:14px">✅ Save Karo</button>
   </div>
 </div>
 
@@ -3078,21 +3079,42 @@ function scrollToFile(cn){
 let ndJO=null;
 function toggleJO(t){ndJO=ndJO===t?null:t;document.getElementById('jBtn').classList.toggle('on',ndJO==='J');document.getElementById('oBtn').classList.toggle('on',ndJO==='O');}
 function resetJO(){ndJO=null;const j=document.getElementById('jBtn'),o=document.getElementById('oBtn');if(j)j.classList.remove('on');if(o)o.classList.remove('on');}
-function openNDModal(cn){resetJO();const rec=cData.find(r=>r.caseno===cn);document.getElementById("nd-lbl").textContent=(rec?rec.partyname+" — ":"")+cn;document.getElementById("ndInput").value="";document.getElementById("ndModal").classList.add("on");}
+function openNDModal(cn){resetJO();const rec=cData.find(r=>r.caseno===cn);document.getElementById("nd-lbl").textContent=(rec?rec.partyname+" — ":"")+cn;document.getElementById("ndInput").value="";const rm=document.getElementById("ndRemark");if(rm)rm.value="";document.getElementById("ndModal").classList.add("on");}
 function closeNDModal(){resetJO();document.getElementById("ndModal").classList.remove("on");lastRcvCase=null;}
 document.getElementById("ndModal").addEventListener("click",function(e){if(e.target===this)closeNDModal();});
 async function saveNextDate(){
   if(!lastRcvCase)return;
   const d=document.getElementById("ndInput").value;
-  if(!d){showToast('⚠️ Date select karo','w');return;}
+  const remark=(document.getElementById("ndRemark")?.value||'').trim();
+  const isDispose=/dispose|nipt|nipta|खारिज|disposed/i.test(remark);
+  // Date ya dispose remark — dono mein se ek zaroori
+  if(!d&&!isDispose){
+    showToast('⚠️ Date bharo, ya remark mein "Dispose" likho','d');
+    return;
+  }
   const idx=cData.findIndex(r=>r.caseno===lastRcvCase);
   if(idx!==-1){
-    cData[idx].nextdate=d;
+    if(d)cData[idx].nextdate=d;
+    // Remark add karo
+    if(remark){
+      const er=(cData[idx].remark||'').trim();
+      if(!er.split(' | ').includes(remark))cData[idx].remark=(er+(er?' | ':'')+remark).trim();
+    }
+    // Case type tag (J/O)
     if(ndJO){const tag=ndJO==='J'?'Jail':'Old';const er=(cData[idx].remark||'').trim();if(!er.split(' | ').includes(tag))cData[idx].remark=(er+(er?' | ':'')+tag).trim();}
+    // Agar dispose likha hai to file dispose mark karo
+    if(isDispose){
+      cData[idx]._disposed=true;
+      invalidateOvCache();
+    }
     cData[idx].searchableText=gSrch(cData[idx]);
   }
   document.getElementById("ndModal").classList.remove("on");
-  const dt=new Date(d);speakNextDate(d);
+  if(isDispose){
+    showToast('🗑️ '+lastRcvCase+' dispose mark ho gayi');speak("Dispose");
+  }else if(d){
+    speakNextDate(d);
+  }
   drawTable(getFiltered());updateDash();await saveLocal();resetJO();lastRcvCase=null;
 }
 
@@ -3860,6 +3882,9 @@ function fbStartListenBundle(){
 const ROLE_KEY='cm_device_role';
 let deviceRole=localStorage.getItem(ROLE_KEY)||''; // '', 'main', 'secondary'
 let _secSyncUnsub=null;
+let _secBundleUnsub=null;
+let _secMetaUnsub=null;
+let _secUrgentUnsub=null;
 
 function setDeviceRole(role){
   deviceRole=role;
@@ -3869,8 +3894,11 @@ function setDeviceRole(role){
     showToast('⭐ Ye phone ab MAIN hai — iska data master hai');
     // Main bante hi apna data push karo
     if(_fbDb)fbPushAll();
-    // Secondary listener band karo (main khud receive nahi karta)
+    // Secondary ke saare listeners band karo (main khud receive nahi karta)
     if(_secSyncUnsub){_secSyncUnsub();_secSyncUnsub=null;}
+    if(_secBundleUnsub){_secBundleUnsub();_secBundleUnsub=null;}
+    if(_secMetaUnsub){_secMetaUnsub();_secMetaUnsub=null;}
+    if(_secUrgentUnsub){_secUrgentUnsub();_secUrgentUnsub=null;}
   }else if(role==='secondary'){
     showToast('👁️ Ye phone ab SECONDARY hai — Main ka data auto-aayega');
     // Secondary listener chalu karo
@@ -3906,8 +3934,12 @@ function updateRoleUI(){
 function startSecondarySync(){
   if(!_fbDb||deviceRole!=='secondary')return;
   if(_secSyncUnsub){_secSyncUnsub();}
+  if(_secBundleUnsub){_secBundleUnsub();}
+  if(_secMetaUnsub){_secMetaUnsub();}
+  if(_secUrgentUnsub){_secUrgentUnsub();}
   showToast('🔄 Main device se data sync ho raha hai...','w');
-  // Saari cfm dates live suno
+
+  // 1. CFM — saari dates live suno
   _secSyncUnsub=_fbDb.collection('cfm').onSnapshot(async snap=>{
     let updated=0;
     for(const doc of snap.docs){
@@ -3915,16 +3947,56 @@ function startSecondarySync(){
       if(!/^\d{4}-\d{2}-\d{2}_\d+$/.test(k))continue;
       const d=doc.data();
       if(d&&Array.isArray(d.data)){
-        await idbSM(k,d.data); // local IDB update karo (secondary = mirror)
+        await idbSM(k,d.data); // local IDB mirror
         updated++;
       }
     }
-    // Current view refresh karo
     if(updated>0){
       await loadVersions();await loadLocal();drawTable(getFiltered());await updateDash();
       setSyncDot('ok');
     }
-  },e=>{console.error('secondary sync:',e);setSyncDot('err');});
+  },e=>{console.error('secondary cfm sync:',e);setSyncDot('err');});
+
+  // 2. Version metadata — taaki versions sahi dikhe
+  _secMetaUnsub=_fbDb.collection('cfm_meta').onSnapshot(async snap=>{
+    for(const doc of snap.docs){
+      const date=doc.id;
+      const d=doc.data();
+      if(d){
+        if(Array.isArray(d.versions))await idbSV(date,d.versions);
+        if(d.cv!=null)await idbSM('cv_'+date,d.cv);
+      }
+    }
+    await loadVersions();
+  },e=>{console.error('secondary meta sync:',e);});
+
+  // 3. BUNDLE — Main ka bundle receive karo (yahi miss ho raha tha!)
+  _secBundleUnsub=_fbDb.collection('bundle').doc('main').onSnapshot(async snap=>{
+    if(snap.exists){
+      const d=snap.data();
+      if(d&&d.files&&typeof d.files==='object'){
+        // Secondary = mirror: Main ka bundle local mein copy karo
+        bFiles=d.files;
+        // IDB mein bhi save karo
+        for(const id in bFiles){await idbSBn(bFiles[id]);}
+        if(activeTab==='bundle')bRenderGrid();
+        bUpdateSP&&bUpdateSP();
+        setSyncDot('ok');
+      }
+    }
+  },e=>{console.error('secondary bundle sync:',e);});
+
+  // 4. URGENT — urgent logs bhi receive karo
+  _secUrgentUnsub=_fbDb.collection('urgent').doc('main').onSnapshot(async snap=>{
+    if(snap.exists){
+      const d=snap.data();
+      if(d&&Array.isArray(d.logs)){
+        // Urgent logs local IDB mein mirror karo
+        for(const log of d.logs){try{await ulAdd(log);}catch(e){}}
+        if(activeTab==='urgent')loadUrgLog();
+      }
+    }
+  },e=>{console.error('secondary urgent sync:',e);});
 }
 
 // Progress bar helpers
