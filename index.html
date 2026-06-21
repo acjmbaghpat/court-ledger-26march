@@ -999,7 +999,8 @@ button{transition:transform .12s var(--ease),filter .2s,background .2s}
         <div class="ico blue">📥</div>
         <div><div class="lbl">Files Add Karo</div><div class="sub">Date + Column select karo, phir scan ya type</div></div>
       </div>
-      <span class="blbl mt0">Main Date (1–31)</span>
+      <span class="blbl mt0">Main Date (1–31) — file ki CFM wali date</span>
+      <div style="font-size:11px;color:var(--mu);font-weight:500;margin:-2px 0 6px">⚠️ File ki asli date (CFM next date ka din) — yahi check hogi</div>
       <div class="dgrid" id="b-mdg"></div>
       <span class="blbl" style="margin-top:10px">Ya Special Category</span>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:4px" id="b-catg">
@@ -1013,9 +1014,10 @@ button{transition:transform .12s var(--ease),filter .2s,background .2s}
       </div>
       <p style="font-size:11px;color:var(--mu);font-weight:500;margin-bottom:10px">Date ya Category — ek baar mein ek select karo</p>
       <div style="display:flex;align-items:center;margin-top:12px">
-        <span class="blbl" style="margin:0">Sub-Date <span style="font-weight:400;text-transform:none">(optional)</span></span>
+        <span class="blbl" style="margin:0">Sub-Date <span style="font-weight:400;text-transform:none">(optional) — jahan rakhi (overflow)</span></span>
         <button class="clrbtn" id="b-sdc" onclick="bClearSD()" style="display:none">✕ Clear</button>
       </div>
+      <div style="font-size:11px;color:var(--mu);font-weight:500;margin:2px 0 4px">Main date ki almari full ho to → yahan physical jagah daalo</div>
       <div id="b-sds"><button class="sdadd" onclick="bEnableSD()">+ Sub-Date add karo (overflow)</button></div>
       <span class="blbl">Column</span>
       <div id="b-cr-wrap"></div>
@@ -1673,24 +1675,72 @@ function getCFMRecord(caseNo){
   return cData.find(x=>caseMatch(x.caseno,caseNo));
 }
 // Saari IDB dates mein dhundo (current cData mein na ho to) — best/latest record
+// ════ SHARED ALL-DATES CACHE — speed boost ════
+// Saari IDB dates ek baar load karke cache karo, baar-baar scan na karo
+let _allDatesCache=null; // {key: dataArray}
+let _allDatesIndex=null; // {normalizedCaseno: [records]} — fast lookup
+let _allDatesCacheTime=0;
+const ALLDATES_CACHE_MS=15000; // 15 second valid
+async function getAllDatesData(force){
+  const now=Date.now();
+  if(!force&&_allDatesCache&&(now-_allDatesCacheTime)<ALLDATES_CACHE_MS){
+    return _allDatesCache; // cache hit — fast!
+  }
+  const cache={};
+  const index={}; // normalized caseno → array of records (across dates)
+  try{
+    const allKeys=await idbAMK();
+    const dataKeys=allKeys.filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k));
+    // Parallel load — sequential nahi (bahut fast)
+    const results=await Promise.all(dataKeys.map(async k=>{
+      const d=await idbGM(k);
+      return [k,d];
+    }));
+    results.forEach(([k,d])=>{
+      if(d&&Array.isArray(d)){
+        cache[k]=d;
+        // Index har record ko normalized caseno se (with source key)
+        d.forEach(r=>{
+          const norm=String(r.caseno||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+          if(norm){if(!index[norm])index[norm]=[];index[norm].push({rec:r,key:k});}
+        });
+      }
+    });
+  }catch(e){console.error('getAllDatesData:',e);}
+  _allDatesCache=cache;_allDatesIndex=index;_allDatesCacheTime=now;
+  return cache;
+}
+function invalidateAllDatesCache(){_allDatesCache=null;_allDatesIndex=null;_allDatesCacheTime=0;}
+// Fast lookup via index — returns [{rec,key}] — caseMatch sirf candidates pe
+async function _idxLookup(caseNo){
+  await getAllDatesData();
+  if(!_allDatesIndex)return[];
+  const norm=String(caseNo||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+  // Pehle exact normalized match (fast — 99% cases)
+  if(_allDatesIndex[norm])return _allDatesIndex[norm];
+  // Agar exact nahi mila, to caseMatch se fuzzy (rare)
+  const out=[];
+  for(const key in _allDatesIndex){
+    const entry=_allDatesIndex[key][0];
+    if(entry&&caseMatch(entry.rec.caseno,caseNo)){
+      out.push(..._allDatesIndex[key]);
+    }
+  }
+  return out;
+}
+
 async function getCFMRecordAllDates(caseNo){
   // Pehle current cData
   const cur=cData.find(x=>caseMatch(x.caseno,caseNo));
   if(cur)return cur;
-  // Phir saari IDB dates
+  // Index se fast lookup
   try{
-    const allKeys=await idbAMK();
-    const dataKeys=allKeys.filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k)).sort().reverse(); // latest first
+    const entries=await _idxLookup(caseNo); // [{rec,key}]
+    if(!entries.length)return null;
     let best=null;
-    for(const k of dataKeys){
-      const d=await idbGM(k);
-      if(!d||!Array.isArray(d))continue;
-      const rec=d.find(x=>caseMatch(x.caseno,caseNo));
-      if(rec){
-        // Received wala prefer karo, phir latest
-        if(rec.received==='Received')return rec;
-        if(!best)best=rec;
-      }
+    for(const e of entries){
+      if(e.rec.received==='Received')return e.rec;
+      if(!best)best=e.rec;
     }
     return best;
   }catch(e){console.error('getCFMRecordAllDates:',e);return null;}
@@ -1776,6 +1826,7 @@ async function loadCurV(){
 async function saveLocal(){
   try{
     invalidateOvCache(); // data badla — overdue cache fresh karo
+    invalidateAllDatesCache(); // all-dates cache bhi fresh karo
     await idbSM(dKey(),cData);
     // Fire and forget — Firebase backup, not critical path
     // But schedule properly to avoid race conditions
@@ -1822,38 +1873,31 @@ async function getAllOverdueFiles(){
     return _ovCache;
   }
   try{
-    const allKeys=await idbAMK();
-    const dataKeys=allKeys.filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k));
+    const allData=await getAllDatesData(); // cache — single parallel load
+    const keys=Object.keys(allData);
     const today=new Date();today.setHours(0,0,0,0);
 
-    // Pass 1: Collect received state from ALL keys (including recent ones)
+    // Pass 1: received state from ALL keys (in-memory, fast)
     const receivedAnywhere=new Set();
-    for(const k of dataKeys){
-      const d=await idbGM(k);
-      if(!d||!Array.isArray(d))continue;
-      d.forEach(r=>{
+    for(const k of keys){
+      allData[k].forEach(r=>{
         const cn=String(r.caseno||'').trim().toUpperCase();
         if(cn&&r.received==='Received')receivedAnywhere.add(cn);
       });
     }
 
-    // Pass 2: Collect sent-but-not-received from 7+ day old keys only
+    // Pass 2: sent-but-not-received from 7+ day old keys (in-memory)
     const caseMap={};
-    for(const k of dataKeys){
+    for(const k of keys){
       const datePart=k.split('_')[0];
       const wd=new Date(datePart+'T00:00:00');wd.setHours(0,0,0,0);
       const daysDiff=Math.floor((today-wd)/86400000);
-      if(daysDiff<7)continue; // less than 7 days — skip
-
-      const d=await idbGM(k);
-      if(!d||!Array.isArray(d))continue;
-
-      d.forEach(r=>{
+      if(daysDiff<7)continue;
+      allData[k].forEach(r=>{
         const cn=String(r.caseno||'').trim().toUpperCase();
         if(!cn||r._disposed)return;
         if(r.sent!=='Sent')return;
-        if(receivedAnywhere.has(cn))return; // received in ANY version/date — skip
-
+        if(receivedAnywhere.has(cn))return;
         const ex=caseMap[cn];
         if(!ex){caseMap[cn]={...r,_srcKey:k,_workDate:datePart,_daysDiff:daysDiff};return;}
         if(daysDiff>ex._daysDiff)caseMap[cn]={...r,_srcKey:k,_workDate:datePart,_daysDiff:daysDiff};
@@ -1876,23 +1920,19 @@ async function getAllOverdueFiles(){
 // checkTodayFiles ke liye: sabhi dates+versions ka latest state (dedup by caseno)
 async function getAllCDataOverall(){
   try{
-    const allKeys=await idbAMK();
-    const dataKeys=allKeys.filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k));
-    let all=[];
-    for(const k of dataKeys){
-      const d=await idbGM(k);
-      if(d&&Array.isArray(d))d.forEach(r=>all.push({...r,_srcKey:k}));
-    }
+    const allData=await getAllDatesData(); // cache (fast)
     const map={};
-    all.forEach(r=>{
-      const key=String(r.caseno||'').trim().toUpperCase();
-      if(!key)return;
-      const ex=map[key];
-      if(!ex){map[key]=r;return;}
-      if(r.received==='Received'&&ex.received!=='Received'){map[key]=r;return;}
-      if(ex.received==='Received'&&r.received!=='Received')return;
-      if((r.sentdate||'')>=(ex.sentdate||''))map[key]=r;
-    });
+    for(const k of Object.keys(allData)){
+      allData[k].forEach(r=>{
+        const key=String(r.caseno||'').trim().toUpperCase();
+        if(!key)return;
+        const ex=map[key];
+        if(!ex){map[key]={...r,_srcKey:k};return;}
+        if(r.received==='Received'&&ex.received!=='Received'){map[key]={...r,_srcKey:k};return;}
+        if(ex.received==='Received'&&r.received!=='Received')return;
+        if((r.sentdate||'')>=(ex.sentdate||''))map[key]={...r,_srcKey:k};
+      });
+    }
     return Object.values(map);
   }catch(e){return cData;}
 }
@@ -2479,13 +2519,13 @@ function closeStatusModal(){
 async function statusGetHistory(query){
   const q=String(query||'').trim();
   if(!q)return[];
-  const allKeys=await idbAMK();
-  const dataKeys=allKeys.filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k));
-  const events=[]; // {type, date, caseno, partyname, sentdate, receiveddate, nextdate, workDate}
-  for(const k of dataKeys){
-    const d=await idbGM(k);
-    if(!d||!Array.isArray(d))continue;
-    const rec=d.find(r=>caseMatch(r.caseno,q));
+  await getAllDatesData(); // warm cache + index
+  const recs=await _idxLookup(q); // fast index lookup
+  const events=[];
+  // _idxLookup gives records but not their keys; rebuild from cache for workDate
+  const allData=_allDatesCache||{};
+  for(const k of Object.keys(allData)){
+    const rec=allData[k].find(r=>caseMatch(r.caseno,q));
     if(!rec)continue;
     const wd=k.split('_')[0];
     if(rec.sent==='Sent'&&rec.sentdate)
@@ -2493,7 +2533,6 @@ async function statusGetHistory(query){
     if(rec.received==='Received'&&rec.receiveddate)
       events.push({type:'received',workDate:wd,caseno:rec.caseno,partyname:rec.partyname||'',receiveddate:rec.receiveddate,nextdate:rec.nextdate||''});
   }
-  // Sort newest first
   events.sort((a,b)=>{
     const da=a.sentdate||a.receiveddate||a.workDate;
     const db=b.sentdate||b.receiveddate||b.workDate;
@@ -2922,25 +2961,17 @@ async function openCaseDetail(cn){
   document.getElementById('cd-sub').textContent=r.partyname||'';
 
   // Previous Fixed Date — second-last fixed date (current se DO hearings pehle)
-  // Saari IDB dates scan karke is case ki saari nextdates nikalo, sort karo
+  // Index se sirf is case ke records (fast — saari dates scan nahi)
   let prevFixedDate='—';
   try{
-    const allKeys=await idbAMK();
-    const dataKeys=allKeys.filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k)).sort();
+    const entries=await _idxLookup(cn); // [{rec,key}]
     const ndSet=new Set();
-    for(const k of dataKeys){
-      const d=await idbGM(k);
-      if(!d||!Array.isArray(d))continue;
-      const rec=d.find(x=>caseMatch(x.caseno,cn));
-      if(rec&&rec.nextdate)ndSet.add(rec.nextdate);
-    }
+    entries.forEach(e=>{if(e.rec&&e.rec.nextdate)ndSet.add(e.rec.nextdate);});
     const uniqueNd=[...ndSet].sort(); // chronological
     const curIdx=uniqueNd.indexOf(r.nextdate);
-    // Second-last: current se 2 pehle
     if(curIdx>=2){
       prevFixedDate=fmtD(uniqueNd[curIdx-2]);
     }else if(curIdx===-1&&uniqueNd.length>=2){
-      // Current history mein nahi — last se ek pehle (second-last overall)
       prevFixedDate=fmtD(uniqueNd[uniqueNd.length-2]);
     }
   }catch(e){console.error('prevFixedDate:',e);}
@@ -3229,6 +3260,7 @@ async function importBackup(event){
     if(!bk.versionsStore&&!bk.metadataStore){stEl.textContent="❌ Invalid backup file";stEl.className="smsg s-err";return;}
     if(bk.versionsStore)for(const[d,v]of Object.entries(bk.versionsStore))await idbSV(d,v);
     if(bk.metadataStore)for(const[k,v]of Object.entries(bk.metadataStore))await idbSM(k,v);
+    invalidateAllDatesCache();
     if(bk.bundlesStore&&Array.isArray(bk.bundlesStore))for(const b of bk.bundlesStore)await idbSBn(b);
     await loadVersions();await loadCurV();await loadLocal();
     if(bk.bundlesStore){const allB=await idbAB();bFiles={};allB.forEach(b=>bFiles[b.id]=b);}
@@ -3952,6 +3984,7 @@ function startSecondarySync(){
       const d=doc.data();
       if(d&&Array.isArray(d.data)){
         await idbSM(k,d.data); // local IDB mirror
+        invalidateAllDatesCache();
         updated++;
       }
     }
@@ -4140,7 +4173,7 @@ async function fbPullAll(){
       const key=doc.id;
       if(!/^\d{4}-\d{2}-\d{2}_\d+$/.test(key))continue;
       const d=doc.data();
-      if(d&&d.data&&Array.isArray(d.data))await idbSM(key,d.data);
+      if(d&&d.data&&Array.isArray(d.data)){await idbSM(key,d.data);invalidateAllDatesCache();}
     }
     // 2. Version metadata
     const metaSnaps=await _fbDb.collection('cfm_meta').get();
@@ -4284,20 +4317,16 @@ async function ovDownloadExcel(){
 async function checkPendingReceive(caseno){
   const cn=String(caseno).toUpperCase().trim();
   const today=new Date();today.setHours(0,0,0,0);
-  const allKeys=await idbAMK();
-  const dataKeys=allKeys.filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k));
-  const curKey=dKey(); // current date+version
-  for(const k of dataKeys){
-    if(k===curKey)continue; // current date skip — sirf pichle check karo
-    const datePart=k.split('_')[0];
+  const curKey=dKey();
+  // Index se sirf is case ke records (with keys) — koi full scan nahi
+  const entries=await _idxLookup(cn); // [{rec,key}]
+  if(!entries.length)return{found:false};
+  for(const{rec,key}of entries){
+    if(key===curKey)continue;
+    const datePart=key.split('_')[0];
     const wd=new Date(datePart+'T00:00:00');wd.setHours(0,0,0,0);
-    if(wd>=today)continue; // future ya aaj — skip
-    const d=await idbGM(k);
-    if(!d||!Array.isArray(d))continue;
-    const rec=d.find(r=>caseMatch(r.caseno,cn));
-    if(!rec)continue;
+    if(wd>=today)continue;
     if(rec.sent==='Sent'&&rec.received!=='Received'&&!rec._disposed){
-      // Found — sent but not received in a past date
       return{found:true,workDate:datePart,sentdate:rec.sentdate||'',rec};
     }
   }
@@ -4414,7 +4443,7 @@ async function ovSave(i){
           else{const rd=new Date();rd.setDate(rd.getDate()+days);keyData[idx]._reminder=rd.toISOString().split('T')[0];}
         }
         keyData[idx].searchableText=gSrch(keyData[idx]);
-        await idbSM(srcKey,keyData);
+        await idbSM(srcKey,keyData);invalidateAllDatesCache();
       }
     }
   }
@@ -4455,7 +4484,7 @@ async function ovDispose(i){
         if(remark)keyData[idx].remark=(keyData[idx].remark?keyData[idx].remark+' | ':'')+remark;
         delete keyData[idx]._reminder;
         keyData[idx].searchableText=gSrch(keyData[idx]);
-        await idbSM(srcKey,keyData);
+        await idbSM(srcKey,keyData);invalidateAllDatesCache();
       }
     }
   }
@@ -4656,15 +4685,12 @@ async function loadUrgLog(){
     const all=await ulGetAll();
     if(!all.length){listEl.innerHTML='<div class="bempty" style="margin-top:12px">Koi urgent log nahi abhi tak</div>';return;}
 
-    // CFM received status — saari dates se collect karo (urgent sent file CFM se receive ho sakti hai)
+    // CFM received status — cache se (fast)
     const cfmReceivedMap={}; // caseno → {date, sentdate}
     try{
-      const allKeys=await idbAMK();
-      const dataKeys=allKeys.filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k));
-      for(const k of dataKeys){
-        const d=await idbGM(k);
-        if(!d||!Array.isArray(d))continue;
-        d.forEach(r=>{
+      const allData=await getAllDatesData();
+      for(const k of Object.keys(allData)){
+        allData[k].forEach(r=>{
           const cn=String(r.caseno||'').trim().toUpperCase();
           if(cn&&r.received==='Received'){
             const ex=cfmReceivedMap[cn];
@@ -4803,20 +4829,17 @@ async function checkTodayFiles(){
   const pehleKi=[]; // respected date pehle nikal gayi (7-day reminder window)
   const sevenDaysAgo=new Date(today);sevenDaysAgo.setDate(today.getDate()-7);
 
-  // CFM ki saari records (sabhi dates) ek map mein — taaki har bundle file ka actual nextdate mile
+  // CFM ki saari records (sabhi dates) ek map mein — cache se (fast)
   const cfmMap={}; // caseno(upper) → record (received prefer, latest)
   try{
-    const allKeys=await idbAMK();
-    const dataKeys=allKeys.filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k)).sort().reverse();
-    for(const k of dataKeys){
-      const d=await idbGM(k);
-      if(!d||!Array.isArray(d))continue;
-      d.forEach(r=>{
+    const allData=await getAllDatesData();
+    const keys=Object.keys(allData).sort().reverse();
+    for(const k of keys){
+      allData[k].forEach(r=>{
         const cn=String(r.caseno||'').trim().toUpperCase();
         if(!cn)return;
         const ex=cfmMap[cn];
         if(!ex){cfmMap[cn]=r;return;}
-        // Received wala ya jyada recent nextdate wala prefer
         if(r.received==='Received'&&ex.received!=='Received'){cfmMap[cn]=r;}
         else if((r.nextdate||'')>(ex.nextdate||'')){cfmMap[cn]=r;}
       });
