@@ -1613,31 +1613,35 @@ function caseMatch(a,b){
   if(!a||!b)return false;
   // 1. Exact
   if(String(a).toUpperCase().trim()===String(b).toUpperCase().trim())return true;
-  // 2. Slash-aware normalize (keep slashes, remove spaces/dots)
+  // 2. Slash-aware normalize (keep slashes, remove spaces/dots) — SAFEST
   const as=normSlash(a),bs=normSlash(b);
   if(as===bs)return true;
-  // 3. Full normalize (remove everything including slashes)
+  // Number-group guard: digit-groups ko separators (slash/space/dot/dash) se split karke compare
+  // Ye "12/3/2020" vs "123/2020" collision rokta hai, par "BA 100 2026" vs "BA/100/2026" allow karta hai
+  const numGroupsOf=s=>String(s).toUpperCase().replace(/[^0-9/\s.\-]/g,'').split(/[/\s.\-]+/).filter(Boolean).join(',');
+  const aNumGroups=numGroupsOf(a),bNumGroups=numGroupsOf(b);
+  const numGroupsDiffer=(aNumGroups!==bNumGroups&&aNumGroups!==''&&bNumGroups!=='');
+  // 3. Full normalize (remove everything including slashes) — sirf jab number-groups SAME hon
   const an=normCase(a),bn=normCase(b);
-  if(an===bn)return true;
-  // 4. Abbreviation expand on full-normalized
-  const ae=expandAbbr(an),be=expandAbbr(bn);
-  if(ae===be)return true;
-  if(ae===bn||an===be)return true;
-  // 5. Abbreviation expand on slash-normalized
-  const ase=expandAbbr(as.replace(/[^A-Z0-9]/g,'')),bse=expandAbbr(bs.replace(/[^A-Z0-9]/g,''));
-  if(ase===bse)return true;
+  if(an===bn&&!numGroupsDiffer)return true;
+  // 4. Abbreviation expand — sirf jab number-groups same hon (abbr = letters, digits nahi)
+  if(!numGroupsDiffer){
+    const ae=expandAbbr(an),be=expandAbbr(bn);
+    if(ae===be)return true;
+    if(ae===bn||an===be)return true;
+    // 5. Abbreviation expand on slash-normalized
+    const ase=expandAbbr(as.replace(/[^A-Z0-9]/g,'')),bse=expandAbbr(bs.replace(/[^A-Z0-9]/g,''));
+    if(ase===bse)return true;
+  }
   // 6. Contains — only if similar length AND not a pure numeric suffix/prefix mismatch
-  if(an.length>=6&&bn.length>=6){
+  if(!numGroupsDiffer&&an.length>=6&&bn.length>=6){
     const ratio=Math.min(an.length,bn.length)/Math.max(an.length,bn.length);
     if(ratio>=0.7){
       const aInB=bn.includes(an), bInA=an.includes(bn);
       if(aInB||bInA){
-        // Prevent false positives: "1232020" inside "71232020"
-        // If one is purely numeric and is a substring of the other, reject
         const shorter=an.length<=bn.length?an:bn;
         const longer=an.length<=bn.length?bn:an;
         const idx=longer.indexOf(shorter);
-        // If the char before/after the match is a digit — it's a number boundary issue
         const before=idx>0?longer[idx-1]:'';
         const after=idx+shorter.length<longer.length?longer[idx+shorter.length]:'';
         if(/\d/.test(before)||/\d/.test(after)) return false;
@@ -1677,8 +1681,8 @@ function getCFMRecord(caseNo){
 // Saari IDB dates mein dhundo (current cData mein na ho to) — best/latest record
 // ════ SHARED ALL-DATES CACHE — speed boost ════
 // Saari IDB dates ek baar load karke cache karo, baar-baar scan na karo
-let _allDatesCache=null; // {key: dataArray}
-let _allDatesIndex=null; // {normalizedCaseno: [records]} — fast lookup
+let _allDatesCache=null; // {key: dataArray} latest-date-first
+let _allDatesIndex=null; // normSlash(caseno) → [{rec,key}] collision-safe
 let _allDatesCacheTime=0;
 const ALLDATES_CACHE_MS=15000; // 15 second valid
 async function getAllDatesData(force){
@@ -1687,11 +1691,10 @@ async function getAllDatesData(force){
     return _allDatesCache; // cache hit — fast!
   }
   const cache={};
-  const index={}; // normalized caseno → array of records (across dates)
+  const index={}; // normSlash(caseno) → [{rec,key}] — COLLISION-SAFE (separators preserved)
   try{
     const allKeys=await idbAMK();
-    const dataKeys=allKeys.filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k));
-    // Parallel load — sequential nahi (bahut fast)
+    const dataKeys=allKeys.filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k)).sort().reverse(); // LATEST first
     const results=await Promise.all(dataKeys.map(async k=>{
       const d=await idbGM(k);
       return [k,d];
@@ -1699,10 +1702,10 @@ async function getAllDatesData(force){
     results.forEach(([k,d])=>{
       if(d&&Array.isArray(d)){
         cache[k]=d;
-        // Index har record ko normalized caseno se (with source key)
+        // Index: normSlash key (slashes preserve karta hai → 12/3/2020 ≠ 123/2020)
         d.forEach(r=>{
-          const norm=String(r.caseno||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
-          if(norm){if(!index[norm])index[norm]=[];index[norm].push({rec:r,key:k});}
+          const ns=normSlash(r.caseno);
+          if(ns){if(!index[ns])index[ns]=[];index[ns].push({rec:r,key:k});}
         });
       }
     });
@@ -1711,20 +1714,21 @@ async function getAllDatesData(force){
   return cache;
 }
 function invalidateAllDatesCache(){_allDatesCache=null;_allDatesIndex=null;_allDatesCacheTime=0;}
-// Fast lookup via index — returns [{rec,key}] — caseMatch sirf candidates pe
+// Saari dates se is case ke records — COLLISION-SAFE index + caseMatch fallback
+// Returns [{rec,key}] latest-date-first
 async function _idxLookup(caseNo){
   await getAllDatesData();
-  if(!_allDatesIndex)return[];
-  const norm=String(caseNo||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
-  // Pehle exact normalized match (fast — 99% cases)
-  if(_allDatesIndex[norm])return _allDatesIndex[norm];
-  // Agar exact nahi mila, to caseMatch se fuzzy (rare)
+  // Fast path: exact normSlash match (no collision kyunki slashes preserved)
+  const ns=normSlash(caseNo);
+  if(_allDatesIndex&&_allDatesIndex[ns]&&_allDatesIndex[ns].length){
+    return _allDatesIndex[ns];
+  }
+  // Fallback: caseMatch (abbreviations, spaces-vs-slash, etc) — full scan but rare
+  const allData=_allDatesCache||{};
   const out=[];
-  for(const key in _allDatesIndex){
-    const entry=_allDatesIndex[key][0];
-    if(entry&&caseMatch(entry.rec.caseno,caseNo)){
-      out.push(..._allDatesIndex[key]);
-    }
+  for(const k of Object.keys(allData)){
+    const rec=allData[k].find(x=>caseMatch(x.caseno,caseNo));
+    if(rec)out.push({rec,key:k});
   }
   return out;
 }
@@ -1733,26 +1737,15 @@ async function getCFMRecordAllDates(caseNo){
   // Pehle current cData
   const cur=cData.find(x=>caseMatch(x.caseno,caseNo));
   if(cur)return cur;
-  // Index se fast lookup
+  // _idxLookup latest-date-first order mein deta hai (ORIGINAL logic)
   try{
-    const entries=await _idxLookup(caseNo); // [{rec,key}]
+    const entries=await _idxLookup(caseNo); // [{rec,key}] latest-first
     if(!entries.length)return null;
-    // File ki CURRENT date chahiye = sabse नई nextdate wala record
-    // (har hearing pe nayi nextdate lagti hai — latest nextdate = current state)
-    // Tie-break: latest work-date key
-    let best=null,bestKey='';
+    // Received wala prefer (latest date se), warna pehla (latest date) — ORIGINAL behaviour
+    let best=null;
     for(const e of entries){
-      const rec=e.rec,key=e.key||'';
-      if(!best){best=rec;bestKey=key;continue;}
-      const bn=best.nextdate||'',rn=rec.nextdate||'';
-      // Latest nextdate prefer
-      if(rn>bn){best=rec;bestKey=key;continue;}
-      if(rn<bn)continue;
-      // Same nextdate — latest work-date key, aur received prefer
-      const bestRecv=best.received==='Received',recRecv=rec.received==='Received';
-      if(recRecv&&!bestRecv){best=rec;bestKey=key;continue;}
-      if(bestRecv&&!recRecv)continue;
-      if(key>bestKey){best=rec;bestKey=key;}
+      if(e.rec.received==='Received')return e.rec; // latest received = current state
+      if(!best)best=e.rec; // latest date ka record (received na ho to bhi)
     }
     return best;
   }catch(e){console.error('getCFMRecordAllDates:',e);return null;}
