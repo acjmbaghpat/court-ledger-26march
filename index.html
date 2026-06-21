@@ -1993,12 +1993,14 @@ function getPgMissList(){
 function getPgReverseList(){
   // Peshgar ne RECEIVED ki par CFM ne sent NAHI ki (ulta mismatch — galat!)
   if(!_pgData)return null;
+  // cData ka Map banao (ek baar) — har lookup O(1)
+  const cmMap=new Map();
+  for(const r of cData)cmMap.set(String(r.caseno).toUpperCase().trim(),r);
   const reverse=[];
   Object.values(_pgData).forEach(pg=>{
     if(pg.received!=='Received')return;
     const cn=String(pg.caseno).toUpperCase().trim();
-    // CFM mein dhundho — sent hui ya nahi
-    const cmFile=cData.find(r=>String(r.caseno).toUpperCase().trim()===cn);
+    const cmFile=cmMap.get(cn);
     if(!cmFile||cmFile.sent!=='Sent'){
       reverse.push({caseno:pg.caseno,partyname:(cmFile&&cmFile.partyname)||'',location:pg.location||''});
     }
@@ -2078,14 +2080,19 @@ function openPgMismatchModal(){
 }
 
 async function updateDash(){
-  const t=cData.length,sn=cData.filter(x=>x.sent==="Sent").length,rc=cData.filter(x=>x.received==="Received").length;
-  const ps=cData.filter(x=>x.sent!=="Sent").length,pr=cData.filter(x=>x.sent==="Sent"&&x.received!=="Received").length;
+  // Single pass — 5 alag filter ki jagah ek loop
+  let t=cData.length,sn=0,rc=0,ps=0,pr=0;
+  for(const x of cData){
+    const isSent=x.sent==="Sent",isRecv=x.received==="Received";
+    if(isSent)sn++;else ps++;
+    if(isRecv)rc++;
+    if(isSent&&!isRecv)pr++;
+  }
   totalCount.innerText=t;sentCount.innerText=sn;receivedCount.innerText=rc;
   document.getElementById("tabAllCount").innerText=t;
   document.getElementById("tabPSentCount").innerText=ps;
   document.getElementById("tabPRecvdCount").innerText=pr;
 
-  const today=new Date();today.setHours(0,0,0,0);
   const odFiles=await getAllOverdueFiles();
   const odCount=odFiles.length;
   const oc=document.getElementById("overdueCount");if(oc)oc.innerText=odCount;
@@ -2916,15 +2923,17 @@ function drawTable(data){
     row+="</tr>";h+=row;
   });
   tbl.innerHTML=h;
-  setTimeout(()=>{
-    const ac=document.activeElement,acc=ac&&ac.dataset&&ac.dataset.caseno?ac.dataset.caseno:null,cp=acc?ac.selectionStart:null;
-    const rm=new Map(cData.map(r=>[r.caseno,r.remark||""]));
-    document.querySelectorAll('input[data-caseno]').forEach(inp=>{
-      const val=rm.get(inp.dataset.caseno);if(val===undefined)return;
-      if(acc&&inp.dataset.caseno===acc){if(inp.value!==val)inp.value=val;if(cp!=null)try{inp.setSelectionRange(cp,cp);}catch(e){}inp.focus();}
-      else inp.value=val;
-    });
-  },0);
+  // Sirf tab re-sync karo jab koi remark input focused ho (typing preserve karne ke liye)
+  // Warna ye redundant hai — values already HTML mein set hain
+  const ac=document.activeElement;
+  if(ac&&ac.dataset&&ac.dataset.caseno){
+    setTimeout(()=>{
+      const acc=ac.dataset.caseno,cp=ac.selectionStart;
+      const rm=new Map(cData.map(r=>[r.caseno,r.remark||""]));
+      const inp=document.querySelector('input[data-caseno="'+CSS.escape(acc)+'"]');
+      if(inp){const val=rm.get(acc);if(val!==undefined){if(inp.value!==val)inp.value=val;if(cp!=null)try{inp.setSelectionRange(cp,cp);}catch(e){}inp.focus();}}
+    },0);
+  }
 }
 searchBox.addEventListener("input",()=>{clearTimeout(sDeb);sDeb=setTimeout(()=>drawTable(getFiltered()),150);});
 async function updateNextDate(cn,val){
@@ -3501,20 +3510,41 @@ function bMSetCol(c){bMC=c;bBuildMoveCR();bUpdateMP();}
 function bCC(arr){if(!arr||!arr.length)return'sc-e';if(arr.some(f=>f.st==='missing'))return'sc-m';return arr.length>=40?'sc-f':arr.length>=25?'sc-h':'sc-e';}
 function bRenderGrid(){
   const gc=document.getElementById('bgc');
-  // workDate ka din use karo — real today nahi (historical dates pe kaam ho sakta hai)
   const wdVal=document.getElementById('workDate')?.value||new Date().toISOString().split('T')[0];
   const todayDay=parseInt(wdVal.split('-')[2]||new Date().getDate());
-  const totalInBundle=Object.values(bFiles).filter(f=>!f.hidden).length;
+
+  // ════ SINGLE PASS — bFiles ko ek baar group karo (fast) ════
+  // Repeated Object.values().filter() ki jagah ek hi baar sab build
+  const visible=Object.values(bFiles).filter(f=>!f.hidden);
+  const totalInBundle=visible.length;
+  // Group: byCat, byDate, byDateCol
+  const byCat={}; // cat → [files]
+  const byDate={}; // date → [files]
+  const byDateCol={}; // date_col → {cnt, miss}
+  visible.forEach(f=>{
+    if(f.cat){
+      if(!byCat[f.cat])byCat[f.cat]=[];
+      byCat[f.cat].push(f);
+    }else{
+      if(!byDate[f.md])byDate[f.md]=[];
+      byDate[f.md].push(f);
+      const dck=f.md+'_'+f.col;
+      if(!byDateCol[dck])byDateCol[dck]={cnt:0,miss:0};
+      byDateCol[dck].cnt++;
+      if(f.st==='missing')byDateCol[dck].miss++;
+    }
+  });
+
   function totalStr(n){return n+' file'+(n!==1?'s':'');}
   let h=`<div style="background:#eef2ff;border-radius:10px;padding:9px 13px;margin-bottom:12px;font-size:12px;font-weight:600;color:var(--blue)">
     🌐 Present State — Almari mein abhi: ${totalStr(totalInBundle)}
   </div>`;
-  // Categories
-  const catUsed=BUNDLE_CATS.filter(cat=>Object.values(bFiles).some(f=>!f.hidden&&f.cat===cat));
+  // Categories — group se
+  const catUsed=BUNDLE_CATS.filter(cat=>byCat[cat]&&byCat[cat].length);
   if(catUsed.length){
     h+=`<div style="font-size:11px;font-weight:700;color:var(--mu);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">📂 Special Categories</div>`;
     catUsed.forEach(cat=>{
-      const inCat=Object.values(bFiles).filter(f=>!f.hidden&&f.cat===cat);
+      const inCat=byCat[cat];
       const missC=inCat.filter(f=>f.st==='missing').length;
       h+=`<div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding:9px 13px;background:#fff;border:1.5px solid var(--bdr);border-radius:10px;margin-bottom:6px" onclick="bOSlotCat('${cat}')">`
         +`<span style="font-size:14px;font-weight:700;color:var(--navy)">${CAT_LABELS[cat]||cat}${missC>0?` <span style="color:var(--red);font-size:11px">⚠ ${missC} missing</span>`:''}</span>`
@@ -3523,16 +3553,15 @@ function bRenderGrid(){
   }
   h+=`<div style="font-size:11px;font-weight:700;color:var(--mu);text-transform:uppercase;letter-spacing:.5px;margin:12px 0 8px">📅 Date-wise (1–31)</div>`;
   DATES.forEach(date=>{
-    const allInDate=Object.values(bFiles).filter(f=>!f.hidden&&f.md===date&&!f.cat);
+    const allInDate=byDate[date]||[];
     const tot=allInDate.length;
     const missCount=allInDate.filter(f=>f.st==='missing').length;
     const isSpecial=SPECIAL_DATES.includes(date);
     const cols=getColsForDate(date);
     const isToday_d=(date===todayDay);
     const colCounts=cols.map(col=>{
-      const cnt=Object.values(bFiles).filter(f=>!f.hidden&&f.md===date&&f.col===col&&!f.cat).length;
-      const miss=Object.values(bFiles).filter(f=>!f.hidden&&f.md===date&&f.col===col&&f.st==='missing'&&!f.cat).length;
-      return{col,cnt,miss};
+      const dc=byDateCol[date+'_'+col]||{cnt:0,miss:0};
+      return{col,cnt:dc.cnt,miss:dc.miss};
     });
     const maxCnt=Math.max(0,...colCounts.map(c=>c.cnt));
     const rowCls=(missCount>0)?'sc-m':maxCnt>=40?'sc-f':maxCnt>=25?'sc-h':'sc-e';
