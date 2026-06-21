@@ -1737,10 +1737,22 @@ async function getCFMRecordAllDates(caseNo){
   try{
     const entries=await _idxLookup(caseNo); // [{rec,key}]
     if(!entries.length)return null;
-    let best=null;
+    // File ki CURRENT date chahiye = sabse नई nextdate wala record
+    // (har hearing pe nayi nextdate lagti hai — latest nextdate = current state)
+    // Tie-break: latest work-date key
+    let best=null,bestKey='';
     for(const e of entries){
-      if(e.rec.received==='Received')return e.rec;
-      if(!best)best=e.rec;
+      const rec=e.rec,key=e.key||'';
+      if(!best){best=rec;bestKey=key;continue;}
+      const bn=best.nextdate||'',rn=rec.nextdate||'';
+      // Latest nextdate prefer
+      if(rn>bn){best=rec;bestKey=key;continue;}
+      if(rn<bn)continue;
+      // Same nextdate — latest work-date key, aur received prefer
+      const bestRecv=best.received==='Received',recRecv=rec.received==='Received';
+      if(recRecv&&!bestRecv){best=rec;bestKey=key;continue;}
+      if(bestRecv&&!recRecv)continue;
+      if(key>bestKey){best=rec;bestKey=key;}
     }
     return best;
   }catch(e){console.error('getCFMRecordAllDates:',e);return null;}
@@ -4859,7 +4871,7 @@ async function checkTodayFiles(){
   const sevenDaysAgo=new Date(today);sevenDaysAgo.setDate(today.getDate()-7);
 
   // CFM ki saari records (sabhi dates) ek map mein — cache se (fast)
-  const cfmMap={}; // caseno(upper) → record (received prefer, latest)
+  const cfmMap={}; // caseno(upper) → record (LATEST nextdate wala)
   try{
     const allData=await getAllDatesData();
     const keys=Object.keys(allData).sort().reverse();
@@ -4869,8 +4881,10 @@ async function checkTodayFiles(){
         if(!cn)return;
         const ex=cfmMap[cn];
         if(!ex){cfmMap[cn]=r;return;}
-        if(r.received==='Received'&&ex.received!=='Received'){cfmMap[cn]=r;}
-        else if((r.nextdate||'')>(ex.nextdate||'')){cfmMap[cn]=r;}
+        // Latest nextdate wala prefer (current hearing state)
+        const en=ex.nextdate||'',rn=r.nextdate||'';
+        if(rn>en){cfmMap[cn]=r;}
+        else if(rn===en&&r.received==='Received'&&ex.received!=='Received'){cfmMap[cn]=r;}
       });
     }
   }catch(e){console.error('cfmMap build:',e);}
