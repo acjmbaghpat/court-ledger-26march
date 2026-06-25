@@ -1857,6 +1857,8 @@ async function loadLocal(){
     if(s&&Array.isArray(s)){cData=s;cData.forEach(r=>r.searchableText=gSrch(r));}
     else cData=[];
   }catch(e){cData=[];showToast('⚠️ Data load fail!','d');}
+  // Pending-from-previous flag karo (date switch pe bhi highlight dikhe)
+  await markPendingFromPrevious();
   drawTable(getFiltered());await updateDash();
 }
 workDate.addEventListener("change",async()=>{
@@ -2133,6 +2135,68 @@ function getFiltered(){
 }
 
 // ════ EXCEL UPLOAD ════
+// ════ Upload ke baad: pichli date se pending-receive / overdue files flag karo ════
+// Taaki upload ke turant baad highlight ho jaaye — baad mein "pehle receive karo" objection na aaye
+async function markPendingFromPrevious(){
+  try{
+    const allData=await getAllDatesData(); // cache (fast)
+    const curKey=dKey();
+    const today=new Date();today.setHours(0,0,0,0);
+    // Pehle: har caseno jo kisi bhi date pe RECEIVED hui (taaki double-count na ho)
+    const receivedAnywhere=new Set();
+    for(const k of Object.keys(allData)){
+      allData[k].forEach(r=>{
+        const cn=String(r.caseno||'').trim().toUpperCase();
+        if(cn&&r.received==='Received')receivedAnywhere.add(cn);
+      });
+    }
+    // Ab: har caseno jo kisi PICHLI date pe SENT hui par received nahi (pending)
+    // {normalized caseno → {workDate, sentdate, daysDiff}}
+    const pendingMap={};
+    for(const k of Object.keys(allData)){
+      if(k===curKey)continue; // current upload skip
+      const datePart=k.split('_')[0];
+      allData[k].forEach(r=>{
+        const cn=String(r.caseno||'').trim().toUpperCase();
+        if(!cn||r._disposed)return;
+        if(r.sent!=='Sent')return;
+        if(receivedAnywhere.has(cn))return; // kahin received ho gayi — pending nahi
+        // Days since SENT (sentdate prefer, warna upload date)
+        const trackStr=(r.sentdate&&/^\d{4}-\d{2}-\d{2}$/.test(r.sentdate))?r.sentdate:datePart;
+        const td=new Date(trackStr+'T00:00:00');td.setHours(0,0,0,0);
+        const daysDiff=Math.floor((today-td)/86400000);
+        const ex=pendingMap[cn];
+        if(!ex||daysDiff>ex.daysDiff){
+          pendingMap[cn]={workDate:datePart,sentdate:r.sentdate||'',daysDiff:daysDiff};
+        }
+      });
+    }
+    // Current cData ke har case pe flag lagao agar woh pending list mein hai
+    let pendingCount=0,overdueCount=0;
+    cData.forEach(r=>{
+      const cn=String(r.caseno||'').trim().toUpperCase();
+      // Agar current mein already received hai to flag nahi
+      if(r.received==='Received'){r._pendingPrev=null;return;}
+      // Pending map mein dhundo (caseMatch se — leading zero/format safe)
+      let match=pendingMap[cn];
+      if(!match){
+        // Exact normalized nahi mila to caseMatch fallback
+        for(const pk in pendingMap){
+          if(caseMatch(pk,r.caseno)){match=pendingMap[pk];break;}
+        }
+      }
+      if(match){
+        r._pendingPrev={workDate:match.workDate,sentdate:match.sentdate,daysDiff:match.daysDiff,overdue:match.daysDiff>=7};
+        pendingCount++;
+        if(match.daysDiff>=7)overdueCount++;
+      }else{
+        r._pendingPrev=null;
+      }
+    });
+    return {pendingCount,overdueCount};
+  }catch(e){console.error('markPendingFromPrevious:',e);return {pendingCount:0,overdueCount:0};}
+}
+
 async function uploadExcel(){
   const file=excelFile.files[0];
   if(!file){showToast('⚠️ File select karo','w');return;}
@@ -2169,9 +2233,16 @@ async function uploadExcel(){
       const uvs=vs&&vs.length?[...vs,nv]:[nv];
       await idbSV(workDate.value,uvs);await saveCurV();await saveLocal();
       await loadVersions();versionSelect.value=upV;
+      // Pichli date se pending/overdue files flag karo (upload ke turant baad highlight)
+      invalidateAllDatesCache();
+      const pendInfo=await markPendingFromPrevious();
       drawTable(getFiltered());await updateDash();updateSU();
       speak("Excel uploaded");
-      showToast('✅ Upload ho gaya! ('+cData.length+' records)');
+      if(pendInfo.pendingCount>0){
+        showToast('✅ Upload! '+cData.length+' records. ⚠️ '+pendInfo.pendingCount+' files pichli date se PENDING (highlight mein)'+(pendInfo.overdueCount>0?' — '+pendInfo.overdueCount+' overdue':''),'w');
+      }else{
+        showToast('✅ Upload ho gaya! ('+cData.length+' records)');
+      }
       excelFile.value="";
       closeDrawer();
     }catch(err){
@@ -2917,11 +2988,17 @@ function drawTable(data){
   const L=["Sr.No","Case No","Party Name","Section","PS","Sent","Received","Recv.Date","Next Date","Remark"];
   let h="<tr>"+L.map(x=>"<th>"+x+"</th>").join("")+"</tr>";
   data.forEach(r=>{
-    let row='<tr id="row_'+sId(r.caseno)+'">';
+    // Pichli date se pending (sent par received nahi) — alag highlight
+    const pp=r._pendingPrev;
+    const rowStyle=pp?(pp.overdue?'background:#fef2f2;border-left:4px solid var(--red)':'background:#fff7ed;border-left:4px solid var(--amber)'):'';
+    let row='<tr id="row_'+sId(r.caseno)+'"'+(rowStyle?(' style="'+rowStyle+'"'):'')+'>';
     H.forEach(k=>{
       if(k==="caseno"){
         const cj=String(r.caseno).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-        row+=`<td><span class="td-caseno" onclick="openCaseDetail('${cj}')">${esc(r.caseno)}</span></td>`;
+        const ppBadge=pp?(pp.overdue
+          ?'<span style="display:inline-block;background:var(--red);color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;margin-left:4px" title="Pichli date se '+pp.daysDiff+' din se pending — OVERDUE">⚠ '+pp.daysDiff+'d OVERDUE</span>'
+          :'<span style="display:inline-block;background:var(--amber);color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;margin-left:4px" title="Pichli date ('+fmtD(pp.workDate)+') se sent, abhi received nahi">⚠ PENDING</span>'):'';
+        row+=`<td><span class="td-caseno" onclick="openCaseDetail('${cj}')">${esc(r.caseno)}</span>${ppBadge}</td>`;
       }else if(k==="partyname"){
         row+=`<td><span class="td-party">${esc(r[k]||"")}</span></td>`;
       }else if(k==="section"||k==="ps"){
@@ -3118,7 +3195,7 @@ async function manualAction(mode){
   }else{
     if(rec.sent!=="Sent"){showMS("❌ Pehle SENT karo","err");speak("File not sent yet");return;}
     if(rec.received==="Received"){showMS("ℹ️ Already RECEIVED: "+actualCN,"info");speak("Already received");return;}
-    cData[idx].received="Received";cData[idx].receiveddate=new Date().toISOString().split("T")[0];
+    cData[idx].received="Received";cData[idx].receiveddate=new Date().toISOString().split("T")[0];cData[idx]._pendingPrev=null;
     lastRcvCase=actualCN;cData[idx].searchableText=gSrch(cData[idx]);
     showMS("✅ RECEIVED: "+actualCN,"ok");speak("File received");haptic('success');manualCaseInput.value="";
     // Search/filter clear karo TABHI taaki row visible ho highlight ke liye
@@ -3422,7 +3499,7 @@ async function handleCFMScan(code,mode){
   }else{
     if(cData[idx].sent!=="Sent"){showSC('❌ Pehle SENT karo: '+actualCN,'#dc2626');speak("File not sent yet");haptic('error');redFlash();return;}
     if(cData[idx].received==="Received"){showSC('ℹ️ Already Received: '+actualCN,'#d97706');speak("Already received");return;}
-    cData[idx].received="Received";cData[idx].receiveddate=new Date().toISOString().split("T")[0];cData[idx].searchableText=gSrch(cData[idx]);lastRcvCase=actualCN;
+    cData[idx].received="Received";cData[idx].receiveddate=new Date().toISOString().split("T")[0];cData[idx]._pendingPrev=null;cData[idx].searchableText=gSrch(cData[idx]);lastRcvCase=actualCN;
     showSC('✅ RECEIVED: '+actualCN,'#16a34a');speak("File received");haptic('scan');
     closeScan();
     // Search/filter clear for highlight
