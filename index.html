@@ -875,7 +875,7 @@ button{transition:transform .12s var(--ease),filter .2s,background .2s}
       <div class="dsec" style="border-color:rgba(220,38,38,.25);background:rgba(254,242,242,.5)">
         <div class="dsec-title" style="color:var(--red)">⚠️ Danger Zone</div>
         <p style="font-size:12px;color:var(--mu);margin-bottom:10px;font-weight:500">60 din se purana data permanently delete karo.</p>
-        <button class="btn danger" onclick="deleteOldData()" style="margin-top:0">🧹 Delete Old Data (60d+)</button>
+        <button class="btn danger" onclick="deleteOldData()" style="margin-top:0">🧹 Delete Old Data (180d+)</button>
       </div>
     </div>
 
@@ -1358,8 +1358,8 @@ function openDrawerOn(panelId){
 }
 
 // ════ INDEXEDDB ════
-const DB_NAME='CourtFileManagerDB',DB_VER=3;
-const SV='versions',SM='metadata',SB='bundles',SUL='urgent_logs';
+const DB_NAME='CourtFileManagerDB',DB_VER=4;
+const SV='versions',SM='metadata',SB='bundles',SUL='urgent_logs',SAR='archive';
 let db;
 function openDB(){
   return new Promise((res,rej)=>{
@@ -1371,6 +1371,7 @@ function openDB(){
       if(!d.objectStoreNames.contains(SM))d.createObjectStore(SM,{keyPath:'key'});
       if(!d.objectStoreNames.contains(SB))d.createObjectStore(SB,{keyPath:'id'});
       if(!d.objectStoreNames.contains(SUL))d.createObjectStore(SUL,{keyPath:'id',autoIncrement:true});
+      if(!d.objectStoreNames.contains(SAR))d.createObjectStore(SAR,{keyPath:'key'}); // archive: 90+ din purana data
     };
     r.onsuccess=e=>{db=e.target.result;res(db);};
     r.onerror=e=>rej(e.target.errorCode);
@@ -1407,6 +1408,11 @@ const idbGB  =id=>idbTx(SB,'readonly',s=>s.get(id));
 const idbSBn =obj=>idbTx(SB,'readwrite',s=>s.put(obj));
 const idbDB  =id=>idbTx(SB,'readwrite',s=>s.delete(id));
 const idbAB  =()=>idbTx(SB,'readonly',s=>s.getAll());
+// Archive store (90+ din purana data — active app se hata kar yahan rakhte hain)
+const idbGAR =k=>idbTx(SAR,'readonly',s=>s.get(k)).then(r=>r?r.value:null);
+const idbSAR =(k,v)=>idbTx(SAR,'readwrite',s=>s.put({key:k,value:v}));
+const idbAARK=()=>idbTx(SAR,'readonly',s=>s.getAllKeys());
+const idbDAR =k=>idbTx(SAR,'readwrite',s=>s.delete(k));
 
 // ════ SHARED HELPERS ════
 const COLS=['A','B','C','D','E','F','G','H','I'];
@@ -1749,15 +1755,37 @@ async function getCFMRecordAllDates(caseNo){
   // _idxLookup latest-date-first order mein deta hai (ORIGINAL logic)
   try{
     const entries=await _idxLookup(caseNo); // [{rec,key}] latest-first
-    if(!entries.length)return null;
-    // Received wala prefer (latest date se), warna pehla (latest date) — ORIGINAL behaviour
+    if(entries.length){
+      // Received wala prefer (latest date se), warna pehla (latest date) — ORIGINAL behaviour
+      let best=null;
+      for(const e of entries){
+        if(e.rec.received==='Received')return e.rec; // latest received = current state
+        if(!best)best=e.rec; // latest date ka record (received na ho to bhi)
+      }
+      return best;
+    }
+    // Active mein nahi mila — ARCHIVE mein dhundo (90+ din purana file wapas aaya ho)
+    return await _archiveLookup(caseNo);
+  }catch(e){console.error('getCFMRecordAllDates:',e);return null;}
+}
+// Archive store mein case dhundo (sirf jab active mein na mile — slow but rare)
+async function _archiveLookup(caseNo){
+  try{
+    const ark=await idbAARK();
+    // Latest date first
+    const dateKeys=ark.filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k)).sort().reverse();
     let best=null;
-    for(const e of entries){
-      if(e.rec.received==='Received')return e.rec; // latest received = current state
-      if(!best)best=e.rec; // latest date ka record (received na ho to bhi)
+    for(const k of dateKeys){
+      const d=await idbGAR(k);
+      if(!Array.isArray(d))continue;
+      const rec=d.find(x=>caseMatch(x.caseno,caseNo));
+      if(rec){
+        if(rec.received==='Received')return rec;
+        if(!best)best=rec;
+      }
     }
     return best;
-  }catch(e){console.error('getCFMRecordAllDates:',e);return null;}
+  }catch(e){console.error('_archiveLookup:',e);return null;}
 }
 // Saari dates se CFM day nikalo
 async function getCFMDayAllDates(caseNo){
@@ -1781,6 +1809,10 @@ window.onload=async()=>{
     await openDB();
     workDate.value=new Date().toISOString().split("T")[0];
     await loadVersions();await loadCurV();await loadLocal();
+    await loadLastCols(); // bundle ke last-used columns load karo
+    await loadPushedHashes(); // pushed-date hashes load karo (changed-only push ke liye)
+    loadPendingQueue(); // offline mein jo pending tha woh load karo (app band hone pe bhi yaad)
+    autoArchiveOldData(true).catch(()=>{}); // 90+ din data background archive (silent)
     updateSU();updateHdrDate();syncAddCaseDateLabel();bInit();checkReminders();qrLoad();
     pgCacheLoad(workDate.value); // purana peshgar mismatch dikhao (Firebase connect hone tak)
   }catch(e){console.error("Init:",e);}
@@ -3393,23 +3425,76 @@ async function downloadExcel(){
 }
 
 // ════ DELETE OLD / BACKUP ════
+// ════ AUTO-ARCHIVE — 90+ din purana data active store se archive mein move ════
+// Active app fast rehta hai (getAllDatesData sirf recent data scan karta hai)
+// Archive mein data safe rehta hai (delete nahi) — backup mein bhi aata hai
+let _archiveRunning=false;
+async function autoArchiveOldData(silent){
+  if(_archiveRunning)return;
+  _archiveRunning=true;
+  const today=new Date();today.setHours(0,0,0,0);
+  let archived=0;
+  try{
+    const mk=await idbAMK();
+    for(const key of mk){
+      // Sirf date-version keys (YYYY-MM-DD_N)
+      if(!/^\d{4}-\d{2}-\d{2}_\d+$/.test(key))continue;
+      const ds=key.substring(0,10);
+      const fd=new Date(ds+'T00:00:00');
+      if(isNaN(fd))continue;
+      const daysDiff=(today-fd)/86400000;
+      if(daysDiff>90){
+        // 90+ din purana — archive mein move karo
+        const d=await idbGM(key);
+        if(d){
+          await idbSAR(key,d); // archive mein copy
+          await idbDM(key);     // active se hatao
+          archived++;
+        }
+      }
+    }
+    if(archived>0){
+      invalidateAllDatesCache();invalidateOvCache();
+      if(!silent)showToast('📦 '+archived+' purani date-versions archive ho gayi (90d+). Active app ab fast.');
+    }else if(!silent){
+      showToast('✅ Koi 90+ din purana data archive karne ko nahi.');
+    }
+  }catch(e){console.error('autoArchive:',e);if(!silent)showToast('❌ Archive fail: '+e.message,'d');}
+  finally{_archiveRunning=false;}
+  return archived;
+}
+
 async function deleteOldData(){
-  if(!confirm("60 din se purana data delete karein?"))return;
-  const today=new Date();let count=0;
+  if(!confirm("⚠️ 180 din (6 mahine) se purana data delete karein?\n\nYe CFM records aur version history delete karega. Bundle files NAHI hatengi. Pehle backup le lo (Export Backup) taaki zaroorat pade to wapas la sako."))return;
+  const today=new Date();let count=0,dateCount=0;
   try{
     const mk=await idbAMK();
     for(const key of mk){
       if(key.startsWith('cv_')){
         const ds=key.substring(3); // "YYYY-MM-DD"
         const fd=new Date(ds+'T00:00:00');
-        if(!isNaN(fd)&&(today-fd)/86400000>60)await idbDM(key);
+        if(!isNaN(fd)&&(today-fd)/86400000>180)await idbDM(key);
         continue;
       }
+      // Skip non-date keys (bundleLastCols, etc)
+      if(!/^\d{4}-\d{2}-\d{2}_\d+$/.test(key))continue;
       const ds2=key.substring(0,10);
-      const fd=new Date(ds2+'T00:00:00');if(!isNaN(fd)&&(today-fd)/86400000>60){await idbDM(key);count++;}
+      const fd=new Date(ds2+'T00:00:00');if(!isNaN(fd)&&(today-fd)/86400000>180){await idbDM(key);count++;dateCount++;}
     }
-    const dk=await idbAVK();for(const d of dk){const fd=new Date(d);if(!isNaN(fd)&&(today-fd)/86400000>60)await idbDV(d);}
-    showToast(count+' records delete ho gaye.');updateSU();
+    const dk=await idbAVK();for(const d of dk){const fd=new Date(d);if(!isNaN(fd)&&(today-fd)/86400000>180)await idbDV(d);}
+    // Archive store se bhi 180+ din purana hatao
+    try{
+      const ark=await idbAARK();
+      for(const key of ark){
+        if(!/^\d{4}-\d{2}-\d{2}_\d+$/.test(key))continue;
+        const ds=key.substring(0,10);const fd=new Date(ds+'T00:00:00');
+        if(!isNaN(fd)&&(today-fd)/86400000>180){await idbDAR(key);count++;}
+      }
+    }catch(e){console.error('archive delete:',e);}
+    invalidateAllDatesCache();invalidateOvCache();
+    if(count===0){showToast('✅ Koi 180+ din purana data nahi mila.');}
+    else{showToast('🧹 '+count+' purani date-versions delete ho gayi (180d+).');}
+    updateSU();
   }catch(err){showToast('❌ Delete fail: '+err,'d');}
 }
 async function exportBackup(){
@@ -3418,7 +3503,9 @@ async function exportBackup(){
     const avk=await idbAVK(),vd={};for(const d of avk){const r=await idbTx(SV,'readonly',s=>s.get(d));if(r)vd[d]=r.versions;}
     const amk=await idbAMK(),md={};for(const k of amk){const v=await idbGM(k);if(v!==null)md[k]=v;}
     const allB=await idbAB();
-    const bk={exportedAt:new Date().toISOString(),appVersion:"3.0",versionsStore:vd,metadataStore:md,bundlesStore:allB};
+    // Archive store bhi backup mein (90+ din purana data — taaki export mein na chhute)
+    const ark=await idbAARK(),ad={};for(const k of ark){const v=await idbGAR(k);if(v!==null)ad[k]=v;}
+    const bk={exportedAt:new Date().toISOString(),appVersion:"3.0",versionsStore:vd,metadataStore:md,bundlesStore:allB,archiveStore:ad};
     const blob=new Blob([JSON.stringify(bk,null,2)],{type:"application/json"});
     const url=URL.createObjectURL(blob),a=document.createElement("a");
     a.href=url;a.download="CourtBundleBackup_"+new Date().toISOString().split("T")[0]+".json";
@@ -3434,6 +3521,8 @@ async function importBackup(event){
     if(!bk.versionsStore&&!bk.metadataStore){stEl.textContent="❌ Invalid backup file";stEl.className="smsg s-err";return;}
     if(bk.versionsStore)for(const[d,v]of Object.entries(bk.versionsStore))await idbSV(d,v);
     if(bk.metadataStore)for(const[k,v]of Object.entries(bk.metadataStore))await idbSM(k,v);
+    // Archive store restore (90+ din purana data)
+    if(bk.archiveStore)for(const[k,v]of Object.entries(bk.archiveStore))await idbSAR(k,v);
     invalidateAllDatesCache();
     if(bk.bundlesStore&&Array.isArray(bk.bundlesStore))for(const b of bk.bundlesStore)await idbSBn(b);
     await loadVersions();await loadCurV();await loadLocal();
@@ -3576,13 +3665,15 @@ function bSetCat(cat){
     // Toggle off
     bActiveCat=null;
     BUNDLE_CATS.forEach(c=>{const el=document.getElementById('bcat-'+c);if(el)el.classList.remove('on');});
+    applyLastColForSlot(); // date mode wapas — date ka last col
   } else {
     bActiveCat=cat;
     BUNDLE_CATS.forEach(c=>{const el=document.getElementById('bcat-'+c);if(el)el.classList.toggle('on',c===cat);});
     // Clear date grid selection
     document.querySelectorAll('#b-mdg .db').forEach(b=>b.classList.remove('on'));
+    applyLastColForSlot(); // is category ka last col
   }
-  bUpdateSP();bUpdateST();
+  bRenderColButtons();bUpdateSP();bUpdateST();
 }
 function bClearCat(){
   bActiveCat=null;
@@ -3605,6 +3696,26 @@ const SHELF_LETTERS=['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O'
 const SPECIAL_DATES=[29,30,31];
 let bFiles={},bRM=false,bMoveId=null,bSlot=null,bActiveDate=null;
 let bAMD=1,bASD=null,bAC='A';
+// Har date (aur category) ka last-used column yaad rakho — taaki dobara add pe wahi auto-select ho
+let _lastColForDate={}; // {dateOrCat: column}
+async function loadLastCols(){
+  try{const v=await idbGM('bundleLastCols');if(v&&typeof v==='object')_lastColForDate=v;}catch(e){}
+}
+function saveLastCols(){idbSM('bundleLastCols',_lastColForDate).catch(()=>{});}
+// Current date/category ki key (storage ke liye)
+function bColKey(){return bActiveCat?('cat:'+bActiveCat):('date:'+bAMD);}
+// Jab date/category pe aao, us slot ka last column auto-select karo
+function applyLastColForSlot(){
+  const key=bColKey();
+  const saved=_lastColForDate[key];
+  if(saved){
+    // Verify column us date pe valid hai
+    const validCols=bActiveCat?null:getColsForDate(bAMD);
+    if(bActiveCat||(validCols&&validCols.includes(saved))){
+      bAC=saved;
+    }
+  }
+}
 let bMMD=1,bMSD=null,bMC='A';
 let mmPending={id:'',cfmDay:0},mmSD=1;
 function bSM(){
@@ -3618,6 +3729,7 @@ function bSM(){
 
 async function bInit(){
   const all=await idbAB();bFiles={};all.forEach(b=>bFiles[b.id]=b);
+  applyLastColForSlot(); // current date ka last-used column auto-select
   bRenderColButtons();
   bRenderAdd();
   function rebuildMoveMDG(){bBDG('bm-mdg',bMMD,d=>{bMMD=d;bUpdateMP();bBuildMoveCR();rebuildMoveMDG();});}
@@ -3656,7 +3768,7 @@ function bRenderColButtons(){
   }
   if(!getColsForDate(bAMD).includes(bAC)){bAC=getColsForDate(bAMD)[0];bRenderColButtons();}
 }
-function bSetCol(c){bAC=c;bRenderColButtons();bUpdateSP();bUpdateST();}
+function bSetCol(c){bAC=c;_lastColForDate[bColKey()]=c;saveLastCols();bRenderColButtons();bUpdateSP();bUpdateST();}
 function bBuildMoveCR(){
   const cols=getColsForDate(bMMD);const isSpecial=SPECIAL_DATES.includes(bMMD);
   const wrap=document.getElementById('bm-cr');if(!wrap)return;
@@ -3811,7 +3923,7 @@ function bRenderSlot(){
   document.getElementById('bsd-c').innerHTML=arr.length?arr.map(f=>bFCHTML(f,!!bSlot.cat,true)).join(''):'<div class="bempty">Koi file nahi.</div>';
 }
 function bRenderAdd(){
-  bBDG('b-mdg',bAMD,d=>{bAMD=d;bClearCat();bRenderColButtons();bRenderAdd();});
+  bBDG('b-mdg',bAMD,d=>{bAMD=d;bClearCat();applyLastColForSlot();bRenderColButtons();bRenderAdd();});
   if(bASD!==null){const el=document.getElementById('b-sdg');if(el)bBDG('b-sdg',bASD,d=>{bASD=d;bRenderAdd();});}
   bUpdateSP();bUpdateST();
 }
@@ -3872,6 +3984,8 @@ async function bAddFile(rawId,fromScan){
   }
   const obj={id,md:bActiveCat?0:bAMD,sd:bActiveCat?null:bASD,col:bAC,cat:bActiveCat||null,at:Date.now(),st:'placed',hidden:false};
   bFiles[id]=obj;await idbSBn(obj);scheduleBundlePush();
+  // Is date/category ka last-used column yaad rakho (dobara add pe auto-select hoga)
+  _lastColForDate[bColKey()]=bAC;saveLastCols();
   const slotLabel=bActiveCat?((CAT_LABELS[bActiveCat]||bActiveCat)+'-'+dispCol(bAC)):('Date '+bAMD+(bASD!=null?'/'+bASD:'')+'-'+dispCol(bAC));
   if(fromScan){
     showSC('✅ '+id+' → '+slotLabel,'#16a34a');
@@ -4077,6 +4191,10 @@ async function fbInit(cfg){
       if(cData.length){await fbPush();await fbPushVersionMeta();}
       await fbPushBundle();
       await fbPushUrgent();
+      // Offline mein jo pending tha (app band hone se pehle) usse turant flush karo
+      if(navigator.onLine&&(_cmPendingDates.size||_cmPendingBundle||_cmPendingUrgent)){
+        setTimeout(()=>flushCmPush(),600);
+      }
     }
   }catch(e){_fbDb=null;setSyncDot('err');fbMsg('❌ '+e.message,'s-err');}
 }
@@ -4304,12 +4422,20 @@ async function fbPushAll(){
       return;
     }
     const total=dataKeys.length;
-    let done=0;
+    let done=0,skipped=0;
     for(const k of dataKeys){
       try{
         const d=await idbGM(k);
         if(d&&Array.isArray(d)&&d.length){
-          const sizeKB=Math.round(JSON.stringify(d).length/1024);
+          const dataStr=JSON.stringify(d);
+          const hash=quickHash(dataStr);
+          // Agar is date ka content same hai (pehle push ho chuka) to SKIP — dobara push nahi
+          if(_pushedHashes[k]===hash){
+            skipped++;done++;
+            const pct0=Math.round((done/total)*90);fbProg(pct0,'CFM: '+done+'/'+total+' ('+skipped+' skip)');
+            continue;
+          }
+          const sizeKB=Math.round(dataStr.length/1024);
           if(sizeKB>1000){
             // Firestore 1MB hard limit — itni badi date push nahi ho sakti
             failCount++;failedDates.push(k+' ('+sizeKB+'KB — 1MB limit se zyada)');
@@ -4320,6 +4446,7 @@ async function fbPushAll(){
               try{
                 await _fbDb.collection('cfm').doc(k).set({data:d,at:Date.now()});
                 pushed=true;cfmCount++;recordCount+=d.length;
+                _pushedHashes[k]=hash; // hash yaad rakho — agli baar skip hoga
               }catch(e){lastErr=e;await new Promise(r=>setTimeout(r,300*(attempt+1)));}
             }
             if(!pushed){failCount++;failedDates.push(k);_cmPendingDates.add(k);console.error('Push fail after retries',k,lastErr);}
@@ -4333,6 +4460,7 @@ async function fbPushAll(){
       const pct=Math.round((done/total)*90); // 90% for CFM
       fbProg(pct,'CFM push: '+done+'/'+total+' dates');
     }
+    if(_cmPendingDates.size)savePendingQueue(); // failed dates persist karo
     // Meta (90-95%)
     fbProg(92,'Version meta push...');
     try{
@@ -4349,9 +4477,12 @@ async function fbPushAll(){
     try{await fbPushUrgent();}catch(e){console.error('urgent:',e);}
     fbProg(100,'Complete!');
     setTimeout(()=>fbProg(-1),1500);
+    savePushedHashes(); // changed-date hashes save karo (agli baar skip)
 
     if(failCount>0){
       showToast('⚠️ '+cfmCount+' dates push hui, '+failCount+' fail: '+failedDates.slice(0,2).join(', '),'d');
+    }else if(skipped>0){
+      showToast('✅ Push complete! '+cfmCount+' nayi/changed dates push, '+skipped+' unchanged skip (fast).');
     }else{
       showToast('✅ Push complete! '+cfmCount+' dates, '+recordCount+' files Firebase pe gaye.');
     }
@@ -4365,14 +4496,43 @@ async function fbPushAll(){
 // ════ CONTINUOUS SYNC — Peshgar jaisa live sync ════
 // Offline mein jo dates change hui unhe queue karo, net aane pe push karo
 let _cmPendingDates=new Set(); // jo dates push hone baaki hain
+// Har date ka last-pushed content hash — same hash = skip (sirf changed dates push)
+let _pushedHashes={};
+async function loadPushedHashes(){try{const v=await idbGM('pushedHashes');if(v&&typeof v==='object')_pushedHashes=v;}catch(e){}}
+function savePushedHashes(){idbSM('pushedHashes',_pushedHashes).catch(()=>{});}
+// Simple fast hash (content fingerprint)
+function quickHash(str){let h=0;for(let i=0;i<str.length;i++){h=((h<<5)-h+str.charCodeAt(i))|0;}return h+'_'+str.length;}
 let _cmPendingBundle=false; // bundle push baaki hai
 let _cmPendingUrgent=false;
+// ════ Offline queue PERSIST — taaki offline+app-close pe pending push yaad rahe ════
+const PENDING_KEY='cmPendingQueue';
+function savePendingQueue(){
+  try{
+    localStorage.setItem(PENDING_KEY,JSON.stringify({
+      dates:[..._cmPendingDates],
+      bundle:_cmPendingBundle,
+      urgent:_cmPendingUrgent
+    }));
+  }catch(e){}
+}
+function loadPendingQueue(){
+  try{
+    const raw=localStorage.getItem(PENDING_KEY);
+    if(!raw)return;
+    const q=JSON.parse(raw);
+    if(q){
+      if(Array.isArray(q.dates))_cmPendingDates=new Set(q.dates);
+      _cmPendingBundle=!!q.bundle;
+      _cmPendingUrgent=!!q.urgent;
+    }
+  }catch(e){}
+}
 
 async function fbPush(){
   if(!cData.length)return;
   if(!_fbDb||!navigator.onLine){
     // Offline ya Firebase nahi — queue mein daalo, baad mein push hoga
-    _cmPendingDates.add(dKey());
+    _cmPendingDates.add(dKey());savePendingQueue();
     setSyncDot('off');
     return;
   }
@@ -4381,10 +4541,11 @@ async function fbPush(){
   try{
     setSyncDot('busy');
     await _fbDb.collection('cfm').doc(dKey()).set({data:cData,at:Date.now()});
-    _cmPendingDates.delete(dKey());
+    _cmPendingDates.delete(dKey());savePendingQueue();
+    _pushedHashes[dKey()]=quickHash(JSON.stringify(cData));savePushedHashes(); // hash update
     setSyncDot('ok');
   }catch(e){
-    _cmPendingDates.add(dKey()); // fail — queue mein rakho
+    _cmPendingDates.add(dKey());savePendingQueue(); // fail — queue mein rakho
     setSyncDot('err');
   }
 }
@@ -4405,15 +4566,17 @@ function scheduleBundlePush(){
   clearTimeout(_bPushTimer);
   _bPushTimer=setTimeout(async()=>{
     if(deviceRole==='secondary')return; // secondary push nahi karta
-    if(!_fbDb||!navigator.onLine){_cmPendingBundle=true;setSyncDot('off');return;}
+    if(!_fbDb||!navigator.onLine){_cmPendingBundle=true;savePendingQueue();setSyncDot('off');return;}
     const ok=await fbPushBundle();
     if(ok)_cmPendingBundle=false;else _cmPendingBundle=true;
+    savePendingQueue();
   },1500);
 }
 
 // ════ FLUSH — queued changes ko push karo (net aane pe ya periodic) ════
 async function flushCmPush(){
   if(!_fbDb||!navigator.onLine||deviceRole==='secondary')return;
+  let changed=false;
   // Pending CFM dates push karo
   if(_cmPendingDates.size){
     const dates=[..._cmPendingDates];
@@ -4422,7 +4585,7 @@ async function flushCmPush(){
         const d=await idbGM(dk);
         if(d&&Array.isArray(d)){
           await _fbDb.collection('cfm').doc(dk).set({data:d,at:Date.now()});
-          _cmPendingDates.delete(dk);
+          _cmPendingDates.delete(dk);changed=true;
         }
       }catch(e){/* agli baar try hoga */}
     }
@@ -4430,12 +4593,13 @@ async function flushCmPush(){
   // Pending bundle
   if(_cmPendingBundle){
     const ok=await fbPushBundle();
-    if(ok)_cmPendingBundle=false;
+    if(ok){_cmPendingBundle=false;changed=true;}
   }
   // Pending urgent
   if(_cmPendingUrgent){
-    try{await fbPushUrgent();_cmPendingUrgent=false;}catch(e){}
+    try{await fbPushUrgent();_cmPendingUrgent=false;changed=true;}catch(e){}
   }
+  if(changed)savePendingQueue(); // queue persist karo
   if(_cmPendingDates.size===0&&!_cmPendingBundle&&!_cmPendingUrgent)setSyncDot('ok');
 }
 
@@ -4493,17 +4657,21 @@ function startCmPeriodicSync(){
 async function fbPushBundle(){
   if(!_fbDb)return false;
   try{
-    const filesArr=Object.values(bFiles);
-    const sizeKB=Math.round(JSON.stringify(bFiles).length/1024);
+    // Sirf VISIBLE files push karo — hidden (sent-out) files cloud pe nahi
+    // (hidden files local IDB mein rehti hain, par Firebase doc chhota rehta hai → 1MB limit safe)
+    const visibleFiles={};
+    Object.keys(bFiles).forEach(id=>{if(!bFiles[id].hidden)visibleFiles[id]=bFiles[id];});
+    const filesArr=Object.values(visibleFiles);
+    const sizeKB=Math.round(JSON.stringify(visibleFiles).length/1024);
     if(sizeKB>1000){
-      showToast('⚠️ Bundle '+sizeKB+'KB — Firestore 1MB limit se zyada. Kuch purani files delete karo.','d');
+      showToast('⚠️ Bundle '+sizeKB+'KB — Firestore 1MB limit se zyada. Kuch current files ko SENT mark karo.','d');
       return false;
     }
     // Retry up to 3 times
     let pushed=false,lastErr=null;
     for(let attempt=0;attempt<3&&!pushed;attempt++){
       try{
-        await _fbDb.collection('bundle').doc('main').set({files:bFiles,count:filesArr.length,at:Date.now()});
+        await _fbDb.collection('bundle').doc('main').set({files:visibleFiles,count:filesArr.length,at:Date.now()});
         pushed=true;
       }catch(e){lastErr=e;await new Promise(r=>setTimeout(r,400*(attempt+1)));}
     }
@@ -4514,7 +4682,7 @@ async function fbPushBundle(){
 
 // Urgent logs push (debounced)
 let _urgPushTimer;
-function scheduleUrgentPush(){clearTimeout(_urgPushTimer);_urgPushTimer=setTimeout(async()=>{if(deviceRole==='secondary')return;if(!_fbDb||!navigator.onLine){_cmPendingUrgent=true;return;}try{await fbPushUrgent();_cmPendingUrgent=false;}catch(e){_cmPendingUrgent=true;}},1500);}
+function scheduleUrgentPush(){clearTimeout(_urgPushTimer);_urgPushTimer=setTimeout(async()=>{if(deviceRole==='secondary')return;if(!_fbDb||!navigator.onLine){_cmPendingUrgent=true;savePendingQueue();return;}try{await fbPushUrgent();_cmPendingUrgent=false;savePendingQueue();}catch(e){_cmPendingUrgent=true;savePendingQueue();}},1500);}
 async function fbPushUrgent(){
   if(!_fbDb)return;
   try{
