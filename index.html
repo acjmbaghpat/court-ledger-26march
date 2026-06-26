@@ -2231,11 +2231,13 @@ async function uploadExcel(){
       const vs=await idbGV(workDate.value);
       const nv=vs&&vs.length?Math.max(...vs)+1:1;upV=nv;
       const uvs=vs&&vs.length?[...vs,nv]:[nv];
-      await idbSV(workDate.value,uvs);await saveCurV();await saveLocal();
+      await idbSV(workDate.value,uvs);await saveCurV();
       await loadVersions();versionSelect.value=upV;
-      // Pichli date se pending/overdue files flag karo (upload ke turant baad highlight)
+      // Pichli date se pending/overdue files flag karo — saveLocal SE PEHLE
+      // (taaki flag Firebase push mein bhi jaaye, Peshgar ko exact same files mile)
       invalidateAllDatesCache();
       const pendInfo=await markPendingFromPrevious();
+      await saveLocal(); // ab flag ke saath save + push
       drawTable(getFiltered());await updateDash();updateSU();
       speak("Excel uploaded");
       if(pendInfo.pendingCount>0){
