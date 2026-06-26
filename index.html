@@ -871,6 +871,28 @@ button{transition:transform .12s var(--ease),filter .2s,background .2s}
         <button class="btn outline-purple" onclick="document.getElementById('restoreFile').click()" style="margin-top:8px">⬆️ Restore Backup</button>
         <input type="file" id="restoreFile" accept=".json" style="display:none" onchange="importBackup(event)">
         <div id="backupStatus" class="smsg" style="margin-top:8px"></div>
+
+        <div class="dsec-title" style="margin-top:18px">📤 Auto-Backup (Telegram)</div>
+        <div style="font-size:11px;color:var(--mu);line-height:1.5;margin-bottom:10px">
+          Roz <b>3:30 PM ke baad</b> backup automatically:<br>
+          • Phone mein download ho jayega (ek baar)<br>
+          • Telegram bot pe bhej diya jayega (net aane pe)
+        </div>
+        <input type="text" id="tgToken" placeholder="Bot Token (BotFather se)" style="width:100%;padding:9px 11px;border:1px solid var(--bdr);border-radius:8px;font-size:12px;margin-bottom:7px;box-sizing:border-box">
+        <input type="text" id="tgChatId" placeholder="Chat ID (apna Telegram ID)" style="width:100%;padding:9px 11px;border:1px solid var(--bdr);border-radius:8px;font-size:12px;margin-bottom:8px;box-sizing:border-box">
+        <button class="btn solid-purple" onclick="tgSaveCfg()" style="margin-top:0">💾 Telegram Bot Save Karo</button>
+        <button class="btn outline-purple" onclick="tgTestSend()" style="margin-top:8px">📤 Abhi Test Bhejo</button>
+        <div id="tgStatus" class="smsg" style="margin-top:8px"></div>
+        <details style="margin-top:10px">
+          <summary style="font-size:11px;color:var(--blue);cursor:pointer;font-weight:600">📖 Telegram bot kaise banayein?</summary>
+          <div style="font-size:11px;color:var(--mu);line-height:1.6;margin-top:8px;padding:10px;background:var(--sur2);border-radius:8px">
+            <b>1.</b> Telegram mein <b>@BotFather</b> search karo<br>
+            <b>2.</b> <b>/newbot</b> bhejo → naam do → ek <b>Bot Token</b> milega (copy karo)<br>
+            <b>3.</b> Apna <b>Chat ID</b> lene ke liye <b>@userinfobot</b> ko message karo → woh aapki ID dega<br>
+            <b>4.</b> Apne naye bot ko ek <b>"hi"</b> message bhejo (warna bot aapko message nahi kar payega)<br>
+            <b>5.</b> Upar Token + Chat ID daal kar Save karo, fir "Abhi Test Bhejo" dabao
+          </div>
+        </details>
       </div>
       <div class="dsec" style="border-color:rgba(220,38,38,.25);background:rgba(254,242,242,.5)">
         <div class="dsec-title" style="color:var(--red)">⚠️ Danger Zone</div>
@@ -1804,7 +1826,6 @@ window.onload=async()=>{
   }else{
     document.getElementById('loginScreen').style.display='none';
   }
-  fbLoadConfig();
   try{
     await openDB();
     workDate.value=new Date().toISOString().split("T")[0];
@@ -1812,9 +1833,13 @@ window.onload=async()=>{
     await loadLastCols(); // bundle ke last-used columns load karo
     await loadPushedHashes(); // pushed-date hashes load karo (changed-only push ke liye)
     loadPendingQueue(); // offline mein jo pending tha woh load karo (app band hone pe bhi yaad)
-    autoArchiveOldData(true).catch(()=>{}); // 90+ din data background archive (silent)
-    updateSU();updateHdrDate();syncAddCaseDateLabel();bInit();checkReminders();qrLoad();
+    await autoArchiveOldData(true).catch(()=>{}); // 90+ din data archive (Firebase push SE PEHLE complete ho)
+    await bInit(); // BUNDLE files IDB se load karo — Firebase connect SE PEHLE (warna empty push ho jata hai)
+    updateSU();updateHdrDate();syncAddCaseDateLabel();checkReminders();qrLoad();
     pgCacheLoad(workDate.value); // purana peshgar mismatch dikhao (Firebase connect hone tak)
+    fbLoadConfig(); // ab Firebase connect karo — bFiles load ho chuka, sahi bundle push hoga
+    tgLoadCfg(); // telegram config load
+    setTimeout(()=>checkDailyBackup().catch(e=>console.error('dailyBackup:',e)),2000); // 3:30 PM ke baad auto-backup
   }catch(e){console.error("Init:",e);}
 };
 
@@ -3497,22 +3522,124 @@ async function deleteOldData(){
     updateSU();
   }catch(err){showToast('❌ Delete fail: '+err,'d');}
 }
+// Backup data builder — JSON object banata hai (auto-download + telegram dono use karte hain)
+async function buildBackupData(){
+  const avk=await idbAVK(),vd={};for(const d of avk){const r=await idbTx(SV,'readonly',s=>s.get(d));if(r)vd[d]=r.versions;}
+  const amk=await idbAMK(),md={};for(const k of amk){const v=await idbGM(k);if(v!==null)md[k]=v;}
+  const allB=await idbAB();
+  // Archive store bhi backup mein (90+ din purana data — taaki export mein na chhute)
+  const ark=await idbAARK(),ad={};for(const k of ark){const v=await idbGAR(k);if(v!==null)ad[k]=v;}
+  return {exportedAt:new Date().toISOString(),appVersion:"3.0",versionsStore:vd,metadataStore:md,bundlesStore:allB,archiveStore:ad};
+}
 async function exportBackup(){
   const stEl=document.getElementById("backupStatus");
   try{
-    const avk=await idbAVK(),vd={};for(const d of avk){const r=await idbTx(SV,'readonly',s=>s.get(d));if(r)vd[d]=r.versions;}
-    const amk=await idbAMK(),md={};for(const k of amk){const v=await idbGM(k);if(v!==null)md[k]=v;}
-    const allB=await idbAB();
-    // Archive store bhi backup mein (90+ din purana data — taaki export mein na chhute)
-    const ark=await idbAARK(),ad={};for(const k of ark){const v=await idbGAR(k);if(v!==null)ad[k]=v;}
-    const bk={exportedAt:new Date().toISOString(),appVersion:"3.0",versionsStore:vd,metadataStore:md,bundlesStore:allB,archiveStore:ad};
+    const bk=await buildBackupData();
     const blob=new Blob([JSON.stringify(bk,null,2)],{type:"application/json"});
     const url=URL.createObjectURL(blob),a=document.createElement("a");
     a.href=url;a.download="CourtBundleBackup_"+new Date().toISOString().split("T")[0]+".json";
     document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
-    stEl.textContent="✅ Backup export ho gaya!";stEl.className="smsg s-ok";clearTimeout(stEl._t);stEl._t=setTimeout(()=>stEl.className="smsg",3000);
-  }catch(err){stEl.textContent="❌ Export fail: "+err;stEl.className="smsg s-err";}
+    if(stEl){stEl.textContent="✅ Backup export ho gaya!";stEl.className="smsg s-ok";clearTimeout(stEl._t);stEl._t=setTimeout(()=>stEl.className="smsg",3000);}
+  }catch(err){if(stEl){stEl.textContent="❌ Export fail: "+err;stEl.className="smsg s-err";}}
 }
+// ════════════════════════════════════════════════════
+//  DAILY AUTO-BACKUP — 3:30 PM ke baad
+//  1. Auto-download (ek baar per day)
+//  2. Telegram bot auto-share (net connect hone pe)
+// ════════════════════════════════════════════════════
+const BACKUP_CUTOFF_HOUR=15, BACKUP_CUTOFF_MIN=30; // 3:30 PM
+const TG_CFG_KEY='crtTgCfg'; // {token, chatId}
+
+// Aaj ki date string (YYYY-MM-DD)
+function _todayStr(){return new Date().toISOString().split('T')[0];}
+// Abhi 3:30 PM ke baad hai?
+function _isAfterCutoff(){
+  const now=new Date();
+  return (now.getHours()>BACKUP_CUTOFF_HOUR)||(now.getHours()===BACKUP_CUTOFF_HOUR&&now.getMinutes()>=BACKUP_CUTOFF_MIN);
+}
+
+// ── Telegram config ──
+function tgGetCfg(){try{return JSON.parse(localStorage.getItem(TG_CFG_KEY)||'null');}catch(e){return null;}}
+function tgSaveCfg(){
+  const token=(document.getElementById('tgToken')?.value||'').trim();
+  const chatId=(document.getElementById('tgChatId')?.value||'').trim();
+  if(!token||!chatId){showToast('⚠️ Bot Token aur Chat ID dono daalo','d');return;}
+  localStorage.setItem(TG_CFG_KEY,JSON.stringify({token,chatId}));
+  showToast('✅ Telegram bot save ho gaya! Ab 3:30 PM ke baad auto-backup Telegram pe aayega.');
+  const st=document.getElementById('tgStatus');if(st){st.textContent='✅ Bot configured';st.className='smsg s-ok';}
+}
+function tgLoadCfg(){
+  const c=tgGetCfg();if(!c)return;
+  if(document.getElementById('tgToken'))document.getElementById('tgToken').value=c.token||'';
+  if(document.getElementById('tgChatId'))document.getElementById('tgChatId').value=c.chatId||'';
+  const st=document.getElementById('tgStatus');if(st){st.textContent='✅ Bot configured';st.className='smsg s-ok';}
+}
+
+// ── Telegram pe backup file bhejo ──
+async function tgSendBackup(silent){
+  const cfg=tgGetCfg();
+  if(!cfg||!cfg.token||!cfg.chatId){if(!silent)showToast('⚠️ Pehle Telegram bot setup karo','d');return false;}
+  if(!navigator.onLine){if(!silent)showToast('📡 Net nahi — net aane pe bheji jayegi','w');return false;}
+  try{
+    const bk=await buildBackupData();
+    const jsonStr=JSON.stringify(bk,null,2);
+    const blob=new Blob([jsonStr],{type:'application/json'});
+    const fname='CourtBackup_'+_todayStr()+'.json';
+    // Telegram sendDocument API
+    const fd=new FormData();
+    fd.append('chat_id',cfg.chatId);
+    fd.append('document',blob,fname);
+    fd.append('caption','📁 Court Manager Auto-Backup\n📅 '+new Date().toLocaleString('en-IN')+'\n📊 '+Object.keys(bk.metadataStore||{}).length+' dates, '+(bk.bundlesStore||[]).length+' bundle files');
+    const res=await fetch('https://api.telegram.org/bot'+cfg.token+'/sendDocument',{method:'POST',body:fd});
+    const data=await res.json();
+    if(data.ok){
+      if(!silent)showToast('✅ Backup Telegram pe bhej diya!');
+      const st=document.getElementById('tgStatus');if(st){st.textContent='✅ Last sent: '+new Date().toLocaleTimeString('en-IN');st.className='smsg s-ok';}
+      return true;
+    }else{
+      if(!silent)showToast('❌ Telegram fail: '+(data.description||'unknown'),'d');
+      return false;
+    }
+  }catch(e){
+    if(!silent)showToast('❌ Telegram error: '+e.message,'d');
+    return false;
+  }
+}
+
+// ── Test button: abhi backup bhejo ──
+async function tgTestSend(){
+  showToast('📤 Telegram pe bhej rahe hain...');
+  await tgSendBackup(false);
+}
+
+// ── DAILY AUTO-BACKUP CHECK (app load + net connect pe) ──
+// 3:30 PM ke baad: (1) auto-download once, (2) telegram bheji once
+async function checkDailyBackup(){
+  if(!_isAfterCutoff())return; // abhi 3:30 PM se pehle hai
+  const today=_todayStr();
+
+  // ── 1. AUTO-DOWNLOAD (din mein ek baar) ──
+  const lastDl=localStorage.getItem('crtLastAutoDl');
+  if(lastDl!==today){
+    try{
+      const bk=await buildBackupData();
+      const blob=new Blob([JSON.stringify(bk,null,2)],{type:'application/json'});
+      const url=URL.createObjectURL(blob),a=document.createElement('a');
+      a.href=url;a.download='CourtBackup_'+today+'.json';
+      document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+      localStorage.setItem('crtLastAutoDl',today);
+      showToast('💾 Aaj ka auto-backup download ho gaya (3:30 PM ke baad)');
+    }catch(e){console.error('auto-download fail:',e);}
+  }
+
+  // ── 2. TELEGRAM AUTO-SEND (din mein ek baar, net hone pe) ──
+  const lastTg=localStorage.getItem('crtLastAutoTg');
+  if(lastTg!==today&&navigator.onLine&&tgGetCfg()){
+    const ok=await tgSendBackup(true); // silent
+    if(ok){localStorage.setItem('crtLastAutoTg',today);showToast('📤 Aaj ka backup Telegram pe bhi bhej diya');}
+  }
+}
+
 async function importBackup(event){
   const stEl=document.getElementById("backupStatus");
   const file=event.target.files[0];if(!file)return;
@@ -3695,6 +3822,7 @@ function dispCol(col){if(col&&col.length===3&&(col.startsWith('S1')||col.startsW
 const SHELF_LETTERS=['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O'];
 const SPECIAL_DATES=[29,30,31];
 let bFiles={},bRM=false,bMoveId=null,bSlot=null,bActiveDate=null;
+let _bundleLoaded=false; // bInit ne bundle files load kiye? (empty push se bachne ke liye)
 let bAMD=1,bASD=null,bAC='A';
 // Har date (aur category) ka last-used column yaad rakho — taaki dobara add pe wahi auto-select ho
 let _lastColForDate={}; // {dateOrCat: column}
@@ -3729,6 +3857,7 @@ function bSM(){
 
 async function bInit(){
   const all=await idbAB();bFiles={};all.forEach(b=>bFiles[b.id]=b);
+  _bundleLoaded=true; // bundle files load ho gaye — ab push safe hai
   applyLastColForSlot(); // current date ka last-used column auto-select
   bRenderColButtons();
   bRenderAdd();
@@ -4272,6 +4401,7 @@ const ROLE_KEY='cm_device_role';
 let deviceRole=localStorage.getItem(ROLE_KEY)||''; // '', 'main', 'secondary'
 let _secSyncUnsub=null;
 let _secBundleUnsub=null;
+let _secEmptyConfirmed=false; // empty bundle glitch-guard
 let _secMetaUnsub=null;
 let _secUrgentUnsub=null;
 
@@ -4370,7 +4500,17 @@ function startSecondarySync(){
       const d=snap.data();
       if(d&&d.files&&typeof d.files==='object'){
         // Secondary = mirror: Main ka bundle local mein copy karo
-        bFiles=d.files;
+        const incoming=d.files;
+        const incomingCount=Object.keys(incoming).length;
+        // Safety: agar Firebase se ACHANAK 0 files aaye par local mein files hain,
+        // to ek baar skip karo (glitch ho sakta hai). Genuine empty 2 baar aane pe accept.
+        const localCount=Object.keys(bFiles).length;
+        if(incomingCount===0&&localCount>0&&!_secEmptyConfirmed){
+          _secEmptyConfirmed=true; // agli baar phir 0 aaya to accept kar lenge
+          return;
+        }
+        _secEmptyConfirmed=false;
+        bFiles=incoming;
         // IDB mein bhi save karo
         for(const id in bFiles){await idbSBn(bFiles[id]);}
         if(activeTab==='bundle')bRenderGrid();
@@ -4612,6 +4752,8 @@ window.addEventListener('online',()=>{
     showToast('📡 Net wapas aa gaya — pending data sync ho raha hai...');
     setTimeout(()=>flushCmPush(),800);
   }
+  // Net aane pe daily backup check (3:30 PM ke baad telegram/download)
+  setTimeout(()=>checkDailyBackup().catch(e=>console.error('dailyBackup:',e)),1500);
 });
 window.addEventListener('offline',()=>{setSyncDot('off');});
 
@@ -4656,22 +4798,49 @@ function startCmPeriodicSync(){
 }
 async function fbPushBundle(){
   if(!_fbDb)return false;
+  // SAFETY: bundle files load hone se pehle push mat karo (warna empty push ho jata hai)
+  if(!_bundleLoaded){console.warn('fbPushBundle skipped: bundle abhi load nahi hua');return false;}
   try{
-    // Sirf VISIBLE files push karo — hidden (sent-out) files cloud pe nahi
-    // (hidden files local IDB mein rehti hain, par Firebase doc chhota rehta hai → 1MB limit safe)
-    const visibleFiles={};
-    Object.keys(bFiles).forEach(id=>{if(!bFiles[id].hidden)visibleFiles[id]=bFiles[id];});
-    const filesArr=Object.values(visibleFiles);
-    const sizeKB=Math.round(JSON.stringify(visibleFiles).length/1024);
+    // Purani HIDDEN (sent-out) files 90+ din se purani local se purge karo
+    // (taaki bundle doc chhota rahe, par recent activity Secondary ko bhi dikhe)
+    const now=Date.now();const ninetyDays=90*86400000;
+    let purged=false;
+    Object.keys(bFiles).forEach(id=>{
+      const f=bFiles[id];
+      if(f.hidden&&f.at&&(now-f.at)>ninetyDays){
+        delete bFiles[id];idbDB(id).catch(()=>{});purged=true;
+      }
+    });
+    // Push ke liye: visible files + recent hidden (90 din ke andar)
+    // Visible files Secondary ko current bundle dikhati hain
+    const pushFiles={};
+    Object.keys(bFiles).forEach(id=>{pushFiles[id]=bFiles[id];});
+    const filesArr=Object.values(pushFiles);
+    let sizeKB=Math.round(JSON.stringify(pushFiles).length/1024);
+    // Agar phir bhi 1MB ke paas hai, to hidden files hata kar sirf visible push karo
     if(sizeKB>1000){
-      showToast('⚠️ Bundle '+sizeKB+'KB — Firestore 1MB limit se zyada. Kuch current files ko SENT mark karo.','d');
-      return false;
+      const visibleOnly={};
+      Object.keys(pushFiles).forEach(id=>{if(!pushFiles[id].hidden)visibleOnly[id]=pushFiles[id];});
+      const vArr=Object.values(visibleOnly);
+      const vSize=Math.round(JSON.stringify(visibleOnly).length/1024);
+      if(vSize>1000){
+        showToast('⚠️ Bundle '+vSize+'KB — 1MB limit se zyada. Bohot saari current files hain, kuch SENT mark karo.','d');
+        return false;
+      }
+      // Retry visible-only
+      let pushed=false,lastErr=null;
+      for(let attempt=0;attempt<3&&!pushed;attempt++){
+        try{await _fbDb.collection('bundle').doc('main').set({files:visibleOnly,count:vArr.length,at:Date.now()});pushed=true;}
+        catch(e){lastErr=e;await new Promise(r=>setTimeout(r,400*(attempt+1)));}
+      }
+      if(!pushed){console.error('fbPushBundle failed:',lastErr);return false;}
+      return true;
     }
-    // Retry up to 3 times
+    // Retry up to 3 times (visible + recent hidden)
     let pushed=false,lastErr=null;
     for(let attempt=0;attempt<3&&!pushed;attempt++){
       try{
-        await _fbDb.collection('bundle').doc('main').set({files:visibleFiles,count:filesArr.length,at:Date.now()});
+        await _fbDb.collection('bundle').doc('main').set({files:pushFiles,count:filesArr.length,at:Date.now()});
         pushed=true;
       }catch(e){lastErr=e;await new Promise(r=>setTimeout(r,400*(attempt+1)));}
     }
