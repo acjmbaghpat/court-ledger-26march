@@ -2025,6 +2025,28 @@ function getPgReverseList(){
   });
   return reverse;
 }
+function getPgToOfficeList(){
+  // Peshgar ne office ko bheji (sentToOffice='Sent') par office ne abhi tak receive nahi ki
+  // (CFM/office side pe woh file abhi tak nahi aayi — yaani CFM mein us case ka received nahi
+  //  YA woh file abhi office process mein hai)
+  if(!_pgData)return null;
+  // cData ka Map (O(1) lookup)
+  const cmMap=new Map();
+  for(const r of cData)cmMap.set(String(r.caseno).toUpperCase().trim(),r);
+  const list=[];
+  Object.values(_pgData).forEach(pg=>{
+    // Peshgar ne office bheji?
+    if(pg.sentToOffice!=='Sent')return;
+    const cn=String(pg.caseno).toUpperCase().trim();
+    const cmFile=cmMap.get(cn);
+    // Office ne receive nahi ki = CFM mein us case ka received nahi
+    // (agar CFM mein received hai to office ne le liya, miss nahi)
+    if(!cmFile||cmFile.received!=='Received'){
+      list.push({caseno:pg.caseno,partyname:(cmFile&&cmFile.partyname)||'',location:pg.location||''});
+    }
+  });
+  return list;
+}
 function updatePgMiss(){
   const el=document.getElementById('pgMissCount');if(!el)return;
   const card=document.getElementById('pgMissCard');
@@ -2036,9 +2058,14 @@ function updatePgMiss(){
     return;
   }
   const rev=reverse?reverse.length:0;
-  // Format: reverse/normal  (1/10 = 1 received-not-sent, 10 sent-not-received)
-  el.textContent=rev+'/'+normal.length;
-  el.title='';
+  const toOffice=getPgToOfficeList();
+  const toOff=toOffice?toOffice.length:0;
+  // Format: reverse/normal/toOffice
+  // rev = Peshgar received par CM sent nahi (ulta)
+  // normal = CM sent par Peshgar received nahi
+  // toOff = Peshgar ne office bheji par office ne receive nahi ki
+  el.textContent=rev+'/'+normal.length+'/'+toOff;
+  el.title='⚠️ '+rev+' = Peshgar ne receive ki par CFM se sent nahi | ⏳ '+normal.length+' = CFM sent par Peshgar ne receive nahi | 📤 '+toOff+' = Peshgar ne office bheji par office ne receive nahi';
   // Reverse mismatch (sent hue bina received) = CRITICAL — full red card
   if(card){
     if(rev>0){
@@ -2058,12 +2085,13 @@ function updatePgMiss(){
 function openPgMismatchModal(){
   const normal=getPgMissList();
   const reverse=getPgReverseList();
+  const toOffice=getPgToOfficeList();
   if(normal===null){
     const date=(workDate&&workDate.value)||'';
     showToast('⚠️ '+(_pgListenErr||('Peshgar data nahi mila ('+date+')')),'w');
     return;
   }
-  if(!normal.length&&(!reverse||!reverse.length)){
+  if(!normal.length&&(!reverse||!reverse.length)&&(!toOffice||!toOffice.length)){
     showToast('✅ Sab files match hain! Koi mismatch nahi.');return;
   }
   let h='';
@@ -2091,9 +2119,24 @@ function openPgMismatchModal(){
       </div>`;
     });
   }
+  // To-Office mismatch (Peshgar ne office bheji par office ne receive nahi ki)
+  if(toOffice&&toOffice.length){
+    h+='<div style="font-weight:700;font-size:14px;color:#7c3aed;margin:12px 0 10px">📤 '+toOffice.length+' file(s) — Peshgar ne office bheji par office ne receive NAHI ki:</div>';
+    toOffice.forEach((r,i)=>{
+      const loc=r.location==='steno'?'🖊️ Steno':r.location==='judge'?'⚖️ Judge':'';
+      h+=`<div style="background:#f3e8ff;border:1.5px solid #c4b5fd;border-radius:8px;padding:9px 12px;margin-bottom:6px">
+        <div style="font-weight:800;font-size:13px;color:#5b21b6">${i+1}. ${esc(r.caseno)}</div>
+        <div style="font-size:11px;color:var(--mu)">${esc(r.partyname||'')} ${loc}</div>
+      </div>`;
+    });
+  }
   document.getElementById('ovList').innerHTML=h;
   document.querySelector('#ovModal .mt').textContent='⚠️ Peshgar Mismatch';
-  document.querySelector('#ovModal .msub').textContent=(reverse&&reverse.length?reverse.length+' critical · ':'')+normal.length+' pending';
+  const subParts=[];
+  if(reverse&&reverse.length)subParts.push(reverse.length+' critical');
+  subParts.push(normal.length+' pending');
+  if(toOffice&&toOffice.length)subParts.push(toOffice.length+' office');
+  document.querySelector('#ovModal .msub').textContent=subParts.join(' · ');
   document.getElementById('ovModal').classList.add('on');
 }
 
