@@ -3083,6 +3083,34 @@ async function addCaseManually(){
 }
 
 // ════ TABLE ════
+// Special remark words → tag dikhao (committal, stay, verification, nakal, old, special, jail)
+// Jab tak remark mein ye word hai, tag dikhega. Word hatao to tag chala jayega.
+const SPECIAL_REMARK_TAGS=[
+  {word:'committal',label:'COMMITTAL',color:'#7c3aed'},
+  {word:'stay',label:'STAY',color:'#dc2626'},
+  {word:'verification',label:'VERIFICATION',color:'#0891b2'},
+  {word:'nakal',label:'NAKAL',color:'#ca8a04'},
+  {word:'old',label:'OLD',color:'#6b7280'},
+  {word:'special',label:'SPECIAL',color:'#db2777'},
+  {word:'jail',label:'JAIL',color:'#b91c1c'},
+];
+function getRemarkTags(remark){
+  if(!remark)return [];
+  const low=String(remark).toLowerCase();
+  const found=[];
+  SPECIAL_REMARK_TAGS.forEach(t=>{
+    // Word boundary check — 'old' 'jail' etc as whole word (taaki 'bold' mein 'old' match na ho)
+    const re=new RegExp('\\b'+t.word+'\\b','i');
+    if(re.test(low))found.push(t);
+  });
+  return found;
+}
+function renderRemarkTags(remark){
+  const tags=getRemarkTags(remark);
+  if(!tags.length)return '';
+  return tags.map(t=>'<span style="display:inline-block;background:'+t.color+';color:#fff;font-size:8px;font-weight:700;padding:1px 5px;border-radius:7px;margin-left:3px;letter-spacing:.3px" title="Remark mein \''+t.word+'\' hai">'+t.label+'</span>').join('');
+}
+
 function drawTable(data){
   const tbl=document.getElementById("cfmTable");
   if(!data||!data.length){tbl.innerHTML='<tr><td colspan="10" style="text-align:center;padding:40px;color:var(--mu);font-weight:500">Koi data nahi — Excel upload karo ya date change karo</td></tr>';return;}
@@ -3100,7 +3128,7 @@ function drawTable(data){
         const ppBadge=pp?(pp.overdue
           ?'<span style="display:inline-block;background:var(--red);color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;margin-left:4px" title="Pichli date se '+pp.daysDiff+' din se pending — OVERDUE">⚠ '+pp.daysDiff+'d OVERDUE</span>'
           :'<span style="display:inline-block;background:var(--amber);color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;margin-left:4px" title="Pichli date ('+fmtD(pp.workDate)+') se sent, abhi received nahi">⚠ PENDING</span>'):'';
-        row+=`<td><span class="td-caseno" onclick="openCaseDetail('${cj}')">${esc(r.caseno)}</span>${ppBadge}</td>`;
+        row+=`<td><span class="td-caseno" onclick="openCaseDetail('${cj}')">${esc(r.caseno)}</span>${ppBadge}${renderRemarkTags(r.remark)}</td>`;
       }else if(k==="partyname"){
         row+=`<td><span class="td-party">${esc(r[k]||"")}</span></td>`;
       }else if(k==="section"||k==="ps"){
@@ -3148,6 +3176,8 @@ async function updateNextDate(cn,val){
 }
 async function updateRemark(cn,val){
   clearTimeout(rTimers[cn]);
+  // Live tag update — turant (debounce ke bina), focus disturb kiye bina
+  updateRowRemarkTags(cn,val);
   rTimers[cn]=setTimeout(async()=>{
     const i=cData.findIndex(r=>r.caseno===cn);
     if(i!==-1){
@@ -3162,6 +3192,24 @@ async function updateRemark(cn,val){
     }
     delete rTimers[cn];
   },600);
+}
+// Sirf ek row ke remark tags update karo (typing ke time, focus disturb kiye bina)
+function updateRowRemarkTags(cn,val){
+  try{
+    const row=document.getElementById('row_'+sId(cn));
+    if(!row)return;
+    const cell=row.querySelector('td .td-caseno');
+    if(!cell)return;
+    const td=cell.parentElement;
+    // Purane remark tags hatao (title="Remark mein..." wale spans)
+    td.querySelectorAll('span[title^="Remark mein"]').forEach(s=>s.remove());
+    // Naye tags add karo (caseno span ke baad, pending badge ke baad)
+    const tagsHtml=renderRemarkTags(val);
+    if(tagsHtml){
+      const tmp=document.createElement('div');tmp.innerHTML=tagsHtml;
+      while(tmp.firstChild)td.appendChild(tmp.firstChild);
+    }
+  }catch(e){}
 }
 
 // ════ CASE DETAIL + UNDO ════
@@ -4383,11 +4431,25 @@ let _fbBundleUnsub=null;
 function fbStartListenBundle(){
   if(!_fbDb)return;
   if(_fbBundleUnsub){_fbBundleUnsub();_fbBundleUnsub=null;}
-  // Local = source of truth. Firebase se bundle kabhi overwrite nahi hoga.
+  // Local = source of truth (Main device). Firebase se bundle kabhi overwrite nahi hoga.
   _fbBundleUnsub=_fbDb.collection('bundle').doc('main').onSnapshot(async snap=>{
+    // Main device hi push karta hai (secondary nahi)
+    if(deviceRole==='secondary'){setSyncDot('ok');return;}
+    if(!_bundleLoaded){return;} // bundle abhi load nahi hua — wait
+    const localVisible=Object.values(bFiles).filter(f=>!f.hidden).length;
     if(!snap.exists){
-      // Firebase pe nahi — local push karo
-      await fbPushBundle();
+      // Firebase pe bundle doc hi nahi — local push karo
+      if(localVisible>0||Object.keys(bFiles).length>0)await fbPushBundle();
+    }else{
+      // Doc exists — par agar Firebase pe files KAM hain aur local mein ZYADA hain,
+      // to Main apna local push kare (purana empty/incomplete doc fix karne ke liye)
+      const d=snap.data();
+      const fbCount=(d&&d.files)?Object.keys(d.files).length:0;
+      const localCount=Object.keys(bFiles).length;
+      if(localCount>fbCount){
+        // Local mein zyada files hain — Main source of truth, push karo
+        await fbPushBundle();
+      }
     }
     setSyncDot('ok');
   },()=>{});
