@@ -1092,7 +1092,7 @@ button{transition:transform .12s var(--ease),filter .2s,background .2s}
   <!-- DATE DETAIL -->
   <div class="bview" id="bview-date">
     <div class="sec">
-      <button class="btn neutral btn sm" style="margin-top:0;margin-bottom:14px;width:auto;padding:7px 14px;font-size:12px" onclick="swBV('grid')">← Wapas Grid</button>
+      <button class="btn neutral sm" style="margin-top:0;margin-bottom:14px;width:auto;padding:7px 14px;font-size:12px" onclick="swBV('grid')">← Wapas Grid</button>
       <div style="font-weight:800;font-size:24px;color:var(--navy);margin-bottom:4px;letter-spacing:-1px" id="bdd-title"></div>
       <div style="color:var(--mu);font-size:13px;margin-bottom:16px;font-weight:500" id="bdd-sub"></div>
       <div id="bdd-cols"></div>
@@ -1103,7 +1103,7 @@ button{transition:transform .12s var(--ease),filter .2s,background .2s}
   <div class="bview" id="bview-slot">
     <div class="sec">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-        <button class="btn neutral btn sm" id="bsd-back" style="margin-top:0;width:auto;padding:7px 14px;font-size:12px">← Wapas</button>
+        <button class="btn neutral sm" id="bsd-back" style="margin-top:0;width:auto;padding:7px 14px;font-size:12px">← Wapas</button>
         <button class="rtog" id="bsd-sel-btn" onclick="toggleBulkSel()">☑ Select</button>
       </div>
       <div style="font-weight:800;font-size:20px;color:var(--navy);margin-bottom:4px" id="bsd-t"></div>
@@ -1306,11 +1306,11 @@ button{transition:transform .12s var(--ease),filter .2s,background .2s}
     <div class="field" style="margin-bottom:8px">
       <label>Kiske paas? * <span style="color:var(--red)">(zaroori hai)</span></label>
       <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:5px">
-        <button type="button" class="urg-who-btn" onclick="urgSetWho('Babu')">👤 Babu</button>
-        <button type="button" class="urg-who-btn" onclick="urgSetWho('Peshgar')">📋 Peshgar</button>
-        <button type="button" class="urg-who-btn" onclick="urgSetWho('Steno')">🖊️ Steno</button>
-        <button type="button" class="urg-who-btn" onclick="urgSetWho('Judge')">⚖️ Judge</button>
-        <button type="button" class="urg-who-btn" onclick="urgSetWho('')">✏️ Other</button>
+        <button type="button" class="urg-who-btn" onclick="urgSetWho('Babu',this)">👤 Babu</button>
+        <button type="button" class="urg-who-btn" onclick="urgSetWho('Peshgar',this)">📋 Peshgar</button>
+        <button type="button" class="urg-who-btn" onclick="urgSetWho('Steno',this)">🖊️ Steno</button>
+        <button type="button" class="urg-who-btn" onclick="urgSetWho('Judge',this)">⚖️ Judge</button>
+        <button type="button" class="urg-who-btn" onclick="urgSetWho('',this)">✏️ Other</button>
       </div>
       <input type="text" id="urg-rem" placeholder="Select karo ya yahan likho..." style="margin-top:6px">
     </div>
@@ -1413,6 +1413,7 @@ function idbTx(store,mode,fn){
       if(r)r.onerror=e=>rej(e.target.error);
     }else{
       // Read: resolve on r.onsuccess
+      if(!r){rej(new Error('idbTx: fn ne request return nahi kiya'));return;}
       r.onsuccess=()=>res(r.result);
       r.onerror=e=>rej(e.target.error);
     }
@@ -1489,6 +1490,7 @@ function redFlash(){
 }
 let activeTab='cfm';
 async function switchTab(t){
+  if(scanStream)closeScan(); // tab switch pe camera band karo (battery + privacy)
   activeTab=t;
   document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('on',['cfm','bundle'][i]===t));
   document.getElementById('cfm-tab').classList.toggle('on',t==='cfm');
@@ -1888,7 +1890,7 @@ async function loadCurV(){
   if(opts.includes(saved)){
     upV=saved;
   } else if(opts.length){
-    upV=Math.max(...opts); // latest version
+    upV=opts.reduce((m,v)=>Math.max(m,v),0); // latest version (reduce — bade data pe safe)
   } else {
     upV=1;
   }
@@ -2369,7 +2371,7 @@ async function uploadExcel(){
         out.searchableText=gSrch(out);return out;
       }).filter(r=>r.caseno);
       const vs=await idbGV(workDate.value);
-      const nv=vs&&vs.length?Math.max(...vs)+1:1;upV=nv;
+      const nv=vs&&vs.length?vs.reduce((m,v)=>Math.max(m,v),0)+1:1;upV=nv;
       const uvs=vs&&vs.length?[...vs,nv]:[nv];
       await idbSV(workDate.value,uvs);await saveCurV();
       await loadVersions();versionSelect.value=upV;
@@ -3100,7 +3102,7 @@ async function addCaseManually(){
   if(cData.find(r=>String(r.caseno).toUpperCase()===cn)){
     showAcMsg('⚠️ Ye Case No pehle se hai: '+cn,'err');return false;
   }
-  const srno=cData.length?String(Math.max(...cData.map(r=>parseInt(r.srno)||0))+1):String(1);
+  const srno=cData.length?String(cData.reduce((m,r)=>Math.max(m,parseInt(r.srno)||0),0)+1):String(1);
   const newRow={
     srno,
     caseno:cn,
@@ -3208,7 +3210,7 @@ function drawTable(data){
 }
 searchBox.addEventListener("input",()=>{clearTimeout(sDeb);sDeb=setTimeout(()=>drawTable(getFiltered()),150);});
 async function updateNextDate(cn,val){
-  const idx=cData.findIndex(r=>r.caseno===cn);if(idx===-1)return;
+  const idx=cData.findIndex(r=>caseMatch(r.caseno,cn));if(idx===-1)return;
   cData[idx].nextdate=val;cData[idx].searchableText=gSrch(cData[idx]);
   await saveLocal();await updateDash();
   if(val){speakNextDate(val);showToast('📅 Next date: '+fmtD(val));}
@@ -4865,6 +4867,8 @@ window.addEventListener('online',()=>{
   setTimeout(()=>checkDailyBackup().catch(e=>console.error('dailyBackup:',e)),1500);
 });
 window.addEventListener('offline',()=>{setSyncDot('off');});
+// App background mein jaye to camera band karo (battery + privacy + indicator light off)
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&scanStream)closeScan();});
 
 // Tab band/background hone pe pending push turant flush karo (debounce ka wait na kare)
 function flushBeforeHide(){
@@ -5253,7 +5257,7 @@ async function ovSave(i){
     if(keyData&&Array.isArray(keyData)){
       const idx=keyData.findIndex(x=>String(x.caseno).toUpperCase()===String(cn).toUpperCase());
       if(idx!==-1){
-        if(remark)keyData[idx].remark=remark;
+        keyData[idx].remark=remark; // always assign (khali karne pe bhi save ho — clear ho sake)
         if(days!==null){
           if(days===0){delete keyData[idx]._reminder;}
           else{const rd=new Date();rd.setDate(rd.getDate()+days);keyData[idx]._reminder=rd.toISOString().split('T')[0];}
@@ -5267,7 +5271,7 @@ async function ovSave(i){
   // Also update current cData if same date
   const idx=cData.findIndex(x=>String(x.caseno).toUpperCase()===String(cn).toUpperCase());
   if(idx!==-1){
-    if(remark)cData[idx].remark=remark;
+    cData[idx].remark=remark; // always assign (khali karne pe bhi save ho — clear ho sake)
     if(days!==null){
       if(days===0){delete cData[idx]._reminder;}
       else{const rd=new Date();rd.setDate(rd.getDate()+days);cData[idx]._reminder=rd.toISOString().split('T')[0];}
@@ -5420,12 +5424,12 @@ function showUrgMsg(msg,type){
   if(type==='ok')el._t=setTimeout(()=>el.className='smsg',3000);
 }
 
-function urgSetWho(who){
+function urgSetWho(who,btn){
   const inp=document.getElementById('urg-rem');
   document.querySelectorAll('.urg-who-btn').forEach(b=>b.classList.remove('on'));
   if(who){
     inp.value=who;
-    if(event&&event.target)event.target.classList.add('on');
+    if(btn)btn.classList.add('on'); // 'event' global ke bajaye btn param (reliable)
   }else{
     inp.value='';inp.focus(); // Other — manual entry
   }
