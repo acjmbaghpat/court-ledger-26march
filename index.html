@@ -2237,6 +2237,46 @@ function getFiltered(){
 // ════ EXCEL UPLOAD ════
 // ════ Upload ke baad: pichli date se pending-receive / overdue files flag karo ════
 // Taaki upload ke turant baad highlight ho jaaye — baad mein "pehle receive karo" objection na aaye
+// Category word ko CFM record ke remark mein add karo (jis bhi date pe woh file hai)
+// Ye word tag banata hai aur sent/received ke baad bhi rehta hai (jab tak remark se hata na do)
+async function addCategoryWordToRemark(caseNo,word){
+  try{
+    const cn=String(caseNo).trim().toUpperCase();
+    // 1. Current cData mein hai?
+    const curIdx=cData.findIndex(r=>caseMatch(r.caseno,caseNo));
+    if(curIdx!==-1){
+      const cur=cData[curIdx].remark||'';
+      if(!new RegExp('\\b'+word+'\\b','i').test(cur)){
+        cData[curIdx].remark=(cur.trim()?cur.trim()+' | ':'')+word;
+        cData[curIdx].searchableText=gSrch(cData[curIdx]);
+        await saveLocal();
+        if(activeTab==='cfm')drawTable(getFiltered());
+      }
+      return;
+    }
+    // 2. Doosri dates mein dhundo (IDB se) — jis date pe file ka latest record hai
+    const allData=await getAllDatesData();
+    // Latest date first (taaki current state wali record update ho)
+    const keys=Object.keys(allData).sort().reverse();
+    for(const k of keys){
+      const arr=allData[k];
+      const idx=arr.findIndex(r=>caseMatch(r.caseno,caseNo));
+      if(idx!==-1){
+        const rem=arr[idx].remark||'';
+        if(!new RegExp('\\b'+word+'\\b','i').test(rem)){
+          arr[idx].remark=(rem.trim()?rem.trim()+' | ':'')+word;
+          arr[idx].searchableText=gSrch(arr[idx]);
+          await idbSM(k,arr); // us date ka data update
+          // Agar wahi date abhi load hai to refresh
+          if(k===dKey()){await loadLocal();}
+          invalidateAllDatesCache();
+        }
+        return; // sirf latest date wali record update karo
+      }
+    }
+  }catch(e){console.error('addCategoryWordToRemark:',e);}
+}
+
 async function markPendingFromPrevious(){
   try{
     const allData=await getAllDatesData(); // cache (fast)
@@ -3833,6 +3873,8 @@ async function hideBundleEntry(caseNo){
 const COLS_NORMAL=COLS;
 const BUNDLE_CATS=['OLD','COMMITTAL','JAIL','NAKAL','STAY','SPLDIR','FR'];
 const CAT_LABELS={'OLD':'📂 Old','COMMITTAL':'⛓ Committal','JAIL':'🔒 Jail','NAKAL':'📋 Nakal','STAY':'⏸ Stay','SPLDIR':'📌 Spl. Direction','FR':'📎 FR'};
+// Bundle category → CFM remark word (jab file is category mein add ho, ye word remark mein auto-add)
+const CAT_REMARK_WORD={'OLD':'old','COMMITTAL':'committal','JAIL':'jail','NAKAL':'nakal','STAY':'stay','SPLDIR':'special','FR':'verification'};
 let bActiveCat=null; // null = date mode, 'OLD'/'COMMITTAL'/'JAIL'/'NAKAL' = category mode
 
 function bSetCat(cat){
@@ -4161,6 +4203,11 @@ async function bAddFile(rawId,fromScan){
   }
   const obj={id,md:bActiveCat?0:bAMD,sd:bActiveCat?null:bASD,col:bAC,cat:bActiveCat||null,at:Date.now(),st:'placed',hidden:false};
   bFiles[id]=obj;await idbSBn(obj);scheduleBundlePush();
+  // Agar file kisi CATEGORY (old/stay/committal etc) mein add hui, to us category ka word
+  // CFM remark mein automatically add karo (taaki CFM mein tag dikhe, sent/received ke baad bhi rahe)
+  if(bActiveCat&&CAT_REMARK_WORD[bActiveCat]){
+    await addCategoryWordToRemark(id,CAT_REMARK_WORD[bActiveCat]);
+  }
   // Is date/category ka last-used column yaad rakho (dobara add pe auto-select hoga)
   _lastColForDate[bColKey()]=bAC;saveLastCols();
   const slotLabel=bActiveCat?((CAT_LABELS[bActiveCat]||bActiveCat)+'-'+dispCol(bAC)):('Date '+bAMD+(bASD!=null?'/'+bASD:'')+'-'+dispCol(bAC));
