@@ -59,40 +59,6 @@
   --ease-out:cubic-bezier(.16,1,.3,1);
   --ease-spring:cubic-bezier(.34,1.56,.64,1);
 }
-/* ═══ DARK MODE ═══ */
-html[data-theme="dark"]{
-  --navy:#1a2547;
-  --navy2:#212e54;
-  --navy3:#2a3a6e;
-  --bg:#0a0f1f;
-  --bg2:#0d1326;
-  --sur:#141b30;
-  --sur2:#1a2238;
-  --sur3:#202940;
-  --txt:#e8edf7;
-  --txt2:#c0cce4;
-  --mu:#8492b0;
-  --bdr:#28324d;
-  --bdr2:#222b42;
-  --blue:#4d82f5;
-  --blueh:#3b73ed;
-  --blue-soft:#1a2547;
-  --red:#f05252;
-  --red-soft:#2a1618;
-  --green:#34d058;
-  --green-soft:#16241a;
-  --amber:#f5a623;
-  --amber-soft:#2a2010;
-  --teal:#22b8d4;
-  --glass-bg:rgba(20,27,48,.72);
-  --glass-brd:rgba(255,255,255,.08);
-  --sh1:0 1px 2px rgba(0,0,0,.3),0 2px 6px rgba(0,0,0,.2);
-  --sh2:0 2px 8px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.25);
-  --sh3:0 8px 32px rgba(0,0,0,.5),0 16px 48px rgba(0,0,0,.3);
-  --sh-blue:0 4px 16px rgba(77,130,245,.35);
-  --sh-navy:0 6px 22px rgba(0,0,0,.5);
-}
-
 html,body{font-family:'Plus Jakarta Sans',system-ui,sans-serif;background:var(--bg);color:var(--txt);min-height:100vh;-webkit-font-smoothing:antialiased;padding-bottom:84px;background-image:radial-gradient(circle at 0% 0%,var(--bg2) 0%,transparent 50%),radial-gradient(circle at 100% 100%,var(--bg2) 0%,transparent 50%)}
 button,input,select,textarea{font-family:inherit}
 button{cursor:pointer}
@@ -568,8 +534,6 @@ button{transition:transform .12s var(--ease),filter .2s,background .2s}
 }
 
 /* ── Theme toggle button shimmer ── */
-#themeToggle{transition:transform .4s var(--ease-spring)}
-#themeToggle:active{transform:rotate(180deg) scale(.9)}
 </style>
 </head>
 <body>
@@ -927,7 +891,6 @@ button{transition:transform .12s var(--ease),filter .2s,background .2s}
       <span id="syncLbl" style="display:none"></span>
       <button class="hdr-btn-urg" onclick="openUrgentModal()" title="⚡ Urgent Scan">⚡</button>
       <button class="hdr-btn" onclick="openDrawer()" title="Tools & Settings">⚙️</button>
-      <button class="hdr-btn" id="themeToggle" onclick="toggleTheme()" title="Dark/Light Mode">🌙</button>
     </div>
   </div>
   <div id="tab-bar">
@@ -1410,7 +1373,7 @@ function idbTx(store,mode,fn){
     if(mode==='readwrite'){
       // Write: resolve on tx.oncomplete (data durably written)
       tx.oncomplete=()=>res(r?r.result:undefined);
-      if(r)r.onerror=e=>rej(e.target.error);
+      if(r){r.onsuccess=()=>{};r.onerror=e=>rej(e.target.error);} // onsuccess defensive (delete bhi safe)
     }else{
       // Read: resolve on r.onsuccess
       if(!r){rej(new Error('idbTx: fn ne request return nahi kiya'));return;}
@@ -1463,7 +1426,8 @@ function speakNextDate(isoDate){
     const dt=new Date(isoDate+'T00:00:00');
     const day=dt.getDate();
     const monthEn=dt.toLocaleDateString('en-IN',{month:'long'});
-    speak("Next date "+day+" "+monthEn);
+    const monthHi=HINDI_MONTHS[monthEn]||monthEn; // Hindi month name use karo
+    speak("Next date "+day+" "+monthHi);
   }catch(e){}
 }
 function haptic(type){
@@ -1512,23 +1476,7 @@ const rTimers={};
 function sId(id){return String(id||"").replace(/[^a-zA-Z0-9-_]/g,'_');}
 
 // ═══ DARK / LIGHT THEME ═══
-function applyTheme(t){
-  document.documentElement.setAttribute('data-theme',t);
-  const btn=document.getElementById('themeToggle');
-  if(btn)btn.textContent=t==='dark'?'☀️':'🌙';
-  try{localStorage.setItem('cm_theme',t);}catch(e){}
-}
-function toggleTheme(){
-  const cur=document.documentElement.getAttribute('data-theme')==='dark'?'dark':'light';
-  applyTheme(cur==='dark'?'light':'dark');
-  haptic('tap');
-}
-// Init theme on load (before paint to avoid flash)
-(function(){
-  let saved='light';
-  try{saved=localStorage.getItem('cm_theme')||'light';}catch(e){}
-  applyTheme(saved);
-})();
+// (Dark/Night mode hata diya gaya — sirf light theme)
 function gSrch(r){return DK.map(k=>r[k]||"").join(' ').toLowerCase();}
 function dKey(){
   const wd=(workDate&&workDate.value&&workDate.value.trim())||new Date().toISOString().split('T')[0];
@@ -1631,7 +1579,9 @@ function numSig(s){
 // Expand abbreviations in a string
 function expandAbbr(s){
   const up=String(s||'').toUpperCase().replace(/[.\s\-_]/g,'');
-  for(const[abbr,full]of Object.entries(ABBR_MAP)){
+  // Longest abbr pehle (taaki chhota abbr bade ko shadow na kare — e.g. 'CA' vs 'CBC')
+  const entries=Object.entries(ABBR_MAP).sort((a,b)=>b[0].length-a[0].length);
+  for(const[abbr,full]of entries){
     if(up.startsWith(abbr)){
       return full.replace(/[^A-Z0-9]/g,'')+up.slice(abbr.length);
     }
@@ -3221,7 +3171,7 @@ async function updateRemark(cn,val){
   // Live tag update — turant (debounce ke bina), focus disturb kiye bina
   updateRowRemarkTags(cn,val);
   rTimers[cn]=setTimeout(async()=>{
-    const i=cData.findIndex(r=>r.caseno===cn);
+    const i=cData.findIndex(r=>caseMatch(r.caseno,cn));
     if(i!==-1){
       cData[i].remark=val;
       cData[i].searchableText=gSrch(cData[i]);
@@ -3258,7 +3208,7 @@ function updateRowRemarkTags(cn,val){
 let _cdCN=null,_undoAction=null;
 async function openCaseDetail(cn){
   _cdCN=cn;_undoAction=null;
-  const r=cData.find(x=>x.caseno===cn);if(!r)return;
+  const r=cData.find(x=>caseMatch(x.caseno,cn));if(!r)return;
   document.getElementById('cd-title').textContent='📁 '+cn;
   document.getElementById('cd-sub').textContent=r.partyname||'';
 
@@ -3311,7 +3261,7 @@ function cleanUndoRemark(remark){
 async function confirmUndo(){
   const pwd=document.getElementById('cd-pwd').value;
   if(pwd!=='27031994'){document.getElementById('cd-pwd-err').style.display='block';document.getElementById('cd-pwd').value='';document.getElementById('cd-pwd').focus();return;}
-  const idx=cData.findIndex(r=>r.caseno===_cdCN);if(idx===-1){closeCaseDetail();return;}
+  const idx=cData.findIndex(r=>caseMatch(r.caseno,_cdCN));if(idx===-1){closeCaseDetail();return;}
   if(_undoAction==='unsent'){
     cData[idx].sent='';cData[idx].sentdate='';cData[idx].received='';cData[idx].receiveddate='';cData[idx].nextdate='';
     cData[idx]._disposed=false; // dispose flag bhi hatao
@@ -3393,14 +3343,14 @@ async function manualAction(mode){
     // Search/filter clear karo TABHI taaki row visible ho highlight ke liye
     if(searchBox&&searchBox.value)searchBox.value='';
     if(aFilter!=='all')aFilter='all';
-    drawTable(getFiltered());scrollToFile(actualCN);await saveLocal();await updateDash();
+    await saveLocal();drawTable(getFiltered());scrollToFile(actualCN);await updateDash();
     setTimeout(()=>openNDModal(actualCN),900); // highlight dikhne ke baad ND modal
     return;
   }
   // Search/filter clear karo highlight ke liye
   if(searchBox&&searchBox.value)searchBox.value='';
   if(aFilter!=='all')aFilter='all';
-  drawTable(getFiltered());scrollToFile(actualCN);await saveLocal();await updateDash();
+  await saveLocal();drawTable(getFiltered());scrollToFile(actualCN);await updateDash();
 }
 function scrollToManual(){
   const el=document.getElementById('manualCaseInput');
@@ -3430,7 +3380,7 @@ function scrollToFile(cn){
 let ndJO=null;
 function toggleJO(t){ndJO=ndJO===t?null:t;document.getElementById('jBtn').classList.toggle('on',ndJO==='J');document.getElementById('oBtn').classList.toggle('on',ndJO==='O');}
 function resetJO(){ndJO=null;const j=document.getElementById('jBtn'),o=document.getElementById('oBtn');if(j)j.classList.remove('on');if(o)o.classList.remove('on');}
-function openNDModal(cn){resetJO();const rec=cData.find(r=>r.caseno===cn);document.getElementById("nd-lbl").textContent=(rec?rec.partyname+" — ":"")+cn;document.getElementById("ndInput").value="";const rm=document.getElementById("ndRemark");if(rm)rm.value="";document.getElementById("ndModal").classList.add("on");}
+function openNDModal(cn){resetJO();const rec=cData.find(r=>caseMatch(r.caseno,cn));document.getElementById("nd-lbl").textContent=(rec?rec.partyname+" — ":"")+cn;document.getElementById("ndInput").value="";const rm=document.getElementById("ndRemark");if(rm)rm.value="";document.getElementById("ndModal").classList.add("on");}
 function closeNDModal(){resetJO();document.getElementById("ndModal").classList.remove("on");lastRcvCase=null;}
 document.getElementById("ndModal").addEventListener("click",function(e){if(e.target===this)closeNDModal();});
 async function saveNextDate(){
@@ -3448,7 +3398,7 @@ async function saveNextDate(){
     showToast('⚠️ Date bharo, ya remark mein "Dispose" likho','d');
     return;
   }
-  const idx=cData.findIndex(r=>r.caseno===lastRcvCase);
+  const idx=cData.findIndex(r=>caseMatch(r.caseno,lastRcvCase));
   if(idx!==-1){
     if(d)cData[idx].nextdate=d;
     // Remark add karo
@@ -3856,13 +3806,13 @@ async function handleCFMScan(code,mode){
     // Search/filter clear for highlight
     if(searchBox&&searchBox.value)searchBox.value='';
     if(aFilter!=='all')aFilter='all';
-    drawTable(getFiltered());scrollToFile(actualCN);await saveLocal();await updateDash();
+    await saveLocal();drawTable(getFiltered());scrollToFile(actualCN);await updateDash();
     setTimeout(()=>openNDModal(actualCN),900);return;
   }
   // Search/filter clear for highlight
   if(searchBox&&searchBox.value)searchBox.value='';
   if(aFilter!=='all')aFilter='all';
-  drawTable(getFiltered());scrollToFile(actualCN);await saveLocal();await updateDash();
+  await saveLocal();drawTable(getFiltered());scrollToFile(actualCN);await updateDash();
 }
 
 // ════ BUNDLE AUTO-HIDE ════
@@ -4288,7 +4238,7 @@ async function doBundleMove(){
     document.getElementById('bsd-bulk-bar').style.display='none';
     closeBMModal();bRenderGrid();if(bSlot){bSlot=null;swBV('grid');}bRenderSearch();return;
   }
-  _bulkMoveMode=false;if(!bMoveId)return;
+  _bulkMoveMode=false;if(!bMoveId||!bFiles[bMoveId])return;
   bFiles[bMoveId].md=bMMD;bFiles[bMoveId].sd=bMSD;bFiles[bMoveId].col=bMC;await idbSBn(bFiles[bMoveId]);
   scheduleBundlePush();
   showToast(`✅ Moved → Date ${bMMD}${bMSD!=null?'/'+bMSD:''}-${dispCol(bMC)}`);
@@ -4343,7 +4293,7 @@ async function onSlotDrop(e,md,sd,col,btn){
   try{ids=JSON.parse(e.dataTransfer.getData('text/plain'));}catch(err){return;}
   if(!ids.length)return;let moved=0;
   for(const rawId of ids){if(!bFiles[rawId])continue;bFiles[rawId].md=md;bFiles[rawId].sd=sd;bFiles[rawId].col=col;await idbSBn(bFiles[rawId]);moved++;}
-  if(moved){showToast(`✅ ${moved} file(s) → Date ${md}${sd!=null?'/'+sd:''}-${dispCol(col)}`);if(_ddSelMode){_ddSel.clear();_ddSelMode=false;updateBulkBar();}bOpenDate(md);bRenderSearch();}
+  if(moved){scheduleBundlePush();showToast(`✅ ${moved} file(s) → Date ${md}${sd!=null?'/'+sd:''}-${dispCol(col)}`);if(_ddSelMode){_ddSel.clear();_ddSelMode=false;updateBulkBar();}bOpenDate(md);bRenderSearch();}
 }
 
 // ════ LOGIN ════
@@ -4984,8 +4934,8 @@ async function fbPullAll(){
   if(!confirm('⚠️ Firebase se pull karne se local data replace ho jayega. Confirm karo?'))return;
   showToast('🔄 Sab data pull ho raha hai...','w');
   // Backup current local state before destructive pull
-  const _backup_cData=[...cData];
-  const _backup_bFiles={...bFiles};
+  const _backup_cData=JSON.parse(JSON.stringify(cData));
+  const _backup_bFiles=JSON.parse(JSON.stringify(bFiles));
   try{
     // 1. CFM data — sabhi dates+versions
     const cfmSnaps=await _fbDb.collection('cfm').get();
@@ -5241,6 +5191,13 @@ function selRCustom(i,val){
     _ovRemSel[cn]=d;
     const btns=document.getElementById('rops-'+i);
     if(btns)btns.querySelectorAll('.ropt').forEach(b=>b.classList.remove('on'));
+  } else if(d>90){
+    // 90 se zyada — cap karo aur batao (warna silently ignore hota tha)
+    showToast('⚠️ Max 90 din allowed — 90 set kar diya','w');
+    _ovRemSel[cn]=90;
+    const inp=document.getElementById('ovc-'+i);if(inp)inp.value=90;
+    const btns=document.getElementById('rops-'+i);
+    if(btns)btns.querySelectorAll('.ropt').forEach(b=>b.classList.remove('on'));
   }
 }
 
@@ -5330,7 +5287,7 @@ let _disposePendingCN=null;
 
 function openDisposeConfirm(cn){
   _disposePendingCN=cn;
-  const r=cData.find(x=>x.caseno===cn);
+  const r=cData.find(x=>caseMatch(x.caseno,cn));
   document.getElementById('disp-sub').textContent=(r?r.caseno+(r.partyname?' — '+r.partyname:''):'');
   document.getElementById('disp-date').value=new Date().toISOString().split('T')[0];
   document.getElementById('disposeModal').classList.add('on');
@@ -5339,7 +5296,7 @@ function openDisposeConfirm(cn){
 async function confirmDisposeYes(){
   const cn=_disposePendingCN;if(!cn)return;
   const dispDate=document.getElementById('disp-date').value||new Date().toISOString().split('T')[0];
-  const idx=cData.findIndex(r=>r.caseno===cn);
+  const idx=cData.findIndex(r=>caseMatch(r.caseno,cn));
   if(idx!==-1){
     cData[idx]._disposed=true;
     cData[idx]._disposeDate=dispDate;
@@ -5485,6 +5442,7 @@ async function urgAction(mode){
         const r=s.put(existing);
         r.onsuccess=res;r.onerror=rej;
       });
+      scheduleUrgentPush(); // update bhi Firebase pe push (secondary ko dikhe)
     } else {
       await ulAdd({caseno:cn,sentDate:todayISO,sentTime:timeStr,sentRemark:rem,receivedDate:'',receivedTime:'',receivedRemark:'',ts:now.toISOString()});
     }
@@ -5502,6 +5460,7 @@ async function urgAction(mode){
         const r=s.put(existing);
         r.onsuccess=res;r.onerror=rej;
       });
+      scheduleUrgentPush(); // update bhi Firebase pe push (secondary ko dikhe)
     } else {
       await ulAdd({caseno:cn,sentDate:'',sentTime:'',sentRemark:'',receivedDate:todayISO,receivedTime:timeStr,receivedRemark:rem,ts:now.toISOString()});
     }
@@ -5783,7 +5742,7 @@ async function checkTodayFiles(){
 function confirmDisposeNo(){
   const cn=_disposePendingCN;
   if(cn){
-    const idx=cData.findIndex(r=>r.caseno===cn);
+    const idx=cData.findIndex(r=>caseMatch(r.caseno,cn));
     if(idx!==-1){
       // Safe cleanup — pipe se split karke sirf dispose-tag wale parts hatao, baaki rakho
       const parts=(cData[idx].remark||'').split(' | ').map(p=>p.trim()).filter(p=>p);
