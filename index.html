@@ -2219,9 +2219,15 @@ async function addCategoryWordToRemark(caseNo,word){
           arr[idx].remark=(rem.trim()?rem.trim()+' | ':'')+word;
           arr[idx].searchableText=gSrch(arr[idx]);
           await idbSM(k,arr); // us date ka data update
+          invalidateAllDatesCache();
+          // Firebase pe bhi push karo us date ko (warna secondary device ko tag nahi dikhta)
+          if(_fbDb&&navigator.onLine&&deviceRole!=='secondary'){
+            try{await _fbDb.collection('cfm').doc(k).set({data:arr,at:Date.now()});}catch(e){_cmPendingDates&&_cmPendingDates.add(k);savePendingQueue&&savePendingQueue();}
+          }else if(deviceRole!=='secondary'){
+            _cmPendingDates&&_cmPendingDates.add(k);savePendingQueue&&savePendingQueue();
+          }
           // Agar wahi date abhi load hai to refresh
           if(k===dKey()){await loadLocal();}
-          invalidateAllDatesCache();
         }
         return; // sirf latest date wali record update karo
       }
@@ -3421,7 +3427,7 @@ async function saveNextDate(){
   }else if(d){
     speakNextDate(d);
   }
-  drawTable(getFiltered());updateDash();await saveLocal();resetJO();lastRcvCase=null;
+  await saveLocal();drawTable(getFiltered());updateDash();resetJO();lastRcvCase=null;
 }
 
 // ════ DOWNLOAD ════
@@ -4278,7 +4284,11 @@ function bFCHTML(f,showLoc,inSlot=false){
 
 // ════ DRAG DROP + BULK ════
 let _ddDragIds=[],_ddSel=new Set(),_ddSelMode=false,_bulkMoveMode=false;
-function _decId(escaped){return escaped.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'");}
+function _decId(escaped){
+  // Robust decode — saare HTML entities handle karta hai (sirf common nahi)
+  try{const t=document.createElement('textarea');t.innerHTML=escaped;return t.value;}
+  catch(e){return escaped.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'");}
+}
 function toggleBulkSel(){_ddSelMode=!_ddSelMode;_ddSel.clear();const btn=document.getElementById('bsd-sel-btn');if(btn){btn.textContent=_ddSelMode?'✕ Cancel':'☑ Select';btn.classList.toggle('on',_ddSelMode);}document.getElementById('bsd-bulk-bar').style.display='none';bRenderSlot();}
 function clearBulkSel(){_ddSel.clear();updateBulkBar();bRenderSlot();}
 function toggleFileSel(checkbox){const rawId=_decId(checkbox.dataset.fileid||'');if(checkbox.checked)_ddSel.add(rawId);else _ddSel.delete(rawId);updateBulkBar();const card=checkbox.closest('.bfc');if(card)card.classList.toggle('dd-selected',checkbox.checked);}
@@ -5426,7 +5436,7 @@ async function urgAction(mode){
   // Fix 6: per-file log — ek file ke liye ek hi record, update hota rehta hai
   // Find existing log entry for this caseno
   const allLogs=await ulGetAll();
-  const existing=allLogs.find(x=>x.caseno===cn);
+  const existing=allLogs.find(x=>caseMatch(x.caseno,cn));
 
   if(mode==='SENT'){
     if(existing){
