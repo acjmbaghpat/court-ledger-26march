@@ -860,7 +860,7 @@ button{transition:transform .12s var(--ease),filter .2s,background .2s}
       </div>
       <div class="dsec" style="border-color:rgba(220,38,38,.25);background:rgba(254,242,242,.5)">
         <div class="dsec-title" style="color:var(--red)">⚠️ Danger Zone</div>
-        <p style="font-size:12px;color:var(--mu);margin-bottom:10px;font-weight:500">60 din se purana data permanently delete karo.</p>
+        <p style="font-size:12px;color:var(--mu);margin-bottom:10px;font-weight:500">180 din (6 mahine) se purana data permanently delete karo.</p>
         <button class="btn danger" onclick="deleteOldData()" style="margin-top:0">🧹 Delete Old Data (180d+)</button>
       </div>
     </div>
@@ -911,7 +911,7 @@ button{transition:transform .12s var(--ease),filter .2s,background .2s}
     <div class="stat-card"><span class="stat-icon">📤</span><span class="stat-val" id="sentCount">0</span><span class="stat-lbl">Sent</span></div>
     <div class="stat-card"><span class="stat-icon">📥</span><span class="stat-val" id="receivedCount">0</span><span class="stat-lbl">Received</span></div>
     <div class="stat-card danger clickable" onclick="openOverdueModal()" id="ovCard"><span class="stat-icon">⏰</span><span class="stat-val" id="overdueCount">0</span><span class="stat-lbl">Overdue 7d+</span></div>
-    <div class="stat-card clickable" onclick="openPgMismatchModal()" id="pgMissCard" style="border:1px solid #fca5a5"><span class="stat-icon">⚠️</span><span class="stat-val" id="pgMissCount" style="color:var(--red)">—</span><span class="stat-lbl">Peshgar Miss</span></div>
+    <div class="stat-card clickable" onclick="openPgMismatchModal()" id="pgMissCard" style="border:1px solid #fca5a5"><span class="stat-icon">⚠️</span><span class="stat-val" id="pgMissCount" style="color:var(--red);font-size:13px;white-space:nowrap;letter-spacing:-.8px">—</span><span class="stat-lbl">Peshgar Miss</span></div>
   </div>
 
   <!-- Search + Filter -->
@@ -2074,6 +2074,9 @@ function updatePgMiss(){
   // normal = CM sent par Peshgar received nahi
   // toOff = Peshgar ne office bheji par office ne receive nahi ki
   el.textContent=rev+'/'+normal.length+'/'+toOff;
+  // Dynamic font — agar figures bade hain (double digits) to font chhota karo taaki cut na ho
+  const txtLen=(rev+'/'+normal.length+'/'+toOff).length;
+  el.style.fontSize=txtLen<=5?'14px':(txtLen<=7?'12px':'10px');
   el.title='⚠️ '+rev+' = Peshgar ne receive ki par CFM se sent nahi | ⏳ '+normal.length+' = CFM sent par Peshgar ne receive nahi | 📤 '+toOff+' = Peshgar ne office bheji par office ne receive nahi';
   // Reverse mismatch (sent hue bina received) = CRITICAL — full red card
   if(card){
