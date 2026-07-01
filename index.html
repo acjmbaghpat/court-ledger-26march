@@ -4536,13 +4536,15 @@ function startSecondarySync(){
   if(_secUrgentUnsub){_secUrgentUnsub();}
   showToast('🔄 Main device se data sync ho raha hai...','w');
 
-  // 1. CFM — saari dates live suno
+  // 1. CFM — saari dates live suno (sirf BADLE hue docs — instant sync)
   _secSyncUnsub=_fbDb.collection('cfm').onSnapshot(async snap=>{
     let updated=0;
-    for(const doc of snap.docs){
-      const k=doc.id;
+    // docChanges() — sirf changed docs process karo (poora collection nahi = fast + live)
+    for(const ch of snap.docChanges()){
+      if(ch.type==='removed')continue;
+      const k=ch.doc.id;
       if(!/^\d{4}-\d{2}-\d{2}_\d+$/.test(k))continue;
-      const d=doc.data();
+      const d=ch.doc.data();
       if(d&&Array.isArray(d.data)){
         await idbSM(k,d.data); // local IDB mirror
         invalidateAllDatesCache();
@@ -4637,54 +4639,75 @@ async function fbPushAll(){
     }
     const total=dataKeys.length;
     let done=0,skipped=0;
+
+    // ═══ BATCHED WRITES — 500 docs per batch, sequential batches (Firestore limit 500/batch) ═══
+    // Ye ONE-BY-ONE se ~50-100x fast hai (45 min → ~30 sec)
+    fbProg(5,'CFM data ready kar rahe hain...');
+    // Pehle jo push karne hain woh collect karo (changed only)
+    const toPush=[]; // {key, data, hash}
     for(const k of dataKeys){
       try{
         const d=await idbGM(k);
         if(d&&Array.isArray(d)&&d.length){
           const dataStr=JSON.stringify(d);
           const hash=quickHash(dataStr);
-          // Agar is date ka content same hai (pehle push ho chuka) to SKIP — dobara push nahi
-          if(_pushedHashes[k]===hash){
-            skipped++;done++;
-            const pct0=Math.round((done/total)*90);fbProg(pct0,'CFM: '+done+'/'+total+' ('+skipped+' skip)');
-            continue;
-          }
+          if(_pushedHashes[k]===hash){skipped++;continue;} // unchanged — skip
           const sizeKB=Math.round(dataStr.length/1024);
-          if(sizeKB>1000){
-            // Firestore 1MB hard limit — itni badi date push nahi ho sakti
-            failCount++;failedDates.push(k+' ('+sizeKB+'KB — 1MB limit se zyada)');
-          }else{
-            // Retry up to 2 times on failure (network glitches ke liye)
-            let pushed=false,lastErr=null;
-            for(let attempt=0;attempt<3&&!pushed;attempt++){
-              try{
-                await _fbDb.collection('cfm').doc(k).set({data:d,at:Date.now()});
-                pushed=true;cfmCount++;recordCount+=d.length;
-                _pushedHashes[k]=hash; // hash yaad rakho — agli baar skip hoga
-              }catch(e){lastErr=e;await new Promise(r=>setTimeout(r,300*(attempt+1)));}
-            }
-            if(!pushed){failCount++;failedDates.push(k);_cmPendingDates.add(k);console.error('Push fail after retries',k,lastErr);}
-          }
+          if(sizeKB>1000){failCount++;failedDates.push(k+' ('+sizeKB+'KB — 1MB limit se zyada)');continue;}
+          toPush.push({key:k,data:d,hash:hash});
         }
-      }catch(docErr){
-        failCount++;failedDates.push(k);_cmPendingDates.add(k);
-        console.error('Push fail',k,docErr);
-      }
-      done++;
-      const pct=Math.round((done/total)*90); // 90% for CFM
-      fbProg(pct,'CFM push: '+done+'/'+total+' dates');
+      }catch(e){failCount++;failedDates.push(k);}
     }
-    if(_cmPendingDates.size)savePendingQueue(); // failed dates persist karo
-    // Meta (90-95%)
-    fbProg(92,'Version meta push...');
+
+    // Batches mein commit karo (500 per batch)
+    const BATCH_SIZE=450; // 500 limit se thoda kam (safety)
+    let pushedIdx=0;
+    for(let i=0;i<toPush.length;i+=BATCH_SIZE){
+      const chunk=toPush.slice(i,i+BATCH_SIZE);
+      let committed=false,lastErr=null;
+      for(let attempt=0;attempt<3&&!committed;attempt++){
+        try{
+          const batch=_fbDb.batch();
+          chunk.forEach(item=>{
+            batch.set(_fbDb.collection('cfm').doc(item.key),{data:item.data,at:Date.now()});
+          });
+          await batch.commit();
+          committed=true;
+        }catch(e){lastErr=e;await new Promise(r=>setTimeout(r,500*(attempt+1)));}
+      }
+      if(committed){
+        chunk.forEach(item=>{_pushedHashes[item.key]=item.hash;cfmCount++;recordCount+=item.data.length;});
+      }else{
+        chunk.forEach(item=>{failCount++;failedDates.push(item.key);_cmPendingDates.add(item.key);});
+        console.error('Batch commit fail',lastErr);
+      }
+      pushedIdx+=chunk.length;
+      const pct=5+Math.round((pushedIdx/Math.max(toPush.length,1))*80); // 5-85% for CFM
+      fbProg(pct,'CFM push: '+(pushedIdx+skipped)+'/'+total+' ('+skipped+' skip)');
+    }
+    done=total;
+    if(_cmPendingDates.size)savePendingQueue();
+
+    // ═══ META — bhi batched ═══
+    fbProg(88,'Version meta push...');
     try{
       const vKeys=await idbAVK();
+      const metaItems=[];
       for(const date of vKeys){
         const vs=await idbGV(date);const cv=await idbGM('cv_'+date);
-        await _fbDb.collection('cfm_meta').doc(date).set({versions:vs||[],cv:cv||1,at:Date.now()});
-        metaCount++;
+        metaItems.push({date,vs:vs||[],cv:cv||1});
+      }
+      for(let i=0;i<metaItems.length;i+=BATCH_SIZE){
+        const chunk=metaItems.slice(i,i+BATCH_SIZE);
+        try{
+          const batch=_fbDb.batch();
+          chunk.forEach(m=>{batch.set(_fbDb.collection('cfm_meta').doc(m.date),{versions:m.vs,cv:m.cv,at:Date.now()});});
+          await batch.commit();
+          metaCount+=chunk.length;
+        }catch(e){console.error('meta batch:',e);}
       }
     }catch(e){console.error('meta:',e);}
+
     // Bundle + Urgent (95-100%)
     fbProg(96,'Bundle + Urgent push...');
     try{await fbPushBundle();}catch(e){console.error('bundle:',e);}
