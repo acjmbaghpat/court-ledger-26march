@@ -4654,16 +4654,26 @@ async function fbPushAll(){
           if(_pushedHashes[k]===hash){skipped++;continue;} // unchanged — skip
           const sizeKB=Math.round(dataStr.length/1024);
           if(sizeKB>1000){failCount++;failedDates.push(k+' ('+sizeKB+'KB — 1MB limit se zyada)');continue;}
-          toPush.push({key:k,data:d,hash:hash});
+          toPush.push({key:k,data:d,hash:hash,size:dataStr.length});
         }
       }catch(e){failCount++;failedDates.push(k);}
     }
 
-    // Batches mein commit karo (500 per batch)
-    const BATCH_SIZE=450; // 500 limit se thoda kam (safety)
+    // Batches mein commit karo — COUNT (450) YA SIZE (~8MB) jo pehle aaye
+    // (Firestore limits: 500 ops/batch AUR 10MiB per request — dono respect karo)
+    const BATCH_SIZE=450;
+    const BATCH_BYTES=8*1024*1024; // 8MB safety (10MiB hard limit)
+    const chunks=[];
+    let cur=[],curBytes=0;
+    for(const item of toPush){
+      if(cur.length>=BATCH_SIZE||(curBytes+item.size)>BATCH_BYTES){
+        if(cur.length){chunks.push(cur);cur=[];curBytes=0;}
+      }
+      cur.push(item);curBytes+=item.size;
+    }
+    if(cur.length)chunks.push(cur);
     let pushedIdx=0;
-    for(let i=0;i<toPush.length;i+=BATCH_SIZE){
-      const chunk=toPush.slice(i,i+BATCH_SIZE);
+    for(const chunk of chunks){
       let committed=false,lastErr=null;
       for(let attempt=0;attempt<3&&!committed;attempt++){
         try{
@@ -4685,6 +4695,7 @@ async function fbPushAll(){
       const pct=5+Math.round((pushedIdx/Math.max(toPush.length,1))*80); // 5-85% for CFM
       fbProg(pct,'CFM push: '+(pushedIdx+skipped)+'/'+total+' ('+skipped+' skip)');
     }
+    savePushedHashes(); // hashes persist — reload ke baad bhi unchanged dates skip hongi
     done=total;
     if(_cmPendingDates.size)savePendingQueue();
 
