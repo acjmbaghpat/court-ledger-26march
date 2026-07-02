@@ -2299,6 +2299,7 @@ async function markPendingFromPrevious(){
 }
 
 async function uploadExcel(){
+  if(typeof XLSX==='undefined'){showToast('❌ Excel library load nahi hui — page reload karo','d');return;}
   const file=excelFile.files[0];
   if(!file){showToast('⚠️ File select karo','w');return;}
   const btn=document.querySelector('#dp-upload .btn.primary');
