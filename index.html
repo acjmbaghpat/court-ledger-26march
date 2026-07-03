@@ -1020,6 +1020,20 @@ button{transition:transform .12s var(--ease),filter .2s,background .2s}
         <div id="b-extags" class="etags"></div>
       </div>
     </div>
+
+    <!-- FREE ADD — bina CFM check -->
+    <div class="sec" style="border:1.5px dashed #0891b2">
+      <div class="sec-hd">
+        <div class="ico teal">🆓</div>
+        <div><div class="lbl">Free Add (bina CFM check)</div><div class="sub">Selected date/column pe seedha add — koi objection nahi. Type ya QR scan.</div></div>
+      </div>
+      <input type="text" id="b-fmi" placeholder="File number — Enter dabao (bina check add)" onkeydown="bFreeMKey(event)">
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="btn primary" onclick="bFreeMAdd()" style="flex:1;margin-top:0;background:linear-gradient(135deg,#0891b2,#0e7490)">🆓 Add Karo</button>
+        <button class="btn neutral" onclick="startBundleFreeScan()" style="flex:1;margin-top:0">📷 QR Scan</button>
+      </div>
+      <div style="font-size:11px;color:var(--mu);margin-top:8px">⚠️ Ye CFM se cross-check nahi karta — jo bhi daaloge, upar select kiye date/sub-date/column pe add ho jayega.</div>
+    </div>
   </div>
 
   <!-- SEARCH VIEW -->
@@ -3801,12 +3815,14 @@ function hideQRBox(){document.getElementById('qr-hl').style.display='none';}
 function closeScan(){
   scanActive=false;if(scanStream){scanStream.getTracks().forEach(t=>t.stop());scanStream=null;}
   document.getElementById('scan-vid').srcObject=null;hideQRBox();document.getElementById('scan-ov').classList.remove('on');
+  bFreeAdd=false; // free-add mode reset (scan band hone pe)
 }
 function toggleCont(){contMode=!contMode;scanLast='';scanCool=false;const b=document.getElementById('cont-btn');b.textContent='🔁 Continuous: '+(contMode?'ON':'OFF');b.className=contMode?'on':'';}
 function handleScanResult(dec){
   if(scanCtx==='cfm_sent')      handleCFMScan(dec,'SENT');
   else if(scanCtx==='cfm_rcv')  handleCFMScan(dec,'RECEIVED');
   else if(scanCtx==='bundle')   handleBundleScan(dec);
+  else if(scanCtx==='bundlefree')handleBundleFreeScan(dec);
   else if(scanCtx==='urgent_scan'){
     document.getElementById('urg-cn').value=dec.trim().toUpperCase();
     closeScan();
@@ -3909,6 +3925,7 @@ const SPECIAL_DATES=[29,30,31];
 let bFiles={},bRM=false,bMoveId=null,bSlot=null,bActiveDate=null;
 let _bundleLoaded=false; // bInit ne bundle files load kiye? (empty push se bachne ke liye)
 let bAMD=1,bASD=null,bAC='A';
+let bFreeAdd=false; // Free Add mode — CFM cross-check off, bina objection ke add
 // Har date (aur category) ka last-used column yaad rakho — taaki dobara add pe wahi auto-select ho
 let _lastColForDate={}; // {dateOrCat: column}
 async function loadLastCols(){
@@ -4153,9 +4170,33 @@ function bUpdateSP(){
   if(ex.length){eb.style.display='block';et.innerHTML=ex.map(f=>`<span class="etag${f.st==='missing'?' miss':''}">${esc(f.id)}${f.st==='missing'?' ⚠':''}</span>`).join('');}
   else eb.style.display='none';
 }
-function bUpdateST(){const el=document.getElementById('scan-ml');if(el&&scanCtx==='bundle')el.textContent=`📷 Bundle → Date ${bAMD}${bASD!=null?'/'+bASD:''} ${dispCol(bAC)}`;}
+function bUpdateST(){const el=document.getElementById('scan-ml');if(el&&(scanCtx==='bundle'||scanCtx==='bundlefree'))el.textContent=(scanCtx==='bundlefree'?'🆓 Free ':'📷 ')+`Bundle → Date ${bAMD}${bASD!=null?'/'+bASD:''} ${dispCol(bAC)}`;}
 async function bAddFile(rawId,fromScan){
   const id=rawId.trim().toUpperCase();if(!id)return false;
+  // FREE ADD MODE — koi CFM cross-check nahi. Jo bhi add karo, bina objection ke add ho.
+  // (bina exist-check, bina received-check, bina date-mismatch check)
+  if(bFreeAdd){
+    // Sirf duplicate-in-bundle check rakho (same file physically do jagah nahi ho sakti)
+    if(bFiles[id]&&!bFiles[id].hidden){
+      const ex=bFiles[id];
+      const exLoc=ex.cat?(CAT_LABELS[ex.cat]||ex.cat)+' — '+dispCol(ex.col):'Date '+ex.md+(ex.sd!=null?'/'+ex.sd:'')+' — Col '+dispCol(ex.col);
+      const msg=`⚠ "${id}" pehle se bundle mein hai\n📍 ${exLoc}`;
+      if(fromScan){showSC(msg,'#dc2626');haptic('mismatch');redFlash();}else{showToast(msg,'d');}
+      speak("File pehle se bundle mein hai");haptic('error');return false;
+    }
+    const obj={id,md:bActiveCat?0:bAMD,sd:bActiveCat?null:bASD,col:bAC,cat:bActiveCat||null,at:Date.now(),st:'placed',hidden:false,_freeAdd:true};
+    bFiles[id]=obj;await idbSBn(obj);scheduleBundlePush();
+    if(bActiveCat&&CAT_REMARK_WORD[bActiveCat]){await addCategoryWordToRemark(id,CAT_REMARK_WORD[bActiveCat]);}
+    _lastColForDate[bColKey()]=bAC;saveLastCols();
+    const slotLabel=bActiveCat?((CAT_LABELS[bActiveCat]||bActiveCat)+'-'+dispCol(bAC)):('Date '+bAMD+(bASD!=null?'/'+bASD:'')+'-'+dispCol(bAC));
+    if(fromScan){
+      showSC('✅ '+id+' → '+slotLabel+' (Free Add)','#16a34a');
+      const colLetter=dispCol(bAC);
+      const spk=bActiveCat?((CAT_LABELS[bActiveCat]||bActiveCat)+' '+colLetter):(bAMD+(bASD!=null?' sub '+bASD:'')+' '+colLetter);
+      speak(spk,'hi-IN');haptic('scan');
+    }else{showToast('✅ '+id+' → '+slotLabel+' (Free Add)');haptic('success');}
+    bUpdateSP();bRenderGrid();return true;
+  }
   // CFM check — file exist karni chahiye (SAARI dates mein dhundo, sirf current nahi)
   const cfmRec=await getCFMRecordAllDates(id);
   if(fromScan){
@@ -4221,6 +4262,23 @@ async function bAddFile(rawId,fromScan){
 }
 function bMKey(e){if(e.key==='Enter'){e.preventDefault();document.getElementById('b-mi').value.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean).forEach(p=>bAddFile(p,false));document.getElementById('b-mi').value='';}}
 function bMAdd(){document.getElementById('b-mi').value.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean).forEach(p=>bAddFile(p,false));document.getElementById('b-mi').value='';}
+// FREE ADD — CFM check off karke add karo (manual)
+function bFreeMAdd(){
+  bFreeAdd=true;
+  const inp=document.getElementById('b-fmi');
+  const val=(inp?inp.value:'')||'';
+  val.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean).forEach(p=>bAddFile(p,false));
+  if(inp)inp.value='';
+  bFreeAdd=false;
+}
+function bFreeMKey(e){if(e.key==='Enter'){e.preventDefault();bFreeMAdd();}}
+// FREE ADD via QR scan — CFM check off
+function startBundleFreeScan(){
+  bFreeAdd=true; // scan ke dauran free mode
+  bUpdateST();
+  openScan('bundlefree',`🆓 Free Add → Date ${bAMD}${bASD!=null?'/'+bASD:''} ${dispCol(bAC)} (bina CFM check)`,true);
+}
+function handleBundleFreeScan(dec){bFreeAdd=true;bAddFile(dec,true);bFreeAdd=false;if(scanActive)bUpdateST();}
 function startBundleScan(){bUpdateST();openScan('bundle',`📷 Bundle → Date ${bAMD}${bASD!=null?'/'+bASD:''} ${dispCol(bAC)}`,false);}
 function handleBundleScan(dec){bAddFile(dec,true);if(scanActive)bUpdateST();}
 function openMismatchModal(id,cfmDay){
