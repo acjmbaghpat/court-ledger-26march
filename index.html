@@ -1383,6 +1383,30 @@ function idbTx(store,mode,fn){
   });
 }
 const idbGV  =d=>idbTx(SV,'readonly',s=>s.get(d)).then(r=>r?r.versions:[]);
+// Bulk read — EK transaction mein saari keys (sequential transactions ka overhead avoid karta hai)
+// 73 dates ke liye pehle 146 alag transactions lagti thi, ab sirf 2 (SV + SM)
+function idbBulkGet(store,keys){
+  return new Promise((resolve)=>{
+    if(!db||!keys.length){resolve({});return;}
+    const result={};
+    let doneCount=0,settled=false;
+    const finish=()=>{if(!settled){settled=true;resolve(result);}};
+    const tx=db.transaction(store,'readonly');
+    const s=tx.objectStore(store);
+    // Timeout safety — agar transaction 8 sec mein complete na ho to jo mila wahi return karo
+    const timer=setTimeout(finish,8000);
+    tx.oncomplete=()=>{clearTimeout(timer);finish();};
+    tx.onerror=()=>{clearTimeout(timer);finish();}; // partial result better than stuck
+    tx.onabort=()=>{clearTimeout(timer);finish();};
+    keys.forEach(k=>{
+      try{
+        const r=s.get(k);
+        r.onsuccess=()=>{result[k]=r.result;doneCount++;if(doneCount===keys.length){clearTimeout(timer);finish();}}; // sab requests complete → turant resolve
+        r.onerror=()=>{doneCount++;if(doneCount===keys.length){clearTimeout(timer);finish();}}; // ek key fail ho to baaki continue
+      }catch(e){doneCount++;}
+    });
+  });
+}
 const idbSV  =(d,v)=>idbTx(SV,'readwrite',s=>s.put({workDate:d,versions:v}));
 const idbDV  =d=>idbTx(SV,'readwrite',s=>s.delete(d));
 const idbAVK =()=>idbTx(SV,'readonly',s=>s.getAllKeys());
@@ -3665,28 +3689,37 @@ async function tgTestSend(){
 // ── DAILY AUTO-BACKUP CHECK (app load + net connect pe) ──
 // 3:30 PM ke baad: (1) auto-download once, (2) telegram bheji once
 async function checkDailyBackup(){
-  if(!_isAfterCutoff())return; // abhi 3:30 PM se pehle hai
   const today=_todayStr();
 
-  // ── 1. AUTO-DOWNLOAD (din mein ek baar) ──
-  const lastDl=localStorage.getItem('crtLastAutoDl');
-  if(lastDl!==today){
-    try{
-      const bk=await buildBackupData();
-      const blob=new Blob([JSON.stringify(bk,null,2)],{type:'application/json'});
-      const url=URL.createObjectURL(blob),a=document.createElement('a');
-      a.href=url;a.download='CourtBackup_'+today+'.json';
-      document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
-      localStorage.setItem('crtLastAutoDl',today);
-      showToast('💾 Aaj ka auto-backup download ho gaya (3:30 PM ke baad)');
-    }catch(e){console.error('auto-download fail:',e);}
+  // ── 1. AUTO-DOWNLOAD (din mein ek baar, 3:30 PM ke baad) ──
+  if(_isAfterCutoff()){
+    const lastDl=localStorage.getItem('crtLastAutoDl');
+    if(lastDl!==today){
+      try{
+        const bk=await buildBackupData();
+        const blob=new Blob([JSON.stringify(bk,null,2)],{type:'application/json'});
+        const url=URL.createObjectURL(blob),a=document.createElement('a');
+        a.href=url;a.download='CourtBackup_'+today+'.json';
+        document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+        localStorage.setItem('crtLastAutoDl',today);
+        showToast('💾 Aaj ka auto-backup download ho gaya (3:30 PM ke baad)');
+      }catch(e){console.error('auto-download fail:',e);}
+    }
   }
 
-  // ── 2. TELEGRAM AUTO-SEND (din mein ek baar, net hone pe) ──
+  // ── 2. TELEGRAM AUTO-SEND — CATCH-UP LOGIC ──
+  // Agar kal (ya kisi bhi pichle din) 3:30 baad net nahi tha to Telegram miss ho jata tha, kabhi nahi bhejta.
+  // Fix: agar lastTg AAJ se PEHLE ka hai (ek din bhi miss hua), to net milte hi turant bhejo —
+  // 3:30 ka wait mat karo, kyunki miss hua din wapas nahi aayega.
   const lastTg=localStorage.getItem('crtLastAutoTg');
-  if(lastTg!==today&&navigator.onLine&&tgGetCfg()){
+  const missedDay=lastTg&&lastTg<today; // koi purana din hai jiska backup nahi bheja
+  const shouldSendNow=_isAfterCutoff()||missedDay; // aaj cutoff ke baad, YA koi din miss hua
+  if(lastTg!==today&&shouldSendNow&&navigator.onLine&&tgGetCfg()){
     const ok=await tgSendBackup(true); // silent
-    if(ok){localStorage.setItem('crtLastAutoTg',today);showToast('📤 Aaj ka backup Telegram pe bhi bhej diya');}
+    if(ok){
+      localStorage.setItem('crtLastAutoTg',today);
+      showToast(missedDay?'📤 Pichla miss hua backup + aaj ka Telegram pe bhej diya':'📤 Aaj ka backup Telegram pe bhi bhej diya');
+    }
   }
 }
 
@@ -4704,11 +4737,11 @@ async function fbPushAll(){
     fbProg(88,'Version meta push...');
     try{
       const vKeys=await idbAVK();
-      const metaItems=[];
-      for(const date of vKeys){
-        const vs=await idbGV(date);const cv=await idbGM('cv_'+date);
-        metaItems.push({date,vs:vs||[],cv:cv||1});
-      }
+      // Bulk read — pehle 146 sequential transactions lagti thi (73×2), ab sirf 2
+      // Isse "88% pe atak jana" fix hota hai — koi ek slow transaction poori chain ko block nahi karti
+      const cvKeys=vKeys.map(d=>'cv_'+d);
+      const [vsMap,cvMap]=await Promise.all([idbBulkGet(SV,vKeys),idbBulkGet(SM,cvKeys)]);
+      const metaItems=vKeys.map(date=>({date,vs:(vsMap[date]&&vsMap[date].versions)||[],cv:(cvMap['cv_'+date]&&cvMap['cv_'+date].value)||1}));
       for(let i=0;i<metaItems.length;i+=BATCH_SIZE){
         const chunk=metaItems.slice(i,i+BATCH_SIZE);
         try{
