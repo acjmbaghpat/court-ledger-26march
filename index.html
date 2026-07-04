@@ -1162,6 +1162,25 @@ button{transition:transform .12s var(--ease),filter .2s,background .2s}
 </div>
 
 <!-- BUNDLE MOVE MODAL -->
+<!-- FREE ADD CONFIRM MODAL -->
+<div class="modal center" id="freeConfirmModal">
+  <div class="modal-box" style="max-width:360px;text-align:center">
+    <div style="font-size:15px;font-weight:800;color:var(--ink);margin-bottom:4px">🆓 Free Add — Confirm</div>
+    <div style="font-size:13px;color:var(--mu);margin-bottom:14px" id="fcRemain"></div>
+    <div style="background:var(--sur2);border-radius:12px;padding:16px;margin-bottom:16px">
+      <div style="font-size:12px;color:var(--mu);margin-bottom:4px">File</div>
+      <div style="font-size:18px;font-weight:800;color:var(--ink);word-break:break-all;margin-bottom:12px" id="fcFileId">—</div>
+      <div style="font-size:12px;color:var(--mu);margin-bottom:4px">Yahan add hogi</div>
+      <div style="font-size:28px;font-weight:900;color:#0891b2" id="fcSlot">—</div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn neutral" onclick="bFreeConfirmSkip()" style="flex:1;margin-top:0">Skip</button>
+      <button class="btn primary" onclick="bFreeConfirmOk()" style="flex:1.6;margin-top:0;background:linear-gradient(135deg,#0891b2,#0e7490)">✓ OK, Add Karo</button>
+    </div>
+    <button onclick="bFreeConfirmCancel()" style="background:none;border:none;color:var(--mu);font-size:12px;margin-top:12px;cursor:pointer;text-decoration:underline">Sab Cancel</button>
+  </div>
+</div>
+
 <div class="modal" id="bmModal">
   <div class="msh">
     <div class="mt">⇄ Move / Rearrange</div>
@@ -3721,18 +3740,25 @@ async function checkDailyBackup(){
     }
   }
 
-  // ── 2. TELEGRAM AUTO-SEND — CATCH-UP LOGIC ──
-  // Agar kal (ya kisi bhi pichle din) 3:30 baad net nahi tha to Telegram miss ho jata tha, kabhi nahi bhejta.
-  // Fix: agar lastTg AAJ se PEHLE ka hai (ek din bhi miss hua), to net milte hi turant bhejo —
-  // 3:30 ka wait mat karo, kyunki miss hua din wapas nahi aayega.
-  const lastTg=localStorage.getItem('crtLastAutoTg');
-  const missedDay=lastTg&&lastTg<today; // koi purana din hai jiska backup nahi bheja
-  const shouldSendNow=_isAfterCutoff()||missedDay; // aaj cutoff ke baad, YA koi din miss hua
-  if(lastTg!==today&&shouldSendNow&&navigator.onLine&&tgGetCfg()){
-    const ok=await tgSendBackup(true); // silent
-    if(ok){
-      localStorage.setItem('crtLastAutoTg',today);
-      showToast(missedDay?'📤 Pichla miss hua backup + aaj ka Telegram pe bhej diya':'📤 Aaj ka backup Telegram pe bhi bhej diya');
+  // ── 2. TELEGRAM AUTO-SEND ──
+  // Do alag cheezein:
+  //   (a) Aaj ka REGULAR backup — sirf 3:30 PM ke baad (crtLastAutoTg)
+  //   (b) CATCH-UP — agar pichla koi din miss hua, net milte hi turant (crtLastCatchup)
+  // Dono alag track hote hain — subah ka catch-up sham ke regular ko block nahi karega.
+  if(navigator.onLine&&tgGetCfg()){
+    const lastTg=localStorage.getItem('crtLastAutoTg');       // aaj ka regular bheja?
+    const lastCatchup=localStorage.getItem('crtLastCatchup'); // aaj catch-up bheja?
+
+    // (a) Regular: aaj cutoff ke baad, aur aaj abhi tak regular nahi bheja
+    if(_isAfterCutoff()&&lastTg!==today){
+      const ok=await tgSendBackup(true);
+      if(ok){localStorage.setItem('crtLastAutoTg',today);showToast('📤 Aaj ka backup Telegram pe bhej diya');}
+    }
+    // (b) Catch-up: pichla din miss hua (lastTg aaj se pehle ka), abhi cutoff se PEHLE hai,
+    //     aur aaj catch-up abhi tak nahi bheja → turant bhejo (par regular flag ko haath nahi lagana)
+    else if(!_isAfterCutoff()&&lastTg&&lastTg<today&&lastCatchup!==today){
+      const ok=await tgSendBackup(true);
+      if(ok){localStorage.setItem('crtLastCatchup',today);showToast('📤 Pichla miss hua backup Telegram pe bhej diya (aaj ka regular sham ko jayega)');}
     }
   }
 }
@@ -4262,23 +4288,60 @@ async function bAddFile(rawId,fromScan){
 }
 function bMKey(e){if(e.key==='Enter'){e.preventDefault();document.getElementById('b-mi').value.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean).forEach(p=>bAddFile(p,false));document.getElementById('b-mi').value='';}}
 function bMAdd(){document.getElementById('b-mi').value.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean).forEach(p=>bAddFile(p,false));document.getElementById('b-mi').value='';}
-// FREE ADD — CFM check off karke add karo (manual)
+// FREE ADD — pehle confirmation popup (slot dikhega, OK ke baad add)
+let _freeConfirmQueue=[]; // multiple files ke liye queue
 function bFreeMAdd(){
-  bFreeAdd=true;
   const inp=document.getElementById('b-fmi');
   const val=(inp?inp.value:'')||'';
-  val.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean).forEach(p=>bAddFile(p,false));
+  const files=val.split(/[\n,]+/).map(s=>s.trim().toUpperCase()).filter(Boolean);
+  if(!files.length){showToast('⚠️ File number daalo','w');return;}
   if(inp)inp.value='';
-  bFreeAdd=false;
+  // Queue banao, ek-ek confirm karke add
+  _freeConfirmQueue=files.slice();
+  bFreeShowNextConfirm();
 }
 function bFreeMKey(e){if(e.key==='Enter'){e.preventDefault();bFreeMAdd();}}
-// FREE ADD via QR scan — CFM check off
+
+// Queue se agli file ka confirm popup dikhao
+function bFreeShowNextConfirm(){
+  if(!_freeConfirmQueue.length){document.getElementById('freeConfirmModal').classList.remove('on');return;}
+  const id=_freeConfirmQueue[0];
+  const slot=bActiveCat
+    ?((CAT_LABELS[bActiveCat]||bActiveCat)+'-'+dispCol(bAC))
+    :(bAMD+(bASD!=null?'/'+bASD:'')+'-'+dispCol(bAC));
+  document.getElementById('fcFileId').textContent=id;
+  document.getElementById('fcSlot').textContent=slot;
+  const rem=_freeConfirmQueue.length>1?(' ('+_freeConfirmQueue.length+' files baaki)'):'';
+  document.getElementById('fcRemain').textContent=rem;
+  document.getElementById('freeConfirmModal').classList.add('on');
+}
+// OK dabaya — file add karo, phir agli
+async function bFreeConfirmOk(){
+  const id=_freeConfirmQueue.shift();
+  if(id){bFreeAdd=true;await bAddFile(id,false);bFreeAdd=false;}
+  bFreeShowNextConfirm(); // agli file ya band
+}
+// Skip — is file ko chhodo, agli pe jao
+function bFreeConfirmSkip(){_freeConfirmQueue.shift();bFreeShowNextConfirm();}
+// Cancel all
+function bFreeConfirmCancel(){_freeConfirmQueue=[];document.getElementById('freeConfirmModal').classList.remove('on');}
+
+// FREE ADD via QR scan — scan pe bhi confirm popup
 function startBundleFreeScan(){
   bFreeAdd=true; // scan ke dauran free mode
   bUpdateST();
   openScan('bundlefree',`🆓 Free Add → Date ${bAMD}${bASD!=null?'/'+bASD:''} ${dispCol(bAC)} (bina CFM check)`,true);
 }
-function handleBundleFreeScan(dec){bFreeAdd=true;bAddFile(dec,true);bFreeAdd=false;if(scanActive)bUpdateST();}
+function handleBundleFreeScan(dec){
+  // Scan pe: camera band karke confirm popup dikhao
+  const id=dec.trim().toUpperCase();if(!id)return;
+  scanCool=true;
+  if(scanStream){scanStream.getTracks().forEach(t=>t.stop());scanStream=null;}
+  document.getElementById('scan-vid').srcObject=null;hideQRBox();document.getElementById('scan-ov').classList.remove('on');
+  scanActive=false;
+  _freeConfirmQueue=[id];
+  bFreeShowNextConfirm();
+}
 function startBundleScan(){bUpdateST();openScan('bundle',`📷 Bundle → Date ${bAMD}${bASD!=null?'/'+bASD:''} ${dispCol(bAC)}`,false);}
 function handleBundleScan(dec){bAddFile(dec,true);if(scanActive)bUpdateST();}
 function openMismatchModal(id,cfmDay){
@@ -4718,6 +4781,8 @@ function fbProg(pct,label){
 // Push ALL data with PERCENTAGE progress
 async function fbPushAll(){
   if(!_fbDb){showToast('⚠️ Firebase connect nahi hai! Pehle credentials daal kar Connect karo.','d');return;}
+  // Secondary device push nahi kar sakta — sirf main device data push karta hai
+  if(deviceRole==='secondary'){showToast('📥 Ye Secondary device hai — sirf receive karta hai. Push sirf Main device se hota hai.','d');return;}
   let cfmCount=0,metaCount=0,recordCount=0,failCount=0;
   const failedDates=[];
   fbProg(0,'Data ready kar rahe hain...');
@@ -4893,6 +4958,7 @@ async function fbPush(){
 // Version metadata push (sabhi dates ki version list)
 async function fbPushVersionMeta(){
   if(!_fbDb)return;
+  if(deviceRole==='secondary')return; // secondary push nahi karta
   try{
     const vs=await idbGV(workDate.value);
     const cv=await idbGM('cv_'+workDate.value);
@@ -5000,6 +5066,7 @@ function startCmPeriodicSync(){
 }
 async function fbPushBundle(){
   if(!_fbDb)return false;
+  if(deviceRole==='secondary')return false; // secondary push nahi karta
   // SAFETY: bundle files load hone se pehle push mat karo (warna empty push ho jata hai)
   if(!_bundleLoaded){console.warn('fbPushBundle skipped: bundle abhi load nahi hua');return false;}
   try{
@@ -5056,6 +5123,7 @@ let _urgPushTimer;
 function scheduleUrgentPush(){clearTimeout(_urgPushTimer);_urgPushTimer=setTimeout(async()=>{if(deviceRole==='secondary')return;if(!_fbDb||!navigator.onLine){_cmPendingUrgent=true;savePendingQueue();return;}try{await fbPushUrgent();_cmPendingUrgent=false;savePendingQueue();}catch(e){_cmPendingUrgent=true;savePendingQueue();}},1500);}
 async function fbPushUrgent(){
   if(!_fbDb)return;
+  if(deviceRole==='secondary')return; // secondary push nahi karta
   try{
     const logs=await ulGetAll();
     await _fbDb.collection('urgent').doc('main').set({logs,at:Date.now()});
