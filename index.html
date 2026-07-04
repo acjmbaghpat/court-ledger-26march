@@ -1730,7 +1730,7 @@ function getCFMRecord(caseNo){
 let _allDatesCache=null; // {key: dataArray} latest-date-first
 let _allDatesIndex=null; // normSlash(caseno) → [{rec,key}] collision-safe
 let _allDatesCacheTime=0;
-const ALLDATES_CACHE_MS=15000; // 15 second valid
+const ALLDATES_CACHE_MS=60000; // 60 sec (incremental updates cache warm rakhte hain)
 async function getAllDatesData(force){
   const now=Date.now();
   if(!force&&_allDatesCache&&(now-_allDatesCacheTime)<ALLDATES_CACHE_MS){
@@ -1741,10 +1741,9 @@ async function getAllDatesData(force){
   try{
     const allKeys=await idbAMK();
     const dataKeys=allKeys.filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k)).sort().reverse(); // LATEST first
-    const results=await Promise.all(dataKeys.map(async k=>{
-      const d=await idbGM(k);
-      return [k,d];
-    }));
+    // PERF: 90 alag transactions ki jagah 1 bulk transaction (phone pe 10-50x fast)
+    const bulk=await idbBulkGet(SM,dataKeys);
+    const results=dataKeys.map(k=>[k,bulk[k]?bulk[k].value:null]);
     results.forEach(([k,d])=>{
       if(d&&Array.isArray(d)){
         cache[k]=d;
@@ -1760,6 +1759,27 @@ async function getAllDatesData(force){
   return cache;
 }
 function invalidateAllDatesCache(){_allDatesCache=null;_allDatesIndex=null;_allDatesCacheTime=0;}
+// PERF FIX: har action pe poora cache invalidate karna slow tha (90 dates IDB se re-read har scan/save pe)
+// Ye sirf CURRENT date ko cache mein update karta hai — baaki 89 dates ka data warm rehta hai
+function updateAllDatesCacheForCurrent(){
+  if(!_allDatesCache){return;} // cache hai hi nahi — next read fresh banayega
+  const k=dKey();
+  // Index se is date ke purane entries hatao
+  if(_allDatesIndex){
+    for(const ns of Object.keys(_allDatesIndex)){
+      const arr=_allDatesIndex[ns].filter(e=>e.key!==k);
+      if(arr.length)_allDatesIndex[ns]=arr;else delete _allDatesIndex[ns];
+    }
+  }else{_allDatesIndex={};}
+  // Cache mein current date ka fresh data
+  _allDatesCache[k]=cData.slice();
+  // Index mein naye entries (latest-first order maintain — ye latest date hai to shuru mein)
+  cData.forEach(r=>{
+    const ns=normSlash(r.caseno);
+    if(ns){if(!_allDatesIndex[ns])_allDatesIndex[ns]=[];_allDatesIndex[ns].unshift({rec:r,key:k});}
+  });
+  _allDatesCacheTime=Date.now(); // TTL refresh — warm cache zinda rahe
+}
 // Saari dates se is case ke records — COLLISION-SAFE index + caseMatch fallback
 // Returns [{rec,key}] latest-date-first
 async function _idxLookup(caseNo){
@@ -1906,7 +1926,7 @@ async function loadCurV(){
 async function saveLocal(){
   try{
     invalidateOvCache(); // data badla — overdue cache fresh karo
-    invalidateAllDatesCache(); // all-dates cache bhi fresh karo
+    updateAllDatesCacheForCurrent(); // PERF: sirf current date cache update (full rebuild nahi — 90x kam IDB)
     await idbSM(dKey(),cData);
     // Fire and forget — Firebase backup, not critical path
     // But schedule properly to avoid race conditions
@@ -2023,6 +2043,7 @@ async function getAllCDataOverall(){
 
 // ════ PESHGAR MISMATCH (CFM sent par Peshgar received nahi) ════
 let _pgData=null; // {caseno: {received,...}} current workDate ka peshgar data
+let _pgDataDate=''; // kis date ka _pgData hai (stale cross-date data se bachne ke liye)
 let _pgUnsub=null;
 let _pgListenErr='';
 // Peshgar data ko IDB mein cache karo (key: pgcache_DATE) — taaki connect hone tak purana data dikhe
@@ -2030,6 +2051,7 @@ async function pgCacheLoad(date){
   if(!date)return;
   try{
     const cached=await idbGM('pgcache_'+date);
+    if(_pgDataDate!==date)return; // date badal gayi (async race) — stale cache apply mat karo
     if(cached&&typeof cached==='object'){
       _pgData=cached;
       _pgListenErr='';
@@ -2043,20 +2065,25 @@ async function pgCacheSave(date){
 }
 function pgStartListen(){
   const date=(workDate&&workDate.value)||'';
-  // Pehle cache se purana data dikhao (connect hone tak)
+  // Date badli — purani date ka _pgData turant hatao (warna reverse-count galat aata hai)
+  _pgData=null;_pgDataDate=date;
+  // Pehle cache se is date ka data dikhao (connect hone tak)
   pgCacheLoad(date);
   if(!_fbDb){_pgListenErr='Firebase connected nahi';updatePgMiss();return;}
   if(_pgUnsub)_pgUnsub();
   if(!date){_pgListenErr='Koi date select nahi';return;}
   _pgUnsub=_fbDb.collection('peshgar').doc(date).onSnapshot(snap=>{
+    if(_pgDataDate!==date)return; // date badal gayi — ye stale snapshot hai, ignore
     if(snap.exists&&Array.isArray(snap.data().data)){
       _pgData={};
       snap.data().data.forEach(r=>{_pgData[String(r.caseno).toUpperCase().trim()]=r;});
       _pgListenErr='';
       pgCacheSave(date); // fresh data IDB mein cache karo
     }else{
-      // Firebase pe is date ka data nahi — par cache mein ho sakta hai, usse mat hatao
-      if(!_pgData){_pgListenErr='Peshgar ne is date ('+date+') ki koi file abhi receive nahi ki';}
+      // Firebase pe is date ka doc NAHI = Peshgar ne is date ki koi file receive nahi ki
+      // Empty map set karo (purani date ka data use karna GALAT tha — reverse figure galat aata tha)
+      _pgData={};
+      _pgListenErr='';
     }
     updatePgMiss();
   },err=>{
