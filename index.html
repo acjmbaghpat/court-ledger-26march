@@ -1088,6 +1088,7 @@ button{transition:transform .12s var(--ease),filter .2s,background .2s}
       <div id="bsd-bulk-bar" style="display:none" class="bulk-bar">
         <span id="bsd-sel-count">0 selected</span>
         <div style="display:flex;gap:8px">
+          <button onclick="selectAllInSlot()">☑ All</button>
           <button onclick="bulkMoveSelected()">⇄ Move</button>
           <button onclick="clearBulkSel()">✕ Clear</button>
         </div>
@@ -1148,6 +1149,10 @@ button{transition:transform .12s var(--ease),filter .2s,background .2s}
   <div class="msh">
     <div class="mt">📅 Next Hearing Date</div>
     <div class="msub" id="nd-lbl"></div>
+    <div id="nd-rcv-wrap" style="display:none;background:var(--sur2);border-radius:10px;padding:10px;margin:8px 0">
+      <span class="jo-lbl" style="display:block;margin-bottom:4px">📥 Received Date <span style="color:#dc2626">*</span> (zaroori)</span>
+      <input type="date" id="ndRcvInput">
+    </div>
     <div style="font-size:12px;color:var(--amber);font-weight:600;margin:4px 0 8px">⚠️ Date bharo, ya dispose hui to remark mein "Dispose" likho</div>
     <input type="date" id="ndInput">
     <span class="jo-lbl">📋 Case Type (optional)</span>
@@ -1178,6 +1183,23 @@ button{transition:transform .12s var(--ease),filter .2s,background .2s}
       <button class="btn primary" onclick="bFreeConfirmOk()" style="flex:1.6;margin-top:0;background:linear-gradient(135deg,#0891b2,#0e7490)">✓ OK, Add Karo</button>
     </div>
     <button onclick="bFreeConfirmCancel()" style="background:none;border:none;color:var(--mu);font-size:12px;margin-top:12px;cursor:pointer;text-decoration:underline">Sab Cancel</button>
+  </div>
+</div>
+
+<div class="modal center" id="slotConfirmModal">
+  <div class="modal-box" style="max-width:360px;text-align:center">
+    <div style="font-size:15px;font-weight:800;color:var(--ink);margin-bottom:4px">📍 Naya Slot — Confirm</div>
+    <div style="font-size:13px;color:var(--mu);margin-bottom:14px">Slot change hua — pehli file confirm karo. Uske baad isi slot pe continuous chalega.</div>
+    <div style="background:var(--sur2);border-radius:12px;padding:16px;margin-bottom:16px">
+      <div style="font-size:12px;color:var(--mu);margin-bottom:4px">File</div>
+      <div style="font-size:18px;font-weight:800;color:var(--ink);word-break:break-all;margin-bottom:12px" id="scFileId">—</div>
+      <div style="font-size:12px;color:var(--mu);margin-bottom:4px">Date — Sub Date — Column</div>
+      <div style="font-size:26px;font-weight:900;color:#0891b2" id="scSlot">—</div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn neutral" onclick="bSlotConfirmCancel()" style="flex:1;margin-top:0">Cancel</button>
+      <button class="btn primary" onclick="bSlotConfirmOk()" style="flex:1.6;margin-top:0;background:linear-gradient(135deg,#0891b2,#0e7490)">✓ OK, isi slot pe daalo</button>
+    </div>
   </div>
 </div>
 
@@ -1807,13 +1829,17 @@ async function getCFMRecordAllDates(caseNo){
   try{
     const entries=await _idxLookup(caseNo); // [{rec,key}] latest-first
     if(entries.length){
-      // Received wala prefer (latest date se), warna pehla (latest date) — ORIGINAL behaviour
-      let best=null;
-      for(const e of entries){
-        if(e.rec.received==='Received')return e.rec; // latest received = current state
-        if(!best)best=e.rec; // latest date ka record (received na ho to bhi)
+      // LATEST date ka record lo — nextdate/day hamesha CURRENT (latest) honi chahiye.
+      // (Pehle 'received-anywhere prefer' karta tha, par isse PURANI date ka record
+      //  aa jata tha jiski nextdate galat hoti thi — bundle tracker galat date maangta tha.)
+      // received-status alag se dikhaya jata hai; yahan sirf latest record chahiye.
+      const latest=entries[0].rec;
+      // Agar latest pe received nahi, par kisi aur date pe received hai, to received flag latest pe reflect karo
+      // (taaki date latest rahe PAR received-check bhi pass ho) — date latest se, received merge.
+      if(latest.received!=='Received'){
+        for(const e of entries){if(e.rec.received==='Received'){return {...latest,received:'Received',receiveddate:e.rec.receiveddate||latest.receiveddate};}}
       }
-      return best;
+      return latest;
     }
     // Active mein nahi mila — ARCHIVE mein dhundo (90+ din purana file wapas aaya ho)
     return await _archiveLookup(caseNo);
@@ -1976,8 +2002,11 @@ async function getAllOverdueFiles(){
   }
   try{
     const allData=await getAllDatesData(); // cache — single parallel load
-    const keys=Object.keys(allData);
     const today=new Date();today.setHours(0,0,0,0);
+    // PG exact-ditto: 90-din window (archive lag ho tab bhi active-window same)
+    const cutoff=new Date(today);cutoff.setDate(cutoff.getDate()-90);
+    const cutoffISO=cutoff.toISOString().split('T')[0];
+    const keys=Object.keys(allData).filter(k=>k.split('_')[0]>=cutoffISO);
 
     // Pass 1: received state from ALL keys (in-memory, fast)
     const receivedAnywhere=new Set();
@@ -2393,6 +2422,7 @@ async function uploadExcel(){
   reader.onerror=()=>{resetBtn();showToast('❌ File read fail hua','d');};
   reader.onload=async e=>{
     try{
+      if(typeof XLSX==='undefined'){resetBtn();showToast('❌ Excel library load nahi hui — page reload karo','d');return;}
       const wb=XLSX.read(e.target.result,{type:'arraybuffer'});
       const ws=wb.Sheets[wb.SheetNames[0]];
       const allRows=XLSX.utils.sheet_to_json(ws,{defval:""});
@@ -2481,6 +2511,16 @@ const TR_CASE_MAP={
 };
 
 const TR_SEC_MAP=[
+  // ═══ Manu ke custom short-forms (priority) ═══
+  ["dowry prohibition act","DP"],["dowry prohibition","DP"],
+  ["bharatiya nagarik suraksha sanhita","BNSS"],["bhartiya nagrik suraksha sanhita","BNSS"],["nagarik suraksha sanhita","BNSS"],
+  ["bharatiya nyaya sanhita","BNS"],["bhartiya nyaya sanhita","BNS"],["nyaya sanhita","BNS"],
+  ["bharatiya sakshya adhiniyam","BSA"],["bhartiya sakshya adhiniyam","BSA"],["sakshya adhiniyam","BSA"],
+  ["prevention of food adulteration act","PF"],["prevention of food adulteration","PF"],["food adulteration act","PF"],["food adulteration","PF"],
+  ["central excise act","EX"],["uttar pradesh excise act","EX"],["u.p. excise act","EX"],["up excise act","EX"],["excise act","EX"],
+  ["u.p. public gambling act","Gamble"],["public gambling act","Gamble"],["public gambling","Gamble"],["gambling act","Gamble"],
+  ["uttar pradesh gangsters and anti-social activities (prevention) act","Gang"],["u.p. gangsters act","Gang"],["up gangsters act","Gang"],["gangsters act","Gang"],["gangster act","Gang"],
+  // ═══ Standard mappings ═══
   ["protection of children from sexual offences act","POCSO"],
   ["protection of children from sexual offences","POCSO"],["pocso act","POCSO"],
   ["narcotic drugs and psychotropic substances act","NDPS"],
@@ -2489,8 +2529,7 @@ const TR_SEC_MAP=[
   ["protection of women from domestic violence act","PWDVA"],["domestic violence act","DVA"],
   ["scheduled castes and scheduled tribes (prevention of atrocities) act","SC/ST Act"],
   ["scheduled castes and scheduled tribes","SC/ST Act"],["prevention of atrocities act","PoA"],
-  ["food safety and standards act","FSSAI"],["prevention of food adulteration act","PFA"],
-  ["prevention of food adulteration","PFA"],["food adulteration act","PFA"],
+  ["food safety and standards act","FSSAI"],
   ["representation of the people act","RPA"],["representation of people act","RPA"],
   ["right to information act","RTI"],["information technology act","ITA"],
   ["foreign exchange management act","FEMA"],["foreign exchange regulation act","FERA"],
@@ -2506,7 +2545,7 @@ const TR_SEC_MAP=[
   ["benami transactions (prohibition) act","BTA"],["consumer protection act","CPA"],
   ["negotiable instruments act","NIA"],["motor vehicles act","MVA"],["motor vehicle act","MVA"],
   ["hindu marriage act","HMA"],["hindu succession act","HSA"],
-  ["hindu minority and guardianship act","HMGA"],["dowry prohibition act","DPA"],
+  ["hindu minority and guardianship act","HMGA"],
   ["guardians and wards act","GWA"],["guardian and wards act","GWA"],
   ["succession act","SA"],["indian succession act","ISA"],["maintenance act","MA"],
   ["land acquisition act","LAA"],["essential commodities act","ECA"],
@@ -2518,19 +2557,17 @@ const TR_SEC_MAP=[
   ["u.p. rent control act","UPRC"],["up rent control act","UPRC"],["rent control act","RCA"],
   ["national security act","NSA"],["unlawful activities prevention act","UAPA"],
   ["terrorist and disruptive activities act","TADA"],["prevention of terrorism act","POTA"],
-  ["official secrets act","OSA"],["uttar pradesh excise act","UP Excise"],
-  ["u.p. excise act","UP Excise"],["up excise act","UP Excise"],
-  ["uttar pradesh gangsters and anti-social activities (prevention) act","Gangsters"],
-  ["u.p. gangsters act","Gangsters"],["up gangsters act","Gangsters"],["gangsters act","Gangsters"],
+  ["official secrets act","OSA"],
+  
   ["u.p. goonda act","Goonda"],["up goonda act","Goonda"],["goonda act","Goonda"],
   ["u.p. police act","UP Police"],["u.p. revenue code","UP Rev."],
   ["u.p. municipalities act","UP Mun."],["u.p. panchayati raj act","UPPR"],
   ["u.p. prevention of cow slaughter act","CS Act"],["cow slaughter act","CS Act"],
-  ["u.p. public gambling act","PGA"],["forest conservation act","FCA"],
+  ["forest conservation act","FCA"],
   ["wildlife protection act","WPA"],["environment protection act","EPA"],
   ["forest act","FA"],["electricity act","EA"],["arms act","Arms Act"],
   ["explosive substances act","ESA"],["explosives act","ESA"],
-  ["public gambling act","PGA"],["stamp act","SA"],["indian stamp act","ISA"],
+  ["stamp act","SA"],["indian stamp act","ISA"],
   ["registration act","RA"],["probation of offenders act","POA"],
   ["juvenile justice (care and protection) act","JJA"],["juvenile justice act","JJA"],
   ["contempt of courts act","CoCA"],["advocates act","AA"],
@@ -3432,7 +3469,7 @@ async function manualAction(mode){
     if(rec.sent!=="Sent"){showMS("❌ Pehle SENT karo","err");speak("File not sent yet");return;}
     if(rec.received==="Received"){showMS("ℹ️ Already RECEIVED: "+actualCN,"info");speak("Already received");return;}
     cData[idx].received="Received";cData[idx].receiveddate=new Date().toISOString().split("T")[0];cData[idx]._pendingPrev=null;
-    lastRcvCase=actualCN;cData[idx].searchableText=gSrch(cData[idx]);
+    lastRcvCase=actualCN;_ndRcvMode=true;cData[idx].searchableText=gSrch(cData[idx]);
     showMS("✅ RECEIVED: "+actualCN,"ok");speak("File received");haptic('success');manualCaseInput.value="";
     // Search/filter clear karo TABHI taaki row visible ho highlight ke liye
     if(searchBox&&searchBox.value)searchBox.value='';
@@ -3471,17 +3508,28 @@ function scrollToFile(cn){
 }
 
 // ════ NEXT DATE MODAL ════
-let ndJO=null;
+let ndJO=null,_ndRcvMode=false;
 function toggleJO(t){ndJO=ndJO===t?null:t;document.getElementById('jBtn').classList.toggle('on',ndJO==='J');document.getElementById('oBtn').classList.toggle('on',ndJO==='O');}
 function resetJO(){ndJO=null;const j=document.getElementById('jBtn'),o=document.getElementById('oBtn');if(j)j.classList.remove('on');if(o)o.classList.remove('on');}
-function openNDModal(cn){resetJO();const rec=cData.find(r=>caseMatch(r.caseno,cn));document.getElementById("nd-lbl").textContent=(rec?rec.partyname+" — ":"")+cn;document.getElementById("ndInput").value="";const rm=document.getElementById("ndRemark");if(rm)rm.value="";document.getElementById("ndModal").classList.add("on");}
-function closeNDModal(){resetJO();document.getElementById("ndModal").classList.remove("on");lastRcvCase=null;}
-document.getElementById("ndModal").addEventListener("click",function(e){if(e.target===this)closeNDModal();});
+function openNDModal(cn){resetJO();const rec=cData.find(r=>caseMatch(r.caseno,cn));document.getElementById("nd-lbl").textContent=(rec?rec.partyname+" — ":"")+cn;document.getElementById("ndInput").value="";const rm=document.getElementById("ndRemark");if(rm)rm.value="";
+  // Received mode: received-date field dikhao (mandatory), prefill current receiveddate ya today
+  const rw=document.getElementById('nd-rcv-wrap'),ri=document.getElementById('ndRcvInput');
+  if(_ndRcvMode&&rw&&ri){rw.style.display='block';ri.value=(rec&&rec.receiveddate)||new Date().toISOString().split("T")[0];}
+  else if(rw){rw.style.display='none';}
+  document.getElementById("ndModal").classList.add("on");}
+function closeNDModal(){resetJO();document.getElementById("ndModal").classList.remove("on");lastRcvCase=null;_ndRcvMode=false;}
+document.getElementById("ndModal").addEventListener("click",function(e){if(e.target===this&&!_ndRcvMode)closeNDModal();}); // received mode mein bahar-click se band nahi (date choose zaroori)
 async function saveNextDate(){
   if(!lastRcvCase)return;
   const d=document.getElementById("ndInput").value;
   const remark=(document.getElementById("ndRemark")?.value||'').trim();
   const isDispose=/dispose|nipt|nipta|खारिज|disposed/i.test(remark);
+  // Received mode: received-date choose karna MUST hai
+  let rcvDate=null;
+  if(_ndRcvMode){
+    rcvDate=(document.getElementById("ndRcvInput")?.value||'').trim();
+    if(!rcvDate){showToast('⚠️ Received Date choose karo — zaroori hai','d');haptic('error');const ri=document.getElementById('ndRcvInput');if(ri)ri.focus();return;}
+  }
   // Date aur Dispose ek saath nahi ho sakte (conflicting state)
   if(d&&isDispose){
     showToast('⚠️ Date aur Dispose ek saath nahi. Koi ek chuno.','d');
@@ -3493,6 +3541,7 @@ async function saveNextDate(){
     return;
   }
   const idx=cData.findIndex(r=>caseMatch(r.caseno,lastRcvCase));
+  if(idx!==-1&&rcvDate)cData[idx].receiveddate=rcvDate; // chosen received-date set karo
   if(idx!==-1){
     if(d)cData[idx].nextdate=d;
     // Remark add karo
@@ -3515,7 +3564,7 @@ async function saveNextDate(){
   }else if(d){
     speakNextDate(d);
   }
-  await saveLocal();drawTable(getFiltered());updateDash();resetJO();lastRcvCase=null;
+  await saveLocal();drawTable(getFiltered());updateDash();resetJO();lastRcvCase=null;_ndRcvMode=false;
 }
 
 // ════ DOWNLOAD ════
@@ -3954,6 +4003,7 @@ function bSetCat(cat){
     document.querySelectorAll('#b-mdg .db').forEach(b=>b.classList.remove('on'));
     applyLastColForSlot(); // is category ka last col
   }
+  bResetSlotConfirm();
   bRenderColButtons();bUpdateSP();bUpdateST();
 }
 function bClearCat(){
@@ -4052,7 +4102,7 @@ function bRenderColButtons(){
   }
   if(!getColsForDate(bAMD).includes(bAC)){bAC=getColsForDate(bAMD)[0];bRenderColButtons();}
 }
-function bSetCol(c){bAC=c;_lastColForDate[bColKey()]=c;saveLastCols();bRenderColButtons();bUpdateSP();bUpdateST();}
+function bSetCol(c){bAC=c;_lastColForDate[bColKey()]=c;saveLastCols();bResetSlotConfirm();bRenderColButtons();bUpdateSP();bUpdateST();}
 function bBuildMoveCR(){
   const cols=getColsForDate(bMMD);const isSpecial=SPECIAL_DATES.includes(bMMD);
   const wrap=document.getElementById('bm-cr');if(!wrap)return;
@@ -4207,12 +4257,12 @@ function bRenderSlot(){
   document.getElementById('bsd-c').innerHTML=arr.length?arr.map(f=>bFCHTML(f,!!bSlot.cat,true)).join(''):'<div class="bempty">Koi file nahi.</div>';
 }
 function bRenderAdd(){
-  bBDG('b-mdg',bAMD,d=>{bAMD=d;bClearCat();applyLastColForSlot();bRenderColButtons();bRenderAdd();});
-  if(bASD!==null){const el=document.getElementById('b-sdg');if(el)bBDG('b-sdg',bASD,d=>{bASD=d;bRenderAdd();});}
+  bBDG('b-mdg',bAMD,d=>{bAMD=d;bClearCat();applyLastColForSlot();bResetSlotConfirm();bRenderColButtons();bRenderAdd();});
+  if(bASD!==null){const el=document.getElementById('b-sdg');if(el)bBDG('b-sdg',bASD,d=>{bASD=d;bResetSlotConfirm();bRenderAdd();});}
   bUpdateSP();bUpdateST();
 }
-function bEnableSD(){bASD=1;document.getElementById('b-sds').innerHTML='<div class="dgrid" id="b-sdg"></div>';document.getElementById('b-sdc').style.display='inline-block';bBDG('b-sdg',bASD,d=>{bASD=d;bRenderAdd();});bUpdateSP();bUpdateST();}
-function bClearSD(){bASD=null;document.getElementById('b-sds').innerHTML='<button class="sdadd" onclick="bEnableSD()">+ Sub-Date add karo (overflow)</button>';document.getElementById('b-sdc').style.display='none';bUpdateSP();bUpdateST();}
+function bEnableSD(){bASD=1;document.getElementById('b-sds').innerHTML='<div class="dgrid" id="b-sdg"></div>';document.getElementById('b-sdc').style.display='inline-block';bBDG('b-sdg',bASD,d=>{bASD=d;bResetSlotConfirm();bRenderAdd();});bResetSlotConfirm();bUpdateSP();bUpdateST();}
+function bClearSD(){bASD=null;document.getElementById('b-sds').innerHTML='<button class="sdadd" onclick="bEnableSD()">+ Sub-Date add karo (overflow)</button>';document.getElementById('b-sdc').style.display='none';bResetSlotConfirm();bUpdateSP();bUpdateST();}
 function bUpdateSP(){
   const slotKey=bActiveCat?bSK(0,null,bAC,bActiveCat):bSK(bAMD,bASD,bAC,null);
   const ex=(bSM()[slotKey]||[]);
@@ -4313,8 +4363,39 @@ async function bAddFile(rawId,fromScan){
   else{showToast('✅ '+id+' → '+slotLabel);haptic('success');}
   bUpdateSP();bRenderGrid();return true;
 }
-function bMKey(e){if(e.key==='Enter'){e.preventDefault();document.getElementById('b-mi').value.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean).forEach(p=>bAddFile(p,false));document.getElementById('b-mi').value='';}}
-function bMAdd(){document.getElementById('b-mi').value.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean).forEach(p=>bAddFile(p,false));document.getElementById('b-mi').value='';}
+function bMKey(e){if(e.key==='Enter'){e.preventDefault();bMAdd();}}
+function bMAdd(){bMAddList(document.getElementById('b-mi').value);}
+
+// ═══ Slot-confirm gate (manual add) ═══
+// Jab slot (date/sub-date/column/category) change ho, pehli file pe popup — Ok ke baad
+// usi slot pe continuous (dobara popup nahi jab tak slot phir na badle).
+let _confirmedSlot=null;   // jis slot ko user ne confirm kiya (string key)
+let _slotConfirmQueue=[];  // popup ke baad add karne wali files
+function bCurSlotKey(){return bActiveCat?('cat:'+bActiveCat+':'+bAC):('d:'+bAMD+':'+(bASD!=null?bASD:'-')+':'+bAC);}
+function bCurSlotLabel(){return bActiveCat?((CAT_LABELS[bActiveCat]||bActiveCat)+' — '+dispCol(bAC)):(bAMD+(bASD!=null?'/'+bASD:'')+' — '+dispCol(bAC));}
+function bResetSlotConfirm(){_confirmedSlot=null;} // slot badla → dobara confirm chahiye
+function bMAddList(val){
+  const files=(val||'').split(/[\n,]+/).map(s=>s.trim().toUpperCase()).filter(Boolean);
+  document.getElementById('b-mi').value='';
+  if(!files.length){showToast('⚠️ File number daalo','w');return;}
+  // Agar current slot confirmed nahi → pehli file pe popup dikhao, baaki queue mein
+  if(_confirmedSlot!==bCurSlotKey()){
+    _slotConfirmQueue=files.slice();
+    document.getElementById('scFileId').textContent=files[0];
+    document.getElementById('scSlot').textContent=bCurSlotLabel();
+    document.getElementById('slotConfirmModal').classList.add('on');
+    return;
+  }
+  // Slot already confirmed → seedha add (continuous)
+  files.forEach(p=>bAddFile(p,false));
+}
+function bSlotConfirmOk(){
+  _confirmedSlot=bCurSlotKey(); // ab is slot pe continuous
+  document.getElementById('slotConfirmModal').classList.remove('on');
+  const files=_slotConfirmQueue.slice();_slotConfirmQueue=[];
+  files.forEach(p=>bAddFile(p,false));
+}
+function bSlotConfirmCancel(){_slotConfirmQueue=[];document.getElementById('slotConfirmModal').classList.remove('on');}
 // FREE ADD — pehle confirmation popup (slot dikhega, OK ke baad add)
 let _freeConfirmQueue=[]; // multiple files ke liye queue
 function bFreeMAdd(){
@@ -4474,10 +4555,21 @@ function _decId(escaped){
   try{const t=document.createElement('textarea');t.innerHTML=escaped;return t.value;}
   catch(e){return escaped.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'");}
 }
-function toggleBulkSel(){_ddSelMode=!_ddSelMode;_ddSel.clear();const btn=document.getElementById('bsd-sel-btn');if(btn){btn.textContent=_ddSelMode?'✕ Cancel':'☑ Select';btn.classList.toggle('on',_ddSelMode);}document.getElementById('bsd-bulk-bar').style.display='none';bRenderSlot();}
+function toggleBulkSel(){_ddSelMode=!_ddSelMode;_ddSel.clear();const btn=document.getElementById('bsd-sel-btn');if(btn){btn.textContent=_ddSelMode?'✕ Cancel':'☑ Select';btn.classList.toggle('on',_ddSelMode);}document.getElementById('bsd-bulk-bar').style.display=_ddSelMode?'flex':'none';updateBulkBar();bRenderSlot();}
 function clearBulkSel(){_ddSel.clear();updateBulkBar();bRenderSlot();}
 function toggleFileSel(checkbox){const rawId=_decId(checkbox.dataset.fileid||'');if(checkbox.checked)_ddSel.add(rawId);else _ddSel.delete(rawId);updateBulkBar();const card=checkbox.closest('.bfc');if(card)card.classList.toggle('dd-selected',checkbox.checked);}
-function updateBulkBar(){const bar=document.getElementById('bsd-bulk-bar'),cnt=document.getElementById('bsd-sel-count');if(bar)bar.style.display=_ddSel.size>0?'flex':'none';if(cnt)cnt.textContent=_ddSel.size+' file(s) selected';}
+function updateBulkBar(){const bar=document.getElementById('bsd-bulk-bar'),cnt=document.getElementById('bsd-sel-count');if(bar)bar.style.display=(_ddSelMode||_ddSel.size>0)?'flex':'none';if(cnt)cnt.textContent=_ddSel.size+' file(s) selected';}
+function selectAllInSlot(){
+  if(!bSlot)return;
+  let arr;
+  if(bSlot.cat){arr=Object.values(bFiles).filter(f=>!f.hidden&&f.cat===bSlot.cat);}
+  else{arr=(bSM()[bSK(bSlot.md,bSlot.sd,bSlot.col,null)]||[]);}
+  const ids=arr.map(f=>f.id);
+  const allSel=ids.length>0&&ids.every(id=>_ddSel.has(id));
+  if(allSel){ids.forEach(id=>_ddSel.delete(id));} // sab pehle se selected → toggle off (deselect all)
+  else{ids.forEach(id=>_ddSel.add(id));}
+  updateBulkBar();bRenderSlot();
+}
 async function bulkMoveSelected(){if(!_ddSel.size)return;_bulkMoveMode=true;const first=[..._ddSel][0];const f=bFiles[first];if(f){bMMD=f.md;bMSD=f.sd!=null?f.sd:null;bMC=f.col;}document.getElementById('bm-fid').textContent=_ddSel.size+' files selected';bRenderMoveForm();document.getElementById('bmModal').classList.add('on');}
 function onFileDragStart(e,el){const rawId=_decId(el.dataset.fileid||'');if(_ddSelMode&&_ddSel.size>0&&_ddSel.has(rawId)){_ddDragIds=[..._ddSel];}else{_ddDragIds=[rawId];}e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',JSON.stringify(_ddDragIds));setTimeout(()=>{_ddDragIds.forEach(fid=>{const card=document.querySelector(`.bfc[data-fileid="${esc(fid)}"]`);if(card)card.classList.add('dragging');});},0);}
 function onFileDragEnd(e){document.querySelectorAll('.bfc.dragging').forEach(el=>el.classList.remove('dragging'));}
