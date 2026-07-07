@@ -3773,8 +3773,18 @@ async function tgSendBackup(silent){
     fd.append('chat_id',cfg.chatId);
     fd.append('document',blob,fname);
     fd.append('caption','📁 Court Manager Auto-Backup\n📅 '+new Date().toLocaleString('en-IN')+'\n📊 '+Object.keys(bk.metadataStore||{}).length+' dates, '+(bk.bundlesStore||[]).length+' bundle files');
-    const res=await fetch('https://api.telegram.org/bot'+cfg.token+'/sendDocument',{method:'POST',body:fd});
-    const data=await res.json();
+    // Fetch with timeout — network hang pe permanent stall na ho
+    let data=null,lastErr=null;
+    for(let attempt=0;attempt<2&&!data;attempt++){
+      try{
+        const ctrl=new AbortController();
+        const timer=setTimeout(()=>ctrl.abort(),30000);
+        const res=await fetch('https://api.telegram.org/bot'+cfg.token+'/sendDocument',{method:'POST',body:fd,signal:ctrl.signal});
+        clearTimeout(timer);
+        data=await res.json();
+      }catch(e){lastErr=e;if(attempt===0)await new Promise(r=>setTimeout(r,1500));}
+    }
+    if(!data){if(!silent)showToast('❌ Telegram error: '+(lastErr&&lastErr.message||'network'),'d');else console.warn('tgSendBackup fail (retry next cycle):',lastErr&&lastErr.message);return false;}
     if(data.ok){
       if(!silent)showToast('✅ Backup Telegram pe bhej diya!');
       const st=document.getElementById('tgStatus');if(st){st.textContent='✅ Last sent: '+new Date().toLocaleTimeString('en-IN');st.className='smsg s-ok';}
@@ -3961,7 +3971,7 @@ async function handleCFMScan(code,mode){
   }else{
     if(cData[idx].sent!=="Sent"){showSC('❌ Pehle SENT karo: '+actualCN,'#dc2626');speak("File not sent yet");haptic('error');redFlash();return;}
     if(cData[idx].received==="Received"){showSC('ℹ️ Already Received: '+actualCN,'#d97706');speak("Already received");return;}
-    cData[idx].received="Received";cData[idx].receiveddate=new Date().toISOString().split("T")[0];cData[idx]._pendingPrev=null;cData[idx].searchableText=gSrch(cData[idx]);lastRcvCase=actualCN;
+    cData[idx].received="Received";cData[idx].receiveddate=new Date().toISOString().split("T")[0];cData[idx]._pendingPrev=null;cData[idx].searchableText=gSrch(cData[idx]);lastRcvCase=actualCN;_ndRcvMode=true;
     showSC('✅ RECEIVED: '+actualCN,'#16a34a');speak("File received");haptic('scan');
     closeScan();
     // Search/filter clear for highlight
@@ -4898,6 +4908,13 @@ function fbProg(pct,label){
 }
 
 // Push ALL data with PERCENTAGE progress
+// Batch commit with timeout — network hang pe permanent stall na ho (reject → retry chale)
+function commitWithTimeout(batch,ms){
+  return Promise.race([
+    batch.commit(),
+    new Promise((_,rej)=>setTimeout(()=>rej(new Error('commit timeout '+ms+'ms')),ms))
+  ]);
+}
 async function fbPushAll(){
   if(!_fbDb){showToast('⚠️ Firebase connect nahi hai! Pehle credentials daal kar Connect karo.','d');return;}
   // Secondary device push nahi kar sakta — sirf main device data push karta hai
@@ -4920,10 +4937,14 @@ async function fbPushAll(){
     // Ye ONE-BY-ONE se ~50-100x fast hai (45 min → ~30 sec)
     fbProg(5,'CFM data ready kar rahe hain...');
     // Pehle jo push karne hain woh collect karo (changed only)
+    // BULK READ — pehle har date ke liye alag idbGM (73+ sequential tx) lagti thi,
+    // jo slow device pe "5% pe atak jana" ka karan banti thi. Ab ek hi bulk transaction.
+    const bulkData=await idbBulkGet(SM,dataKeys);
     const toPush=[]; // {key, data, hash}
     for(const k of dataKeys){
       try{
-        const d=await idbGM(k);
+        const rec=bulkData[k];
+        const d=rec?rec.value:null;
         if(d&&Array.isArray(d)&&d.length){
           const dataStr=JSON.stringify(d);
           const hash=quickHash(dataStr);
@@ -4934,6 +4955,7 @@ async function fbPushAll(){
         }
       }catch(e){failCount++;failedDates.push(k);}
     }
+    fbProg(8,'CFM: '+toPush.length+' dates push karni hain ('+skipped+' unchanged skip)...');
 
     // Batches mein commit karo — COUNT (450) YA SIZE (~8MB) jo pehle aaye
     // (Firestore limits: 500 ops/batch AUR 10MiB per request — dono respect karo)
@@ -4957,7 +4979,7 @@ async function fbPushAll(){
           chunk.forEach(item=>{
             batch.set(_fbDb.collection('cfm').doc(item.key),{data:item.data,at:Date.now()});
           });
-          await batch.commit();
+          await commitWithTimeout(batch,20000); // 20s timeout — hang pe retry
           committed=true;
         }catch(e){lastErr=e;await new Promise(r=>setTimeout(r,500*(attempt+1)));}
       }
@@ -4989,7 +5011,7 @@ async function fbPushAll(){
         try{
           const batch=_fbDb.batch();
           chunk.forEach(m=>{batch.set(_fbDb.collection('cfm_meta').doc(m.date),{versions:m.vs,cv:m.cv,at:Date.now()});});
-          await batch.commit();
+          await commitWithTimeout(batch,20000);
           metaCount+=chunk.length;
         }catch(e){console.error('meta batch:',e);}
       }
@@ -5181,6 +5203,10 @@ function startCmPeriodicSync(){
         fbPush().catch(()=>{});
       }
     }
+    // Daily backup check bhi har cycle — taaki app pehle se khula ho tab bhi
+    // 3:30 PM cross hote hi backup chala jaye (pehle sirf startup pe check hota tha,
+    // isliye subah-khula app sham ka backup miss kar deta tha).
+    checkDailyBackup().catch(()=>{});
   },30000); // 30 seconds
 }
 async function fbPushBundle(){
