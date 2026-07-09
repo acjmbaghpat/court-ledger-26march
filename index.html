@@ -1044,7 +1044,7 @@ button{transition:transform .12s var(--ease),filter .2s,background .2s}
         <div><div class="lbl">File Dhundo</div><div class="sub">Number type karo — location show hogi</div></div>
       </div>
       <div class="bswrap"><span class="bsico">🔎</span>
-        <input type="text" id="b-si" placeholder="File number type karo..." oninput="bRenderSearch()">
+        <input type="text" id="b-si" placeholder="File number type karo..." oninput="bSearchDebounced()">
       </div>
       <div style="margin-top:14px" id="b-sr"></div>
     </div>
@@ -1057,6 +1057,7 @@ button{transition:transform .12s var(--ease),filter .2s,background .2s}
         <div style="color:var(--mu);font-size:12px;font-weight:500">Date tap karo → files dekho</div>
         <button class="rtog" id="rbtn" onclick="toggleRM()">⇄ Rearrange</button>
       </div>
+      <button id="sdvBtn" onclick="toggleSubdateView()" style="width:100%;padding:9px;margin-bottom:10px;border-radius:9px;border:1.5px solid var(--teal);background:#fff;color:var(--teal);font-size:12px;font-weight:700;cursor:pointer">📐 Sub-Date View — kaunsi file kis sub-date pe rakhi hai</button>
       <div class="legend">
         <span><span class="ld" style="background:var(--amber)"></span>Half (25–39)</span>
         <span><span class="ld" style="background:var(--red)"></span>Full (40+)</span>
@@ -1207,13 +1208,23 @@ button{transition:transform .12s var(--ease),filter .2s,background .2s}
   <div class="msh">
     <div class="mt">⇄ Move / Rearrange</div>
     <div class="msub" id="bm-fid"></div>
-    <span class="blbl mt0" style="display:block">Naya Main Date</span>
-    <div class="dgrid" id="bm-mdg"></div>
-    <div style="display:flex;align-items:center;margin-top:12px">
-      <span class="blbl" style="margin:0">Sub-Date <span style="font-weight:400">(optional)</span></span>
-      <button class="clrbtn" id="bm-sdc" onclick="bmClearSD()" style="display:none">✕ Clear</button>
+    <div style="display:flex;gap:6px;margin:8px 0 4px">
+      <button class="bm-mode-btn on" id="bm-mode-date" onclick="bmSetMode('date')" style="flex:1;padding:8px;border-radius:8px;border:1.5px solid var(--blue);background:var(--blue);color:#fff;font-size:12px;font-weight:700;cursor:pointer">📅 Date pe</button>
+      <button class="bm-mode-btn" id="bm-mode-cat" onclick="bmSetMode('cat')" style="flex:1;padding:8px;border-radius:8px;border:1.5px solid var(--bdr);background:#fff;color:var(--txt);font-size:12px;font-weight:700;cursor:pointer">📂 Category pe</button>
     </div>
-    <div id="bm-sds"><button class="sdadd" onclick="bmEnableSD()">+ Sub-Date add karo</button></div>
+    <div id="bm-date-section">
+      <span class="blbl mt0" style="display:block">Naya Main Date</span>
+      <div class="dgrid" id="bm-mdg"></div>
+      <div style="display:flex;align-items:center;margin-top:12px">
+        <span class="blbl" style="margin:0">Sub-Date <span style="font-weight:400">(optional)</span></span>
+        <button class="clrbtn" id="bm-sdc" onclick="bmClearSD()" style="display:none">✕ Clear</button>
+      </div>
+      <div id="bm-sds"><button class="sdadd" onclick="bmEnableSD()">+ Sub-Date add karo</button></div>
+    </div>
+    <div id="bm-cat-section" style="display:none">
+      <span class="blbl mt0" style="display:block">Special Category chuno</span>
+      <div id="bm-cat-btns" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px"></div>
+    </div>
     <span class="blbl" style="display:block">Naya Column</span>
     <div class="crow" id="bm-cr"></div>
     <div class="nloc">New → <strong id="bm-prev">—</strong></div>
@@ -1359,6 +1370,28 @@ button{transition:transform .12s var(--ease),filter .2s,background .2s}
 </div>
 
 <script>
+// ════ GLOBAL ERROR SAFETY NET ════
+// Unexpected error aaye to app silently toot na jaye — user ko pata chale + console mein detail
+window.addEventListener('error',function(ev){
+  try{
+    const msg=(ev&&ev.error&&ev.error.message)||ev.message||'Unknown error';
+    // Storage-full error ko special handle karo (data-loss risk)
+    if(/quota|QuotaExceeded|storage/i.test(String(msg))){
+      if(typeof showToast==='function')showToast('⚠️ Storage full ho gaya! Purana data delete karo ya backup le lo.','d');
+    }
+    console.error('[GlobalError]',msg,ev&&ev.filename,ev&&ev.lineno);
+  }catch(e){}
+});
+window.addEventListener('unhandledrejection',function(ev){
+  try{
+    const reason=(ev&&ev.reason&&ev.reason.message)||String(ev&&ev.reason||'');
+    if(/quota|QuotaExceeded/i.test(reason)){
+      if(typeof showToast==='function')showToast('⚠️ Storage full — backup le lo aur purana data delete karo.','d');
+    }
+    console.error('[UnhandledRejection]',reason);
+  }catch(e){}
+});
+
 // ════ DOM REFS ════
 const workDate       = document.getElementById('workDate');
 const versionSelect  = document.getElementById('versionSelect');
@@ -1391,11 +1424,6 @@ function switchDP(btn){
   if(id==='dp-qr')qrRefreshPending();
 }
 // Shortcut: open drawer on specific panel
-function openDrawerOn(panelId){
-  openDrawer();
-  const btn=document.querySelector(`.dtab[data-dp="${panelId}"]`);
-  if(btn) switchDP(btn);
-}
 
 // ════ INDEXEDDB ════
 const DB_NAME='CourtFileManagerDB',DB_VER=4;
@@ -1469,7 +1497,6 @@ const idbGM  =k=>idbTx(SM,'readonly',s=>s.get(k)).then(r=>r?r.value:null);
 const idbSM  =(k,v)=>idbTx(SM,'readwrite',s=>s.put({key:k,value:v}));
 const idbDM  =k=>idbTx(SM,'readwrite',s=>s.delete(k));
 const idbAMK =()=>idbTx(SM,'readonly',s=>s.getAllKeys());
-const idbGB  =id=>idbTx(SB,'readonly',s=>s.get(id));
 const idbSBn =obj=>idbTx(SB,'readwrite',s=>s.put(obj));
 const idbDB  =id=>idbTx(SB,'readwrite',s=>s.delete(id));
 const idbAB  =()=>idbTx(SB,'readonly',s=>s.getAll());
@@ -1498,7 +1525,6 @@ function speak(msg,lang){
 }
 
 // Hindi mein date bolne ka function
-const HINDI_DATES=['','ek','do','teen','chaar','paanch','chhe','saat','aath','nau','das','gyarah','barah','terah','chaudah','pandrah','solah','satrah','atharah','unnees','bees','ikkees','baais','teis','chaubees','pachees','chhabbees','sattaais','atthaais','untees','tees','ikattees'];
 const HINDI_MONTHS={'January':'Januari','February':'Februari','March':'March','April':'April','May':'Mayi','June':'June','July':'Julai','August':'August','September':'Sitambar','October':'October','November':'November','December':'December'};
 function speakNextDate(isoDate){
   try{
@@ -1650,10 +1676,6 @@ function normSlash(s){
 }
 
 // Extract just numeric signature: digits and slashes — e.g. "123/2024"
-function numSig(s){
-  const parts=String(s||'').match(/\d[\d\/\-]*/g)||[];
-  return parts.join('/').replace(/\/{2,}/g,'/');
-}
 
 // Expand abbreviations in a string
 function expandAbbr(s){
@@ -1730,22 +1752,7 @@ function findCaseIdx(query){
   idx=cData.findIndex(r=>caseMatch(r.caseno,q));
   return idx;
 }
-function getMatchedCaseNo(query){
-  const idx=findCaseIdx(query);
-  return idx!==-1?cData[idx].caseno:query;
-}
 
-function getCFMDay(caseNo){
-  const r=cData.find(x=>caseMatch(x.caseno,caseNo));
-  if(!r||!r.nextdate)return null;
-  const parts=String(r.nextdate).split('-');
-  if(parts.length<3)return null; // malformed date guard
-  const day=parseInt(parts[2],10);
-  return isNaN(day)?null:day; // NaN guard
-}
-function getCFMRecord(caseNo){
-  return cData.find(x=>caseMatch(x.caseno,caseNo));
-}
 // Saari IDB dates mein dhundo (current cData mein na ho to) — best/latest record
 // ════ SHARED ALL-DATES CACHE — speed boost ════
 // Saari IDB dates ek baar load karke cache karo, baar-baar scan na karo
@@ -1890,7 +1897,7 @@ window.onload=async()=>{
     loadPendingQueue(); // offline mein jo pending tha woh load karo (app band hone pe bhi yaad)
     await autoArchiveOldData(true).catch(()=>{}); // 90+ din data archive (Firebase push SE PEHLE complete ho)
     await bInit(); // BUNDLE files IDB se load karo — Firebase connect SE PEHLE (warna empty push ho jata hai)
-    updateSU();updateHdrDate();syncAddCaseDateLabel();checkReminders();qrLoad();
+    updateSU();updateHdrDate();syncAddCaseDateLabel();checkReminders();
     pgCacheLoad(workDate.value); // purana peshgar mismatch dikhao (Firebase connect hone tak)
     fbLoadConfig(); // ab Firebase connect karo — bFiles load ho chuka, sahi bundle push hoga
     tgLoadCfg(); // telegram config load
@@ -1983,10 +1990,6 @@ versionSelect.addEventListener("change",async()=>{upV=parseInt(versionSelect.val
 
 // ════ OVERDUE HELPERS ════
 // Aaj ki date hai ya back date?
-function isToday(dateStr){
-  if(!dateStr)return false;
-  return dateStr===new Date().toISOString().split('T')[0];
-}
 
 // Overdue ke liye: sabhi dates+versions mein jo files SENT hain lekin RECEIVED nahi
 // Har ek sent instance ko alag track karo — caseno duplicate ho sakta hai
@@ -2051,24 +2054,6 @@ async function getAllOverdueFiles(){
 }
 
 // checkTodayFiles ke liye: sabhi dates+versions ka latest state (dedup by caseno)
-async function getAllCDataOverall(){
-  try{
-    const allData=await getAllDatesData(); // cache (fast)
-    const map={};
-    for(const k of Object.keys(allData)){
-      allData[k].forEach(r=>{
-        const key=String(r.caseno||'').trim().toUpperCase();
-        if(!key)return;
-        const ex=map[key];
-        if(!ex){map[key]={...r,_srcKey:k};return;}
-        if(r.received==='Received'&&ex.received!=='Received'){map[key]={...r,_srcKey:k};return;}
-        if(ex.received==='Received'&&r.received!=='Received')return;
-        if((r.sentdate||'')>=(ex.sentdate||''))map[key]={...r,_srcKey:k};
-      });
-    }
-    return Object.values(map);
-  }catch(e){return cData;}
-}
 
 // ════ PESHGAR MISMATCH (CFM sent par Peshgar received nahi) ════
 let _pgData=null; // {caseno: {received,...}} current workDate ka peshgar data
@@ -2867,7 +2852,7 @@ async function statusShow(caseno){
 
   const events=await statusGetHistory(caseno);
   if(!events.length){
-    res.innerHTML=`<div style="text-align:center;padding:20px;color:var(--red);font-size:13px;font-weight:600">❌ "${caseno}" — koi record nahi mila</div>`;
+    res.innerHTML=`<div style="text-align:center;padding:20px;color:var(--red);font-size:13px;font-weight:600">❌ "${esc(caseno)}" — koi record nahi mila</div>`;
     return;
   }
 
@@ -2945,20 +2930,7 @@ function startStatusScan(){
 // ════ END STATUS MODAL ════
 
 // ════ QR CODE MODULE ════
-// _qrGenerated: caseno set — jo kabhi bhi kisi bhi date mein generate ho chuke
-let _qrGenerated=new Set();
-const QR_IDB_KEY='qr_generated';
 
-// Load generated set from IDB on startup
-async function qrLoad(){
-  try{
-    const gen=await idbGM(QR_IDB_KEY);
-    if(gen&&Array.isArray(gen))_qrGenerated=new Set(gen);
-  }catch(e){}
-}
-async function qrSave(){
-  try{await idbSM(QR_IDB_KEY,[..._qrGenerated]);}catch(e){}
-}
 
 // Current date ki sent files sorted by senttime — jo generate nahi hui
 function qrGetPending(){
@@ -3039,7 +3011,7 @@ async function qrGenerateQueue(){
   pending.forEach(r=>inner.appendChild(qrMakeCard(r.caseno)));
   await new Promise(r=>setTimeout(r,400));
   qrCanvasToImg();
-  // NOTE: _qrGenerated mark NAHI karte — manual files repeat generate ho sakti hain
+  // NOTE: generate-tracking hataya gaya — manual files repeat generate ho sakti hain
   // Sirf scan hone par hi pending se hatti hain (_qrScanned flag)
   document.getElementById('qrPrintArea').style.display='block';
   closeDrawer();
@@ -3993,7 +3965,6 @@ async function hideBundleEntry(caseNo){
 }
 
 // ════ BUNDLE STATE + COLUMNS ════
-const COLS_NORMAL=COLS;
 const BUNDLE_CATS=['OLD','COMMITTAL','JAIL','NAKAL','STAY','SPLDIR','FR'];
 const CAT_LABELS={'OLD':'📂 Old','COMMITTAL':'⛓ Committal','JAIL':'🔒 Jail','NAKAL':'📋 Nakal','STAY':'⏸ Stay','SPLDIR':'📌 Spl. Direction','FR':'📎 FR'};
 // Bundle category → CFM remark word (jab file is category mein add ho, ye word remark mein auto-add)
@@ -4059,7 +4030,7 @@ function applyLastColForSlot(){
     }
   }
 }
-let bMMD=1,bMSD=null,bMC='A';
+let bMMD=1,bMSD=null,bMC='A',bMCat=null;
 let mmPending={id:'',cfmDay:0},mmSD=1;
 function bSM(){
   const m={};
@@ -4130,6 +4101,7 @@ function bBuildMoveCR(){
 function bMSetCol(c){bMC=c;bBuildMoveCR();bUpdateMP();}
 function bCC(arr){if(!arr||!arr.length)return'sc-e';if(arr.some(f=>f.st==='missing'))return'sc-m';return arr.length>=40?'sc-f':arr.length>=25?'sc-h':'sc-e';}
 function bRenderGrid(){
+  if(_subdateView){bRenderSubdateView();return;} // sub-date view ON hai to wahi dikhao
   const gc=document.getElementById('bgc');
   const wdVal=document.getElementById('workDate')?.value||new Date().toISOString().split('T')[0];
   const todayDay=parseInt(wdVal.split('-')[2]||new Date().getDate());
@@ -4217,6 +4189,51 @@ function bOSlotCat(cat){
   document.getElementById('bview-slot').classList.add('on');
 }
 function toggleRM(){bRM=!bRM;const b=document.getElementById('rbtn');b.textContent=bRM?'✓ Done':'⇄ Rearrange';b.classList.toggle('on',bRM);bRenderGrid();}
+
+// ═══ SUB-DATE VIEW (point 1) ═══
+// Normal grid main-date ke hisaab se dikhata hai. Ye alag view sirf un files ko dikhata hai
+// jo apni-original-date se ALAG sub-date pe rakhi gayi hain — taaki pata chale
+// "25 date ki file 13 sub-date pe D column mein rakhi hai" (overflow tracking).
+let _subdateView=false;
+function toggleSubdateView(){
+  _subdateView=!_subdateView;
+  const b=document.getElementById('sdvBtn');
+  if(b){b.textContent=_subdateView?'✕ Normal Grid pe wapas':'📐 Sub-Date View — kaunsi file kis sub-date pe rakhi hai';b.style.background=_subdateView?'var(--teal)':'#fff';b.style.color=_subdateView?'#fff':'var(--teal)';}
+  if(_subdateView)bRenderSubdateView();else bRenderGrid();
+}
+function bRenderSubdateView(){
+  const gc=document.getElementById('bgc');if(!gc)return;
+  // Sirf sub-date wali files (sd != null), non-hidden, non-category
+  const sdFiles=Object.values(bFiles).filter(f=>!f.hidden&&!f.cat&&f.sd!=null);
+  if(!sdFiles.length){
+    gc.innerHTML='<div style="background:#eef2ff;border-radius:10px;padding:16px;text-align:center;color:var(--mu);font-size:13px;font-weight:600">📐 Koi file sub-date pe nahi rakhi.<br><span style="font-size:11px;font-weight:400">Jab kisi date ki file overflow ho ke doosri (sub) date pe rakhi jaati hai, wo yahan dikhegi.</span></div>';
+    return;
+  }
+  // Group by main-date (jis date ki file hai)
+  const byMd={};
+  sdFiles.forEach(f=>{(byMd[f.md]=byMd[f.md]||[]).push(f);});
+  const mds=Object.keys(byMd).map(Number).sort((a,b)=>a-b);
+  let h=`<div style="background:#ccfbf1;border-radius:10px;padding:9px 13px;margin-bottom:12px;font-size:12px;font-weight:600;color:#0f766e">📐 Sub-Date View — ${sdFiles.length} file(s) apni date se alag sub-date pe rakhi hain</div>`;
+  mds.forEach(md=>{
+    const files=byMd[md];
+    // Sub-group by sub-date+column
+    const bySlot={};
+    files.forEach(f=>{const k=f.sd+'|'+f.col;(bySlot[k]=bySlot[k]||[]).push(f);});
+    h+=`<div style="background:var(--sur);border:1.5px solid var(--bdr);border-radius:12px;padding:12px 14px;margin-bottom:10px">`;
+    h+=`<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px"><span style="font-size:24px;font-weight:800;color:var(--navy);line-height:1">${md}</span><div style="font-size:12px;color:var(--mu);font-weight:600">tareek ki ${files.length} file(s) — sub-date pe rakhi</div></div>`;
+    // Har slot (sub-date + column)
+    Object.keys(bySlot).sort((a,b)=>{const[sa,ca]=a.split('|'),[sb,cb]=b.split('|');return (+sa-+sb)||ca.localeCompare(cb);}).forEach(k=>{
+      const[sd,col]=k.split('|');const arr=bySlot[k];
+      h+=`<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--sur2);border-radius:8px;margin-bottom:5px;flex-wrap:wrap">`;
+      h+=`<span style="background:#0891b2;color:#fff;font-size:12px;font-weight:800;padding:3px 10px;border-radius:20px">Sub-date ${sd} → ${dispCol(col)} col</span>`;
+      h+=`<span style="font-size:12px;color:var(--txt);font-weight:600">${arr.length} file:</span>`;
+      h+=arr.map(f=>`<span class="rmfb" style="display:inline-block;width:auto;padding:3px 9px;font-size:11px;cursor:pointer;background:#fff;border:1px solid var(--bdr);border-radius:6px" onclick="bOpenMove('${esc(f.id).replace(/'/g,"\\\\'")}')">${esc(f.id)}</span>`).join(' ');
+      h+=`</div>`;
+    });
+    h+=`</div>`;
+  });
+  gc.innerHTML=h;
+}
 function bOpenDate(date){
   bActiveDate=date;const m=bSM();const isSpecial=SPECIAL_DATES.includes(date);
   const slotsForDate=Object.entries(m).filter(([k])=>+k.split('|')[0]===date).map(([k,arr])=>({...bPK(k),arr}));
@@ -4497,10 +4514,42 @@ function cancelMismatch(){document.getElementById('mmModal').classList.remove('o
 async function bSetStatus(id,st){if(!bFiles[id])return;bFiles[id].st=st;await idbSBn(bFiles[id]);scheduleBundlePush();showToast(st==='missing'?'⚠ Missing: '+id:'✅ Restored: '+id,st==='missing'?'w':'');bRenderGrid();if(bSlot)bRenderSlot();bRenderSearch();}
 async function bUnhide(id){if(!bFiles[id])return;bFiles[id].hidden=false;await idbSBn(bFiles[id]);scheduleBundlePush();showToast('✅ '+id+' wapas dikhaya');bRenderGrid();bRenderSearch();}
 async function bDelFile(id){delete bFiles[id];await idbDB(id);scheduleBundlePush();showToast('Hata diya: '+id,'d');bRenderGrid();if(bSlot)bRenderSlot();bRenderSearch();}
-function bOpenMove(id){bMoveId=id;const f=bFiles[id];bMMD=f.md;bMSD=f.sd!=null?f.sd:null;bMC=f.col;document.getElementById('bm-fid').textContent=id;bRenderMoveForm();document.getElementById('bmModal').classList.add('on');}
+function bOpenMove(id){bMoveId=id;const f=bFiles[id];bMMD=f.md;bMSD=f.sd!=null?f.sd:null;bMC=f.col;bMCat=f.cat||null;document.getElementById('bm-fid').textContent=id;bmApplyMode(bMCat?'cat':'date');bRenderMoveForm();document.getElementById('bmModal').classList.add('on');}
+function bmSetMode(mode){
+  if(mode==='cat'&&!bMCat)bMCat=BUNDLE_CATS[0]; // default pehli category
+  if(mode==='date')bMCat=null;
+  bmApplyMode(mode);
+  bRenderMoveForm();
+}
+function bmApplyMode(mode){
+  const dateSec=document.getElementById('bm-date-section'),catSec=document.getElementById('bm-cat-section');
+  const dBtn=document.getElementById('bm-mode-date'),cBtn=document.getElementById('bm-mode-cat');
+  const isCat=(mode==='cat');
+  if(dateSec)dateSec.style.display=isCat?'none':'block';
+  if(catSec)catSec.style.display=isCat?'block':'none';
+  if(dBtn){dBtn.style.background=isCat?'#fff':'var(--blue)';dBtn.style.color=isCat?'var(--txt)':'#fff';dBtn.style.borderColor=isCat?'var(--bdr)':'var(--blue)';}
+  if(cBtn){cBtn.style.background=isCat?'var(--blue)':'#fff';cBtn.style.color=isCat?'#fff':'var(--txt)';cBtn.style.borderColor=isCat?'var(--blue)':'var(--bdr)';}
+  if(isCat)bmRenderCatBtns();
+}
+function bmRenderCatBtns(){
+  const wrap=document.getElementById('bm-cat-btns');if(!wrap)return;
+  wrap.innerHTML=BUNDLE_CATS.map(cat=>{
+    const on=(bMCat===cat);
+    return `<button onclick="bMCat='${cat}';bmRenderCatBtns();bUpdateMP()" style="padding:8px 12px;border-radius:8px;border:1.5px solid ${on?'var(--teal)':'var(--bdr)'};background:${on?'var(--teal)':'#fff'};color:${on?'#fff':'var(--txt)'};font-size:12px;font-weight:700;cursor:pointer">${CAT_LABELS[cat]||cat}</button>`;
+  }).join('');
+}
 function closeBMModal(){document.getElementById('bmModal').classList.remove('on');bMoveId=null;}
 document.getElementById('bmModal').addEventListener('click',function(e){if(e.target===this)closeBMModal();});
 function bRenderMoveForm(){
+  if(bMCat){
+    // Category mode: date-grid skip, sirf column + category buttons
+    bmRenderCatBtns();
+    // Column row — category ke liye normal cols (A-F ya jo bhi getColsForDate(0) de)
+    const cols=getColsForDate(0);const wrap=document.getElementById('bm-cr');
+    if(wrap){wrap.className='crow';wrap.innerHTML=cols.map(c=>`<button class="cb${bMC===c?' on':''}" onclick="bMSetCol('${c}')">${c}</button>`).join('');}
+    bUpdateMP();
+    return;
+  }
   bBDG('bm-mdg',bMMD,d=>{bMMD=d;bBuildMoveCR();bRenderMoveForm();});bBuildMoveCR();
   const sec=document.getElementById('bm-sds');
   if(bMSD!==null){if(!document.getElementById('bm-sdg')){sec.innerHTML='<div class="dgrid" id="bm-sdg"></div>';document.getElementById('bm-sdc').style.display='inline-block';}bBDG('bm-sdg',bMSD,d=>{bMSD=d;bRenderMoveForm();});}
@@ -4509,22 +4558,35 @@ function bRenderMoveForm(){
 }
 function bmEnableSD(){bMSD=1;document.getElementById('bm-sds').innerHTML='<div class="dgrid" id="bm-sdg"></div>';document.getElementById('bm-sdc').style.display='inline-block';bBDG('bm-sdg',bMSD,d=>{bMSD=d;bRenderMoveForm();});bUpdateMP();}
 function bmClearSD(){bMSD=null;document.getElementById('bm-sds').innerHTML='<button class="sdadd" onclick="bmEnableSD()">+ Sub-Date add karo</button>';document.getElementById('bm-sdc').style.display='none';bUpdateMP();}
-function bUpdateMP(){document.getElementById('bm-prev').textContent=`Date ${bMMD}${bMSD!=null?'/'+bMSD:''} — ${dispCol(bMC)}`;}
+function bUpdateMP(){document.getElementById('bm-prev').textContent=bMCat?`${CAT_LABELS[bMCat]||bMCat} — ${dispCol(bMC)}`:`Date ${bMMD}${bMSD!=null?'/'+bMSD:''} — ${dispCol(bMC)}`;}
 async function doBundleMove(){
+  // Category mode: md=0, sd=null, cat set. Date mode: cat=null.
+  const applyTarget=(fileObj)=>{
+    if(bMCat){fileObj.md=0;fileObj.sd=null;fileObj.col=bMC;fileObj.cat=bMCat;}
+    else{fileObj.md=bMMD;fileObj.sd=bMSD;fileObj.col=bMC;fileObj.cat=null;}
+  };
+  const targetLabel=bMCat?`${CAT_LABELS[bMCat]||bMCat}-${dispCol(bMC)}`:`Date ${bMMD}${bMSD!=null?'/'+bMSD:''}-${dispCol(bMC)}`;
   if(_bulkMoveMode&&_ddSel.size>0){
-    for(const rawId of _ddSel){if(!bFiles[rawId])continue;bFiles[rawId].md=bMMD;bFiles[rawId].sd=bMSD;bFiles[rawId].col=bMC;await idbSBn(bFiles[rawId]);}
+    for(const rawId of _ddSel){if(!bFiles[rawId])continue;applyTarget(bFiles[rawId]);await idbSBn(bFiles[rawId]);}
     scheduleBundlePush();
-    showToast(`✅ ${_ddSel.size} files moved → Date ${bMMD}${bMSD!=null?'/'+bMSD:''}-${dispCol(bMC)}`);
+    showToast(`✅ ${_ddSel.size} files moved → ${targetLabel}`);
     _ddSel.clear();_bulkMoveMode=false;_ddSelMode=false;
     const btn=document.getElementById('bsd-sel-btn');if(btn){btn.textContent='☑ Select';btn.classList.remove('on');}
     document.getElementById('bsd-bulk-bar').style.display='none';
     closeBMModal();bRenderGrid();if(bSlot){bSlot=null;swBV('grid');}bRenderSearch();return;
   }
   _bulkMoveMode=false;if(!bMoveId||!bFiles[bMoveId])return;
-  bFiles[bMoveId].md=bMMD;bFiles[bMoveId].sd=bMSD;bFiles[bMoveId].col=bMC;await idbSBn(bFiles[bMoveId]);
+  applyTarget(bFiles[bMoveId]);await idbSBn(bFiles[bMoveId]);
   scheduleBundlePush();
-  showToast(`✅ Moved → Date ${bMMD}${bMSD!=null?'/'+bMSD:''}-${dispCol(bMC)}`);
+  showToast(`✅ Moved → ${targetLabel}`);
   closeBMModal();bRenderGrid();if(bSlot){bSlot=null;swBV('grid');}bRenderSearch();
+}
+let _bSearchT=null;
+function bSearchDebounced(){
+  // Har keystroke pe poore bFiles filter+render mat karo (5000+ files pe 1-2s lag)
+  // 160ms rukо, phir render — typing smooth rehti hai
+  clearTimeout(_bSearchT);
+  _bSearchT=setTimeout(()=>bRenderSearch(),160);
 }
 function bRenderSearch(){
   const siEl=document.getElementById('b-si');
@@ -4580,7 +4642,7 @@ function selectAllInSlot(){
   else{ids.forEach(id=>_ddSel.add(id));}
   updateBulkBar();bRenderSlot();
 }
-async function bulkMoveSelected(){if(!_ddSel.size)return;_bulkMoveMode=true;const first=[..._ddSel][0];const f=bFiles[first];if(f){bMMD=f.md;bMSD=f.sd!=null?f.sd:null;bMC=f.col;}document.getElementById('bm-fid').textContent=_ddSel.size+' files selected';bRenderMoveForm();document.getElementById('bmModal').classList.add('on');}
+async function bulkMoveSelected(){if(!_ddSel.size)return;_bulkMoveMode=true;const first=[..._ddSel][0];const f=bFiles[first];if(f){bMMD=f.md;bMSD=f.sd!=null?f.sd:null;bMC=f.col;bMCat=f.cat||null;}document.getElementById('bm-fid').textContent=_ddSel.size+' files selected';bmApplyMode(bMCat?'cat':'date');bRenderMoveForm();document.getElementById('bmModal').classList.add('on');}
 function onFileDragStart(e,el){const rawId=_decId(el.dataset.fileid||'');if(_ddSelMode&&_ddSel.size>0&&_ddSel.has(rawId)){_ddDragIds=[..._ddSel];}else{_ddDragIds=[rawId];}e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',JSON.stringify(_ddDragIds));setTimeout(()=>{_ddDragIds.forEach(fid=>{const card=document.querySelector(`.bfc[data-fileid="${esc(fid)}"]`);if(card)card.classList.add('dragging');});},0);}
 function onFileDragEnd(e){document.querySelectorAll('.bfc.dragging').forEach(el=>el.classList.remove('dragging'));}
 function onSlotDragOver(e,btn){e.preventDefault();e.dataTransfer.dropEffect='move';btn.classList.add('drop-over');}
