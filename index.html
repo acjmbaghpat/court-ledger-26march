@@ -841,8 +841,6 @@ button{transition:transform .12s var(--ease),filter .2s,background .2s}
 
         <button class="btn primary" onclick="fbPushAll()" style="margin-top:8px">☁️ Sabhi Data Push Karo</button>
         <button class="btn primary" id="fbPullBtn" onclick="fbPullAll()" style="margin-top:6px;background:linear-gradient(135deg,#0891b2,#0e7490)">⬇️ Sabhi Data Pull Karo</button>
-        <button class="btn neutral" onclick="bundleDiagnose()" style="margin-top:6px;font-size:12px">🔧 Bundle Sync Diagnose</button>
-        <div id="bDiagOut" style="display:none;margin-top:8px;padding:10px 12px;border-radius:8px;font-size:11px;font-weight:600;line-height:1.6;white-space:pre-wrap"></div>
         <p class="fb-note">Firebase Console → Project Settings → Web App → Config</p>
       </div>
     </div>
@@ -1514,27 +1512,6 @@ function idbBulkGet(store,keys){
         r.onerror=()=>{doneCount++;if(doneCount===keys.length){clearTimeout(timer);finish();}}; // ek key fail ho to baaki continue
       }catch(e){doneCount++;}
     });
-  });
-}
-// BULK BUNDLE WRITE — 5000+ files ek-ek karke likhne mein (har file = alag transaction)
-// phone pe 20-30 SECOND lagta tha, aur us dauraan Secondary "0 files" dikhata tha.
-// Ek hi transaction mein sab likho = 100-200ms. Purani files bhi clear karo (mirror).
-function idbBulkPutBundle(files,clearFirst){
-  return new Promise((resolve)=>{
-    if(!db){resolve(false);return;}
-    const arr=Object.values(files||{});
-    let settled=false;
-    const finish=(ok)=>{if(!settled){settled=true;resolve(ok);}};
-    try{
-      const tx=db.transaction(SB,'readwrite');
-      const s=tx.objectStore(SB);
-      const timer=setTimeout(()=>finish(false),20000); // safety
-      tx.oncomplete=()=>{clearTimeout(timer);finish(true);};
-      tx.onerror=()=>{clearTimeout(timer);finish(false);};
-      tx.onabort=()=>{clearTimeout(timer);finish(false);};
-      if(clearFirst){try{s.clear();}catch(e){}} // purana bundle hatao (Secondary = mirror)
-      arr.forEach(f=>{try{s.put(f);}catch(e){}});
-    }catch(e){console.error('idbBulkPutBundle:',e);finish(false);}
   });
 }
 const idbSV  =(d,v)=>idbTx(SV,'readwrite',s=>s.put({workDate:d,versions:v}));
@@ -4188,10 +4165,7 @@ async function importBackup(event){
     // Archive store restore (90+ din purana data)
     if(bk.archiveStore)for(const[k,v]of Object.entries(bk.archiveStore))await idbSAR(k,v);
     invalidateAllDatesCache();
-    if(bk.bundlesStore&&Array.isArray(bk.bundlesStore)){
-      const bmap={};bk.bundlesStore.forEach(b=>{if(b&&b.id)bmap[b.id]=b;});
-      await idbBulkPutBundle(bmap,false); // BULK — ek transaction (5000 files bhi instant)
-    }
+    if(bk.bundlesStore&&Array.isArray(bk.bundlesStore))for(const b of bk.bundlesStore)await idbSBn(b);
     await loadVersions();await loadCurV();await loadLocal();
     if(bk.bundlesStore){const allB=await idbAB();bFiles={};allB.forEach(b=>bFiles[b.id]=b);}
     stEl.textContent="✅ Restore ho gaya!";stEl.className="smsg s-ok";showToast('✅ Backup restore ho gaya!');
@@ -4371,7 +4345,6 @@ const SHELF_LETTERS=['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O'
 const SPECIAL_DATES=[29,30,31];
 let bFiles={},bRM=false,bMoveId=null,bSlot=null,bActiveDate=null;
 let _bundleLoaded=false; // bInit ne bundle files load kiye? (empty push se bachne ke liye)
-let _bundleSizeWarned=false; // 800KB warning ek hi baar dikhe
 let bAMD=1,bASD=null,bAC='A';
 let bFreeAdd=false; // Free Add mode — CFM cross-check off, bina objection ke add
 // Har date (aur category) ka last-used column yaad rakho — taaki dobara add pe wahi auto-select ho
@@ -5146,10 +5119,10 @@ async function fbPullSilent(){
       if(bd&&bd.files&&typeof bd.files==='object'){
         const incoming={};
         for(const id in bd.files)incoming[id]=bd.files[id];
-        bFiles=incoming;           // memory turant (UI foran dikhe)
-        _bundleLoaded=true;
+        for(const id in incoming){try{await idbSBn(incoming[id]);}catch(e){}}
+        bFiles=incoming;          // atomic assign — await ke BAAD
+        _bundleLoaded=true;       // bundle aa gaya (bInit ab overwrite na kare)
         bundleN=Object.keys(incoming).length;
-        await idbBulkPutBundle(incoming,true); // BULK: ek transaction (5000 files = 150ms)
       }
     }
     // URGENT
@@ -5321,17 +5294,16 @@ function startSecondarySync(){
           return;
         }
         _secEmptyConfirmed=false;
-        // BULK WRITE: pehle har file alag transaction mein likhti thi (5000+ files =
-        // 5000+ transactions = phone pe 20-30 SECOND, aur tab tak 0 files dikhta tha).
-        // Ab ek hi transaction — 100-200ms.
+        // RACE FIX: local copy → IDB → phir atomic assign (bInit beech mein bFiles={} kar
+        // sakta hai, isliye await-loop ke andar bFiles use karna khatarnak tha)
         const copy={};
         for(const id in incoming)copy[id]=incoming[id];
-        bFiles=copy;              // memory turant update (UI ko wait na karna pade)
+        for(const id in copy){try{await idbSBn(copy[id]);}catch(e){}}
+        bFiles=copy;
         _bundleLoaded=true;
         if(activeTab==='bundle')bRenderGrid();
         bUpdateSP&&bUpdateSP();
         setSyncDot('ok');
-        await idbBulkPutBundle(copy,true); // IDB background mein (clear + bulk put)
       }
     }
   },e=>{console.error('secondary bundle sync:',e);});
@@ -5665,105 +5637,6 @@ function startCmPeriodicSync(){
     checkDailyBackup().catch(()=>{});
   },30000); // 30 seconds
 }
-// ═══ BUNDLE SYNC DIAGNOSE ═══
-// Bundle Firebase pe nahi ja raha? Ye har step check karke exact wajah batata hai,
-// aur theek kar sakta hai. (Sabse common: device galti se Secondary set reh gaya —
-// Secondary kabhi push nahi karta, isliye Firebase pe bundle 0 rehta hai.)
-async function bundleDiagnose(){
-  const out=document.getElementById('bDiagOut');
-  if(!out)return;
-  out.style.display='block';
-  out.style.background='#e0f2fe';out.style.color='#075985';
-  out.textContent='🔧 Check ho raha hai...';
-  const L=[];
-  let problem=null;
-  try{
-    // 1. Local bundle
-    const idbFiles=await idbAB();
-    const memCount=Object.keys(bFiles).length;
-    L.push('📦 Local bundle: '+memCount+' memory / '+idbFiles.length+' IDB');
-    if(!_bundleLoaded){L.push('⚠️ _bundleLoaded = false (push block hoga)');problem='notloaded';}
-
-    // 2. Device role
-    L.push('📱 Device role: '+(deviceRole||'(set nahi)'));
-    if(deviceRole==='secondary'){
-      L.push('🔴 YEHI PROBLEM HAI!');
-      L.push('   Secondary device KABHI push nahi karta.');
-      L.push('   Isliye Firebase pe bundle 0 hai.');
-      problem='secondary';
-    }
-
-    // 3. Firebase connection
-    if(!_fbDb){L.push('🔴 Firebase connected nahi hai');problem=problem||'nofb';}
-    else{
-      L.push('☁️ Firebase: connected');
-      // 4. Firebase pe bundle doc
-      try{
-        const snap=await _fbDb.collection('bundle').doc('main').get();
-        if(!snap.exists){L.push('🔴 Firebase pe bundle/main doc NAHI hai');problem=problem||'nodoc';}
-        else{
-          const d=snap.data();
-          const fbCount=(d&&d.files)?Object.keys(d.files).length:0;
-          L.push('☁️ Firebase bundle: '+fbCount+' files');
-          if(fbCount===0&&memCount>0){L.push('🔴 Firebase pe 0 par local mein '+memCount);problem=problem||'empty';}
-          if(fbCount>0&&memCount===0){L.push('ℹ️ Firebase pe data hai par local khali — Pull karo');}
-        }
-      }catch(e){L.push('🔴 Firebase read fail: '+e.message);problem=problem||'readfail';}
-    }
-
-    // Faisla
-    L.push('');
-    if(problem==='secondary'){
-      L.push('✅ FIX: Ye device MAIN hona chahiye.');
-      L.push('   Neeche "MAIN banao + Push" dabao.');
-      out.style.background='#fee2e2';out.style.color='#991b1b';
-      out.textContent=L.join('\n');
-      const btn=document.createElement('button');
-      btn.className='btn primary';btn.style.cssText='margin-top:8px;width:100%;font-size:12px';
-      btn.textContent='⭐ Ye device MAIN banao + Bundle Push karo';
-      btn.onclick=async()=>{
-        setDeviceRole('main');
-        await new Promise(r=>setTimeout(r,300));
-        const ok=await fbPushBundle();
-        showToast(ok?'✅ Bundle push ho gaya! Secondary pe ab aa jayega.':'❌ Push fail — dobara try karo', ok?'s':'d');
-        setTimeout(()=>bundleDiagnose(),800);
-      };
-      out.appendChild(btn);
-      return;
-    }
-    if(problem==='notloaded'){
-      L.push('✅ FIX: Bundle tab ek baar kholo, phir dobara try karo.');
-      out.style.background='#fef3c7';out.style.color='#92400e';
-    }else if(problem==='nofb'){
-      L.push('✅ FIX: Firebase credentials daalo aur connect karo.');
-      out.style.background='#fef3c7';out.style.color='#92400e';
-    }else if(problem==='nodoc'||problem==='empty'){
-      L.push('✅ FIX: Neeche "Force Push" dabao — bundle Firebase pe chala jayega.');
-      out.style.background='#fef3c7';out.style.color='#92400e';
-      out.textContent=L.join('\n');
-      const btn=document.createElement('button');
-      btn.className='btn primary';btn.style.cssText='margin-top:8px;width:100%;font-size:12px';
-      btn.textContent='☁️ Force Push Bundle ('+Object.keys(bFiles).length+' files)';
-      btn.onclick=async()=>{
-        if(deviceRole==='secondary'){showToast('⚠️ Pehle MAIN banao','w');return;}
-        _bundleLoaded=true; // force
-        const ok=await fbPushBundle();
-        showToast(ok?'✅ Bundle push ho gaya!':'❌ Push fail','d');
-        setTimeout(()=>bundleDiagnose(),800);
-      };
-      out.appendChild(btn);
-      return;
-    }else if(!problem){
-      L.push('✅ Sab theek hai — bundle sync kaam kar raha hai.');
-      out.style.background='#dcfce7';out.style.color='#166534';
-    }
-    out.textContent=L.join('\n');
-  }catch(e){
-    out.style.background='#fee2e2';out.style.color='#991b1b';
-    out.textContent='❌ Diagnose fail: '+e.message;
-  }
-}
-
 async function fbPushBundle(){
   if(!_fbDb)return false;
   if(deviceRole==='secondary')return false; // secondary push nahi karta
@@ -5786,13 +5659,6 @@ async function fbPushBundle(){
     Object.keys(bFiles).forEach(id=>{pushFiles[id]=bFiles[id];});
     const filesArr=Object.values(pushFiles);
     let sizeKB=Math.round(JSON.stringify(pushFiles).length/1024);
-    // EARLY WARNING — 1MB Firestore limit ke kareeb pahunchne se pehle batao,
-    // taaki user ko surprise na ho (limit cross hote hi sync silently ruk jaata hai).
-    if(sizeKB>800&&sizeKB<=1000&&!_bundleSizeWarned){
-      _bundleSizeWarned=true;
-      showToast('⚠️ Bundle '+sizeKB+'KB / 1024KB — limit ke kareeb. Purani SENT files ko Bundle se hata do (Remove mode), warna sync ruk jayega.','w');
-    }
-    if(sizeKB<=800)_bundleSizeWarned=false; // wapas neeche aaya to dobara warn kar sakte hain
     // Agar phir bhi 1MB ke paas hai, to hidden files hata kar sirf visible push karo
     if(sizeKB>1000){
       const visibleOnly={};
@@ -5871,14 +5737,16 @@ async function fbPullAll(){
     if(bundleSnap.exists){
       const d=bundleSnap.data();
       if(d&&d.files){
-        // BULK: purani files clear + nayi likho — sab EK transaction mein.
-        // (Pehle 5000 delete + 5000 put = 10,000 transactions = phone pe minute lag jaata tha)
+        // Clear old IDB bundle data and replace
+        const oldAll=await idbAB();
+        for(const f of oldAll){try{await idbDB(f.id);}catch(e){}}
+        // RACE FIX: local copy banao, IDB likho, phir atomic assign
         const incoming={};
         for(const id in d.files)incoming[id]=d.files[id];
+        for(const id in incoming){try{await idbSBn(incoming[id]);}catch(e){}}
         bFiles=incoming;
         _bundleLoaded=true;
         if(activeTab==='bundle')bRenderGrid();
-        await idbBulkPutBundle(incoming,true);
       }
     }
     // 4. Urgent logs
