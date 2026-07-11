@@ -1911,6 +1911,7 @@ window.onload=async()=>{
     await loadLastCols(); // bundle ke last-used columns load karo
     await loadPushedHashes(); // pushed-date hashes load karo (changed-only push ke liye)
     await unplacedLoadRemarks(); // Bundle Check ke remarks load karo
+    cleanupLegacyKeys().catch(()=>{}); // purane version ki bekaar keys hatao (ek baar)
     loadPendingQueue(); // offline mein jo pending tha woh load karo (app band hone pe bhi yaad)
     await autoArchiveOldData(true).catch(()=>{}); // 90+ din data archive (Firebase push SE PEHLE complete ho)
     await bInit(); // BUNDLE files IDB se load karo — Firebase connect SE PEHLE (warna empty push ho jata hai)
@@ -2020,6 +2021,20 @@ function invalidateOvCache(){_ovCache=null;}
 const UNPLACED_REMARKS_KEY='unplaced_remarks';
 let _unplacedRemarks={};  // {canonical-caseno: remark}
 let _unplacedData=[];     // scan ka result (Excel/render ke liye)
+
+// Purane version ki orphan keys — ab code inhe na likhta hai na padhta hai.
+// IDB mein padi rehti hain aur backup ka size badhati hain. Ek baar hata do.
+// (qr_generated pe 4800 entries mili thi — QR tracking ka purana mechanism,
+//  ab _qrScanned flag record ke andar hi hai.)
+const LEGACY_KEYS=['qr_generated','qr_queue'];
+async function cleanupLegacyKeys(){
+  try{
+    for(const k of LEGACY_KEYS){
+      const v=await idbGM(k);
+      if(v!==null&&v!==undefined){await idbDM(k);console.log('Legacy key removed:',k);}
+    }
+  }catch(e){/* cleanup optional — fail ho to koi baat nahi */}
+}
 
 async function unplacedLoadRemarks(){
   try{const r=await idbGM(UNPLACED_REMARKS_KEY);if(r&&typeof r==='object')_unplacedRemarks=r;}catch(e){}
@@ -2185,6 +2200,56 @@ async function unplacedDownloadExcel(){
   }catch(e){console.error('unplacedDownloadExcel:',e);showToast('❌ Excel banane mein error','d');}
 }
 
+// ═══ ARCHIVE PENDING INDEX ═══
+// Overdue kabhi bhi archive ki wajah se nahi tootna chahiye — file 100 din ki ho ya 500,
+// jab tak wapas receive nahi hui, overdue mein dikhni chahiye.
+// Par poora archive (5 saal mein 3 lakh+ records) har scan par padhna slow hoga.
+// Isliye ek LIGHT index: sirf woh cases jo archive hote waqt PENDING the (sent par
+// received nahi), aur unka minimum data. Ye index archive hone par update hota hai.
+// Structure: {CANON: {caseno, partyname, section, ps, sends:[wdate], recvs:[wdate], disposed}}
+const ARCH_IDX_KEY='archive_pending_idx';
+let _archIdx=null; // memory cache
+
+async function loadArchIdx(){
+  if(_archIdx)return _archIdx;
+  try{const v=await idbGM(ARCH_IDX_KEY);_archIdx=(v&&typeof v==='object')?v:{};}catch(e){_archIdx={};}
+  return _archIdx;
+}
+async function saveArchIdx(){
+  try{await idbSM(ARCH_IDX_KEY,_archIdx||{});}catch(e){console.error('saveArchIdx:',e);}
+}
+// Ek date-key ka data index mein merge karo (archive hone se pehle call hota hai)
+function mergeIntoArchIdx(idx,dateKey,rows){
+  const wd=dateKey.substring(0,10);
+  rows.forEach(r=>{
+    const cn=String(r.caseno||'').trim();
+    if(!cn)return;
+    const ck=_unpKey(cn); // canonical (letters|numbers) — format-safe
+    if(ck==='|')return;
+    let e=idx[ck];
+    if(!e){e=idx[ck]={caseno:cn,partyname:r.partyname||'',section:r.section||'',ps:r.ps||'',sends:[],recvs:[],disposed:false};}
+    if(r._disposed)e.disposed=true;
+    if(r.sent==='Sent'&&!e.sends.includes(wd))e.sends.push(wd);
+    if(r.received==='Received'&&!e.recvs.includes(wd))e.recvs.push(wd);
+    // Party details bhar do agar pehle khali the
+    if(!e.partyname&&r.partyname)e.partyname=r.partyname;
+    if(!e.section&&r.section)e.section=r.section;
+    if(!e.ps&&r.ps)e.ps=r.ps;
+  });
+}
+// Index se un cases ko hatao jo ab settled hain (sab sendings received, ya disposed)
+// — index chhota rehta hai, sirf genuinely-pending cases
+function pruneArchIdx(idx){
+  for(const ck in idx){
+    const e=idx[ck];
+    if(e.disposed){delete idx[ck];continue;}
+    if(!e.sends.length){delete idx[ck];continue;} // kabhi sent hi nahi — overdue ka sawaal nahi
+    const lastRecv=e.recvs.length?e.recvs.reduce((a,b)=>a>b?a:b):null;
+    const pending=e.sends.filter(s=>!lastRecv||s>lastRecv);
+    if(!pending.length)delete idx[ck]; // sab sendings wapis aa gayi — settled
+  }
+}
+
 async function getAllOverdueFiles(){
   // Cache: 20 sec ya jab tak data change na ho (saveLocal invalidate karta hai)
   const ck=workDate.value+'_'+cData.length;
@@ -2194,10 +2259,9 @@ async function getAllOverdueFiles(){
   try{
     const allData=await getAllDatesData(); // cache — single parallel load
     const today=new Date();today.setHours(0,0,0,0);
-    // PG exact-ditto: 90-din window (archive lag ho tab bhi active-window same)
-    const cutoff=new Date(today);cutoff.setDate(cutoff.getDate()-90);
-    const cutoffISO=_localISO(cutoff);
-    const keys=Object.keys(allData).filter(k=>k.split('_')[0]>=cutoffISO);
+    // KOI 90-DIN WINDOW NAHI — file 100 din ki ho ya 500, jab tak wapas receive nahi
+    // hui, overdue mein dikhegi. Archive hone par bhi (archive-index se merge hota hai).
+    const keys=Object.keys(allData);
 
     // NAYA LOGIC — file "cycle" karti hai: sent → received → dobara sent → dobara received.
     // Har SENDING ki apni RECEIVING honi chahiye. Purani receiving se nayi sending "cover"
@@ -2211,39 +2275,65 @@ async function getAllOverdueFiles(){
     // Working-date = us record ki date (datePart, jis list mein file hai).
     //
     // Receiving compare bhi working-date basis pe: receiving ki working-date (uska datePart).
-    const sends={};   // cn -> [{wdate, rec, srcKey, workDate}]  (wdate = working date)
-    const recvs={};   // cn -> [received working-date, ...]
+    // CANONICAL keys (letters|numbers) — active aur archive dono ek hi key pe merge hon,
+    // warna same file do baar aa sakti thi (format alag ho to).
+    const sends={};   // canon -> [{wdate, rec, srcKey, workDate}]
+    const recvs={};   // canon -> [received working-date, ...]
     const disposedSet=new Set();
     for(const k of keys){
       const datePart=k.split('_')[0]; // working date (jis list mein file hai)
       allData[k].forEach(r=>{
-        const cn=String(r.caseno||'').trim().toUpperCase();
+        const cn=String(r.caseno||'').trim();
         if(!cn)return;
-        if(r._disposed)disposedSet.add(cn);
+        const ck=_unpKey(cn);
+        if(ck==='|')return;
+        if(r._disposed)disposedSet.add(ck);
         if(r.sent==='Sent'){
           // Count working-date (datePart) se — file is din Peshgar gayi
-          (sends[cn]=sends[cn]||[]).push({wdate:datePart,rec:r,srcKey:k,workDate:datePart});
+          (sends[ck]=sends[ck]||[]).push({wdate:datePart,rec:r,srcKey:k,workDate:datePart});
         }
         if(r.received==='Received'){
           // Receiving ki working-date (jis list mein receive hui)
-          (recvs[cn]=recvs[cn]||[]).push(datePart);
+          (recvs[ck]=recvs[ck]||[]).push(datePart);
         }
       });
     }
 
+    // ARCHIVE MERGE — 90+ din purani files bhi overdue mein rahengi.
+    // Archive-index se un cases ka data merge karo jo archive hote waqt pending the.
+    // Agar file baad mein (active data mein) receive ho gayi, to wo receiving yahan
+    // already sends/recvs mein hai — cycle-logic khud handle kar lega.
+    const archIdx=await loadArchIdx();
+    for(const ck in archIdx){
+      const e=archIdx[ck];
+      if(e.disposed)disposedSet.add(ck);
+      // Archive ki sendings — rec ke jagah ek synthetic record (display ke liye)
+      e.sends.forEach(wd=>{
+        const arr=(sends[ck]=sends[ck]||[]);
+        if(!arr.some(s=>s.wdate===wd)){
+          const synth={caseno:e.caseno,partyname:e.partyname||'',section:e.section||'',ps:e.ps||'',sent:'Sent',sentdate:'',received:'',remark:'',_fromArchive:true};
+          arr.push({wdate:wd,rec:synth,srcKey:wd+'_1',workDate:wd});
+        }
+      });
+      e.recvs.forEach(wd=>{
+        const arr=(recvs[ck]=recvs[ck]||[]);
+        if(!arr.includes(wd))arr.push(wd);
+      });
+    }
+
     const caseMap={};
-    for(const cn in sends){
-      if(disposedSet.has(cn))continue;                    // disposed → skip
-      const lastRecv=(recvs[cn]&&recvs[cn].length)?recvs[cn].reduce((a,b)=>a>b?a:b):null;
+    for(const ck in sends){
+      if(disposedSet.has(ck))continue;                    // disposed → skip
+      const lastRecv=(recvs[ck]&&recvs[ck].length)?recvs[ck].reduce((a,b)=>a>b?a:b):null;
       // Un-received sendings = jo last-receiving ke BAAD ki working-date wali (ya koi receiving hi nahi)
-      const pendingSends=sends[cn].filter(s=>!lastRecv||s.wdate>lastRecv);
+      const pendingSends=sends[ck].filter(s=>!lastRecv||s.wdate>lastRecv);
       if(!pendingSends.length)continue;                   // sab sendings received ho gayi
       // Sabse PURANI un-received sending ki working-date se count (jitni der se pending)
       const oldest=pendingSends.reduce((a,b)=>a.wdate<b.wdate?a:b);
       const td=new Date(oldest.wdate+'T00:00:00');td.setHours(0,0,0,0);
       const daysDiff=Math.floor((today-td)/86400000);
       if(daysDiff<7)continue;                             // 7 din se kam — abhi overdue nahi
-      caseMap[cn]={...oldest.rec,_srcKey:oldest.srcKey,_workDate:oldest.workDate,_daysDiff:daysDiff,_trackDate:oldest.wdate};
+      caseMap[ck]={...oldest.rec,_srcKey:oldest.srcKey,_workDate:oldest.workDate,_daysDiff:daysDiff,_trackDate:oldest.wdate};
     }
     const result=Object.values(caseMap);
     _ovCache=result;_ovCacheTime=Date.now();_ovCacheKey=ck;
@@ -3847,6 +3937,8 @@ async function autoArchiveOldData(silent){
   const today=new Date();today.setHours(0,0,0,0);
   let archived=0;
   try{
+    const idx=await loadArchIdx(); // pending-index — overdue archive ke baad bhi kaam kare
+    let idxChanged=false;
     const mk=await idbAMK();
     for(const key of mk){
       // Sirf date-version keys (YYYY-MM-DD_N)
@@ -3859,11 +3951,17 @@ async function autoArchiveOldData(silent){
         // 90+ din purana — archive mein move karo
         const d=await idbGM(key);
         if(d){
+          mergeIntoArchIdx(idx,key,d); // PEHLE index mein daalo (overdue ke liye)
+          idxChanged=true;
           await idbSAR(key,d); // archive mein copy
           await idbDM(key);     // active se hatao
           archived++;
         }
       }
+    }
+    if(idxChanged){
+      pruneArchIdx(idx);   // settled cases hatao — index chhota rahe
+      await saveArchIdx();
     }
     if(archived>0){
       invalidateAllDatesCache();invalidateOvCache();
