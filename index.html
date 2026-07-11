@@ -841,6 +841,8 @@ button{transition:transform .12s var(--ease),filter .2s,background .2s}
 
         <button class="btn primary" onclick="fbPushAll()" style="margin-top:8px">☁️ Sabhi Data Push Karo</button>
         <button class="btn primary" id="fbPullBtn" onclick="fbPullAll()" style="margin-top:6px;background:linear-gradient(135deg,#0891b2,#0e7490)">⬇️ Sabhi Data Pull Karo</button>
+        <button class="btn neutral" onclick="bundleDiagnose()" style="margin-top:6px;font-size:12px">🔧 Bundle Sync Diagnose</button>
+        <div id="bDiagOut" style="display:none;margin-top:8px;padding:10px 12px;border-radius:8px;font-size:11px;font-weight:600;line-height:1.6;white-space:pre-wrap"></div>
         <p class="fb-note">Firebase Console → Project Settings → Web App → Config</p>
       </div>
     </div>
@@ -5637,6 +5639,105 @@ function startCmPeriodicSync(){
     checkDailyBackup().catch(()=>{});
   },30000); // 30 seconds
 }
+// ═══ BUNDLE SYNC DIAGNOSE ═══
+// Bundle Firebase pe nahi ja raha? Ye har step check karke exact wajah batata hai,
+// aur theek kar sakta hai. (Sabse common: device galti se Secondary set reh gaya —
+// Secondary kabhi push nahi karta, isliye Firebase pe bundle 0 rehta hai.)
+async function bundleDiagnose(){
+  const out=document.getElementById('bDiagOut');
+  if(!out)return;
+  out.style.display='block';
+  out.style.background='#e0f2fe';out.style.color='#075985';
+  out.textContent='🔧 Check ho raha hai...';
+  const L=[];
+  let problem=null;
+  try{
+    // 1. Local bundle
+    const idbFiles=await idbAB();
+    const memCount=Object.keys(bFiles).length;
+    L.push('📦 Local bundle: '+memCount+' memory / '+idbFiles.length+' IDB');
+    if(!_bundleLoaded){L.push('⚠️ _bundleLoaded = false (push block hoga)');problem='notloaded';}
+
+    // 2. Device role
+    L.push('📱 Device role: '+(deviceRole||'(set nahi)'));
+    if(deviceRole==='secondary'){
+      L.push('🔴 YEHI PROBLEM HAI!');
+      L.push('   Secondary device KABHI push nahi karta.');
+      L.push('   Isliye Firebase pe bundle 0 hai.');
+      problem='secondary';
+    }
+
+    // 3. Firebase connection
+    if(!_fbDb){L.push('🔴 Firebase connected nahi hai');problem=problem||'nofb';}
+    else{
+      L.push('☁️ Firebase: connected');
+      // 4. Firebase pe bundle doc
+      try{
+        const snap=await _fbDb.collection('bundle').doc('main').get();
+        if(!snap.exists){L.push('🔴 Firebase pe bundle/main doc NAHI hai');problem=problem||'nodoc';}
+        else{
+          const d=snap.data();
+          const fbCount=(d&&d.files)?Object.keys(d.files).length:0;
+          L.push('☁️ Firebase bundle: '+fbCount+' files');
+          if(fbCount===0&&memCount>0){L.push('🔴 Firebase pe 0 par local mein '+memCount);problem=problem||'empty';}
+          if(fbCount>0&&memCount===0){L.push('ℹ️ Firebase pe data hai par local khali — Pull karo');}
+        }
+      }catch(e){L.push('🔴 Firebase read fail: '+e.message);problem=problem||'readfail';}
+    }
+
+    // Faisla
+    L.push('');
+    if(problem==='secondary'){
+      L.push('✅ FIX: Ye device MAIN hona chahiye.');
+      L.push('   Neeche "MAIN banao + Push" dabao.');
+      out.style.background='#fee2e2';out.style.color='#991b1b';
+      out.textContent=L.join('\n');
+      const btn=document.createElement('button');
+      btn.className='btn primary';btn.style.cssText='margin-top:8px;width:100%;font-size:12px';
+      btn.textContent='⭐ Ye device MAIN banao + Bundle Push karo';
+      btn.onclick=async()=>{
+        setDeviceRole('main');
+        await new Promise(r=>setTimeout(r,300));
+        const ok=await fbPushBundle();
+        showToast(ok?'✅ Bundle push ho gaya! Secondary pe ab aa jayega.':'❌ Push fail — dobara try karo', ok?'s':'d');
+        setTimeout(()=>bundleDiagnose(),800);
+      };
+      out.appendChild(btn);
+      return;
+    }
+    if(problem==='notloaded'){
+      L.push('✅ FIX: Bundle tab ek baar kholo, phir dobara try karo.');
+      out.style.background='#fef3c7';out.style.color='#92400e';
+    }else if(problem==='nofb'){
+      L.push('✅ FIX: Firebase credentials daalo aur connect karo.');
+      out.style.background='#fef3c7';out.style.color='#92400e';
+    }else if(problem==='nodoc'||problem==='empty'){
+      L.push('✅ FIX: Neeche "Force Push" dabao — bundle Firebase pe chala jayega.');
+      out.style.background='#fef3c7';out.style.color='#92400e';
+      out.textContent=L.join('\n');
+      const btn=document.createElement('button');
+      btn.className='btn primary';btn.style.cssText='margin-top:8px;width:100%;font-size:12px';
+      btn.textContent='☁️ Force Push Bundle ('+Object.keys(bFiles).length+' files)';
+      btn.onclick=async()=>{
+        if(deviceRole==='secondary'){showToast('⚠️ Pehle MAIN banao','w');return;}
+        _bundleLoaded=true; // force
+        const ok=await fbPushBundle();
+        showToast(ok?'✅ Bundle push ho gaya!':'❌ Push fail','d');
+        setTimeout(()=>bundleDiagnose(),800);
+      };
+      out.appendChild(btn);
+      return;
+    }else if(!problem){
+      L.push('✅ Sab theek hai — bundle sync kaam kar raha hai.');
+      out.style.background='#dcfce7';out.style.color='#166534';
+    }
+    out.textContent=L.join('\n');
+  }catch(e){
+    out.style.background='#fee2e2';out.style.color='#991b1b';
+    out.textContent='❌ Diagnose fail: '+e.message;
+  }
+}
+
 async function fbPushBundle(){
   if(!_fbDb)return false;
   if(deviceRole==='secondary')return false; // secondary push nahi karta
