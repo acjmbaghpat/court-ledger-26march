@@ -1589,7 +1589,7 @@ function sId(id){return String(id||"").replace(/[^a-zA-Z0-9-_]/g,'_');}
 // (Dark/Night mode hata diya gaya — sirf light theme)
 function gSrch(r){return DK.map(k=>r[k]||"").join(' ').toLowerCase();}
 function dKey(){
-  const wd=(workDate&&workDate.value&&workDate.value.trim())||new Date().toISOString().split('T')[0];
+  const wd=(workDate&&workDate.value&&workDate.value.trim())||_localISO(new Date());
   return wd+'_'+(upV||1);
 }
 function fmtD(iso){if(!iso)return"";const p=iso.split("-");return p.length===3?p[2]+"-"+p[1]+"-"+p[0]:iso;}
@@ -1877,14 +1877,6 @@ async function _archiveLookup(caseNo){
   }catch(e){console.error('_archiveLookup:',e);return null;}
 }
 // Saari dates se CFM day nikalo
-async function getCFMDayAllDates(caseNo){
-  const rec=await getCFMRecordAllDates(caseNo);
-  if(!rec||!rec.nextdate)return null;
-  const parts=String(rec.nextdate).split('-');
-  if(parts.length<3)return null;
-  const day=parseInt(parts[2],10);
-  return isNaN(day)?null:day;
-}
 
 // ════ INIT ════
 window.onload=async()=>{
@@ -1895,7 +1887,7 @@ window.onload=async()=>{
   }
   try{
     await openDB();
-    workDate.value=new Date().toISOString().split("T")[0];
+    workDate.value=_localISO(new Date());
     await loadVersions();await loadCurV();await loadLocal();
     await loadLastCols(); // bundle ke last-used columns load karo
     await loadPushedHashes(); // pushed-date hashes load karo (changed-only push ke liye)
@@ -2366,49 +2358,73 @@ async function markPendingFromPrevious(){
     const allData=await getAllDatesData(); // cache (fast)
     const curKey=dKey();
     const today=new Date();today.setHours(0,0,0,0);
-    // Pehle: har caseno jo kisi bhi date pe RECEIVED hui (taaki double-count na ho)
-    const receivedAnywhere=new Set();
+
+    // Overdue jaisa EXACT cycle-aware logic (taaki tag aur overdue-list match karein):
+    // File cycle karti hai (sent → received → dobara sent → ...). Har sending ki apni
+    // receiving honi chahiye — purani receiving nayi sending ko cover nahi karti.
+    // Count WORKING-DATE se (jis list mein file hai) — sent-date advance ho sakti hai.
+    const sends={};   // cn -> [{wdate, sentdate}]
+    const recvs={};   // cn -> [received working-date]
+    const disposedSet=new Set();
     for(const k of Object.keys(allData)){
+      const datePart=k.split('_')[0]; // working date
+      const isCur=(k===curKey);
       allData[k].forEach(r=>{
         const cn=String(r.caseno||'').trim().toUpperCase();
-        if(cn&&r.received==='Received')receivedAnywhere.add(cn);
+        if(!cn)return;
+        if(r._disposed)disposedSet.add(cn);
+        // Sending: sirf PICHLI dates se (current upload ki apni sending count nahi)
+        if(!isCur&&r.sent==='Sent')(sends[cn]=sends[cn]||[]).push({wdate:datePart,sentdate:r.sentdate||''});
+        // Receiving: kisi bhi date se (current bhi — agar aaj receive ho gayi to tag hat jaye)
+        if(r.received==='Received')(recvs[cn]=recvs[cn]||[]).push(datePart);
       });
     }
-    // Ab: har caseno jo kisi PICHLI date pe SENT hui par received nahi (pending)
-    // {normalized caseno → {workDate, sentdate, daysDiff}}
+
+    // Har case: last-receiving ke BAAD ki sabse purani un-received sending
     const pendingMap={};
-    for(const k of Object.keys(allData)){
-      if(k===curKey)continue; // current upload skip
-      const datePart=k.split('_')[0];
-      allData[k].forEach(r=>{
-        const cn=String(r.caseno||'').trim().toUpperCase();
-        if(!cn||r._disposed)return;
-        if(r.sent!=='Sent')return;
-        if(receivedAnywhere.has(cn))return; // kahin received ho gayi — pending nahi
-        // Days since SENT (sentdate prefer, warna upload date)
-        const trackStr=(r.sentdate&&/^\d{4}-\d{2}-\d{2}$/.test(r.sentdate))?r.sentdate:datePart;
-        const td=new Date(trackStr+'T00:00:00');td.setHours(0,0,0,0);
-        const daysDiff=Math.floor((today-td)/86400000);
-        const ex=pendingMap[cn];
-        if(!ex||daysDiff>ex.daysDiff){
-          pendingMap[cn]={workDate:datePart,sentdate:r.sentdate||'',daysDiff:daysDiff};
-        }
-      });
+    for(const cn in sends){
+      if(disposedSet.has(cn))continue;
+      const lastRecv=(recvs[cn]&&recvs[cn].length)?recvs[cn].reduce((a,b)=>a>b?a:b):null;
+      const pending=sends[cn].filter(s=>!lastRecv||s.wdate>lastRecv);
+      if(!pending.length)continue; // sab sendings wapis aa gayi — pending nahi
+      const oldest=pending.reduce((a,b)=>a.wdate<b.wdate?a:b);
+      const td=new Date(oldest.wdate+'T00:00:00');td.setHours(0,0,0,0);
+      const daysDiff=Math.floor((today-td)/86400000);
+      pendingMap[cn]={workDate:oldest.wdate,sentdate:oldest.sentdate,daysDiff:daysDiff};
     }
+
+    // Canonical-key index — O(1) lookup (pehle har row pe poora pendingMap loop hota tha
+    // jo 500-row upload × 2000 pending = ~10 lakh caseMatch calls = 1.7 SECOND lagta tha).
+    // Do index: (1) canonical = letters|numbers (leading-zero/separator/case safe),
+    // (2) abbr-canonical = expandAbbr(letters)|numbers (CC vs CRIMINAL CASE bhi match).
+    // Fuzzy "contains" matching jaan-boojh ke NAHI — bulk-tagging mein wo galat case pe
+    // tag laga sakta tha (false positive). Exact+canonical+abbr sab real formats cover karte hain.
+    const _canon=s=>{
+      const up=String(s||'').toUpperCase();
+      const letters=up.replace(/[^A-Z]/g,'');
+      const nums=up.replace(/[^0-9/\s.\-]/g,'').split(/[/\s.\-]+/).filter(Boolean).map(n=>parseInt(n,10)).join(',');
+      return letters+'|'+nums;
+    };
+    const _canonAbbr=s=>{
+      const up=String(s||'').toUpperCase();
+      const letters=expandAbbr(up.replace(/[^A-Z]/g,''));
+      const nums=up.replace(/[^0-9/\s.\-]/g,'').split(/[/\s.\-]+/).filter(Boolean).map(n=>parseInt(n,10)).join(',');
+      return letters+'|'+nums;
+    };
+    const canonIdx={},abbrIdx={};
+    for(const pk in pendingMap){
+      const ck=_canon(pk);if(ck!=='|'&&!canonIdx[ck])canonIdx[ck]=pendingMap[pk];
+      const ak=_canonAbbr(pk);if(ak!=='|'&&!abbrIdx[ak])abbrIdx[ak]=pendingMap[pk];
+    }
+
     // Current cData ke har case pe flag lagao agar woh pending list mein hai
     let pendingCount=0,overdueCount=0;
     cData.forEach(r=>{
       const cn=String(r.caseno||'').trim().toUpperCase();
-      // Agar current mein already received hai to flag nahi
+      // Agar current mein already received hai to flag hatao (tag turant gayab)
       if(r.received==='Received'){r._pendingPrev=null;return;}
-      // Pending map mein dhundo (caseMatch se — leading zero/format safe)
-      let match=pendingMap[cn];
-      if(!match){
-        // Exact normalized nahi mila to caseMatch fallback
-        for(const pk in pendingMap){
-          if(caseMatch(pk,r.caseno)){match=pendingMap[pk];break;}
-        }
-      }
+      // 1) Exact normalized  2) Canonical  3) Abbr-canonical — sab O(1)
+      const match=pendingMap[cn]||canonIdx[_canon(r.caseno)]||abbrIdx[_canonAbbr(r.caseno)];
       if(match){
         r._pendingPrev={workDate:match.workDate,sentdate:match.sentdate,daysDiff:match.daysDiff,overdue:match.daysDiff>=7};
         pendingCount++;
@@ -3459,13 +3475,13 @@ async function manualAction(mode){
       showMS(`❌ Pehle receive karo! ${wdStr}${sdStr?' (Sent '+sdStr+')':''} mein pending hai`,"err");
       speak("Pehle receive karo");haptic('mismatch');redFlash();return;
     }
-    cData[idx].sent="Sent";cData[idx].sentdate=new Date().toISOString().split("T")[0];cData[idx].senttime=Date.now();cData[idx].searchableText=gSrch(cData[idx]);
+    cData[idx].sent="Sent";cData[idx].sentdate=_localISO(new Date());cData[idx].senttime=Date.now();cData[idx].searchableText=gSrch(cData[idx]);
     showMS("✅ SENT: "+actualCN,"ok");speak("File sent");haptic('success');manualCaseInput.value="";
     await hideBundleEntry(actualCN);
   }else{
     if(rec.sent!=="Sent"){showMS("❌ Pehle SENT karo","err");speak("File not sent yet");return;}
     if(rec.received==="Received"){showMS("ℹ️ Already RECEIVED: "+actualCN,"info");speak("Already received");return;}
-    cData[idx].received="Received";cData[idx].receiveddate=new Date().toISOString().split("T")[0];cData[idx]._pendingPrev=null;
+    cData[idx].received="Received";cData[idx].receiveddate=_localISO(new Date());cData[idx]._pendingPrev=null;
     lastRcvCase=actualCN;_ndRcvMode=true;cData[idx].searchableText=gSrch(cData[idx]);
     showMS("✅ RECEIVED: "+actualCN,"ok");speak("File received");haptic('success');manualCaseInput.value="";
     // Search/filter clear karo TABHI taaki row visible ho highlight ke liye
@@ -3511,7 +3527,7 @@ function resetJO(){ndJO=null;const j=document.getElementById('jBtn'),o=document.
 function openNDModal(cn){resetJO();const rec=cData.find(r=>caseMatch(r.caseno,cn));document.getElementById("nd-lbl").textContent=(rec?rec.partyname+" — ":"")+cn;document.getElementById("ndInput").value="";const rm=document.getElementById("ndRemark");if(rm)rm.value="";
   // Received mode: received-date field dikhao (mandatory), prefill current receiveddate ya today
   const rw=document.getElementById('nd-rcv-wrap'),ri=document.getElementById('ndRcvInput');
-  if(_ndRcvMode&&rw&&ri){rw.style.display='block';ri.value=(rec&&rec.receiveddate)||new Date().toISOString().split("T")[0];}
+  if(_ndRcvMode&&rw&&ri){rw.style.display='block';ri.value=(rec&&rec.receiveddate)||_localISO(new Date());}
   else if(rw){rw.style.display='none';}
   document.getElementById("ndModal").classList.add("on");}
 function closeNDModal(){resetJO();document.getElementById("ndModal").classList.remove("on");lastRcvCase=null;_ndRcvMode=false;}
@@ -3969,13 +3985,13 @@ async function handleCFMScan(code,mode){
       showSC(`❌ Pehle receive karo!\n📅 ${wdStr}${sdStr?' (Sent: '+sdStr+')':''} mein receive pending hai`,'#dc2626');
       speak("Pehle receive karo");haptic('mismatch');redFlash();return;
     }
-    cData[idx].sent="Sent";cData[idx].sentdate=new Date().toISOString().split("T")[0];cData[idx].senttime=Date.now();cData[idx]._qrScanned=true;cData[idx].searchableText=gSrch(cData[idx]);
+    cData[idx].sent="Sent";cData[idx].sentdate=_localISO(new Date());cData[idx].senttime=Date.now();cData[idx]._qrScanned=true;cData[idx].searchableText=gSrch(cData[idx]);
     // Scan se sent = QR pehle se hai — QR pending mein mat dikhao
     showSC('✅ SENT: '+actualCN,'#16a34a');speak("File sent");haptic('scan');await hideBundleEntry(actualCN);
   }else{
     if(cData[idx].sent!=="Sent"){showSC('❌ Pehle SENT karo: '+actualCN,'#dc2626');speak("File not sent yet");haptic('error');redFlash();return;}
     if(cData[idx].received==="Received"){showSC('ℹ️ Already Received: '+actualCN,'#d97706');speak("Already received");return;}
-    cData[idx].received="Received";cData[idx].receiveddate=new Date().toISOString().split("T")[0];cData[idx]._pendingPrev=null;cData[idx].searchableText=gSrch(cData[idx]);lastRcvCase=actualCN;_ndRcvMode=true;
+    cData[idx].received="Received";cData[idx].receiveddate=_localISO(new Date());cData[idx]._pendingPrev=null;cData[idx].searchableText=gSrch(cData[idx]);lastRcvCase=actualCN;_ndRcvMode=true;
     showSC('✅ RECEIVED: '+actualCN,'#16a34a');speak("File received");haptic('scan');
     closeScan();
     // Search/filter clear for highlight
@@ -5578,21 +5594,28 @@ async function ovDownloadExcel(){
 // Agar haan → us date mein receive karo pehle, aage sent mat karo
 async function checkPendingReceive(caseno){
   const cn=String(caseno).toUpperCase().trim();
-  const today=new Date();today.setHours(0,0,0,0);
   const curKey=dKey();
   // Index se sirf is case ke records (with keys) — koi full scan nahi
   const entries=await _idxLookup(cn); // [{rec,key}]
   if(!entries.length)return{found:false};
+  // CYCLE-AWARE (overdue/tag jaisa EXACT): file sent→received→dobara sent→...
+  // Purani receiving nayi sending ko cover nahi karti. Dekho: last-receiving ke BAAD
+  // koi sending hai jo abhi tak receive nahi hui? Agar haan → pehle wo receive karo.
+  const sends=[],recvs=[];let disposed=false;
   for(const{rec,key}of entries){
-    if(key===curKey)continue;
-    const datePart=key.split('_')[0];
-    const wd=new Date(datePart+'T00:00:00');wd.setHours(0,0,0,0);
-    if(wd>=today)continue;
-    if(rec.sent==='Sent'&&rec.received!=='Received'&&!rec._disposed){
-      return{found:true,workDate:datePart,sentdate:rec.sentdate||'',rec};
-    }
+    if(key===curKey)continue;              // current upload skip
+    const datePart=key.split('_')[0];      // working date
+    if(rec._disposed)disposed=true;
+    if(rec.sent==='Sent')sends.push({wdate:datePart,sentdate:rec.sentdate||'',rec});
+    if(rec.received==='Received')recvs.push(datePart);
   }
-  return{found:false};
+  if(disposed||!sends.length)return{found:false};
+  const lastRecv=recvs.length?recvs.reduce((a,b)=>a>b?a:b):null;
+  const pending=sends.filter(s=>!lastRecv||s.wdate>lastRecv);
+  if(!pending.length)return{found:false};  // sab sendings wapis aa gayi
+  // Sabse purani un-received sending — wahi pehle receive karni hai
+  const oldest=pending.reduce((a,b)=>a.wdate<b.wdate?a:b);
+  return{found:true,workDate:oldest.wdate,sentdate:oldest.sentdate,rec:oldest.rec};
 }
 
 async function openOverdueModal(){
