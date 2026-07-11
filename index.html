@@ -2019,30 +2019,31 @@ async function getAllOverdueFiles(){
     // NAYA LOGIC — file "cycle" karti hai: sent → received → dobara sent → dobara received.
     // Har SENDING ki apni RECEIVING honi chahiye. Purani receiving se nayi sending "cover"
     // nahi hoti. Overdue tab: file ki koi sending hai jiske baad receiving nahi hui, aur
-    // us (sabse purani aisi) sending ko 7+ din ho gaye.
+    // us sending ki WORKING-DATE (jis din file court mein lagi / Peshgar ke paas gayi) ko
+    // 7+ din ho gaye.
     //
-    // Manu ka scenario: file 1 june sent → received (5 june). Phir 2 july dobara sent,
-    // abhi tak received nahi. Last-receiving (5 june) ke BAAD ki pehli sending = 2 july.
-    // Aaj 11 july = 9 din → overdue. (Agar beech mein receiving na hoti aur file 1 june se
-    // hi pending hoti, to 1 june se count hota — sabse purani un-received sending.)
+    // IMPORTANT (Manu ka point): count WORKING-DATE se karo, sent-date se nahi.
+    // File Peshgar ke paas apni working-date ko jaati hai. Sent-date advance ho sakti hai
+    // (jaise working 08.07, sent 04.07 ko advance mein). Toh 08.07 se 7 din count karo.
+    // Working-date = us record ki date (datePart, jis list mein file hai).
     //
-    // Har case: saari sendings + saari receivings ki dates jama karo.
-    const sends={};   // cn -> [{date, rec, srcKey, workDate}]
-    const recvs={};   // cn -> [received-date, ...]
+    // Receiving compare bhi working-date basis pe: receiving ki working-date (uska datePart).
+    const sends={};   // cn -> [{wdate, rec, srcKey, workDate}]  (wdate = working date)
+    const recvs={};   // cn -> [received working-date, ...]
     const disposedSet=new Set();
     for(const k of keys){
-      const datePart=k.split('_')[0];
+      const datePart=k.split('_')[0]; // working date (jis list mein file hai)
       allData[k].forEach(r=>{
         const cn=String(r.caseno||'').trim().toUpperCase();
         if(!cn)return;
         if(r._disposed)disposedSet.add(cn);
         if(r.sent==='Sent'){
-          const sd=(r.sentdate&&/^\d{4}-\d{2}-\d{2}$/.test(r.sentdate))?r.sentdate:datePart;
-          (sends[cn]=sends[cn]||[]).push({date:sd,rec:r,srcKey:k,workDate:datePart});
+          // Count working-date (datePart) se — file is din Peshgar gayi
+          (sends[cn]=sends[cn]||[]).push({wdate:datePart,rec:r,srcKey:k,workDate:datePart});
         }
         if(r.received==='Received'){
-          const rd=(r.receiveddate&&/^\d{4}-\d{2}-\d{2}$/.test(r.receiveddate))?r.receiveddate:datePart;
-          (recvs[cn]=recvs[cn]||[]).push(rd);
+          // Receiving ki working-date (jis list mein receive hui)
+          (recvs[cn]=recvs[cn]||[]).push(datePart);
         }
       });
     }
@@ -2051,15 +2052,15 @@ async function getAllOverdueFiles(){
     for(const cn in sends){
       if(disposedSet.has(cn))continue;                    // disposed → skip
       const lastRecv=(recvs[cn]&&recvs[cn].length)?recvs[cn].reduce((a,b)=>a>b?a:b):null;
-      // Un-received sendings = jo last-receiving ke BAAD hui (ya koi receiving hi nahi)
-      const pendingSends=sends[cn].filter(s=>!lastRecv||s.date>lastRecv);
+      // Un-received sendings = jo last-receiving ke BAAD ki working-date wali (ya koi receiving hi nahi)
+      const pendingSends=sends[cn].filter(s=>!lastRecv||s.wdate>lastRecv);
       if(!pendingSends.length)continue;                   // sab sendings received ho gayi
-      // Sabse PURANI un-received sending se count (jitni der se pending)
-      const oldest=pendingSends.reduce((a,b)=>a.date<b.date?a:b);
-      const td=new Date(oldest.date+'T00:00:00');td.setHours(0,0,0,0);
+      // Sabse PURANI un-received sending ki working-date se count (jitni der se pending)
+      const oldest=pendingSends.reduce((a,b)=>a.wdate<b.wdate?a:b);
+      const td=new Date(oldest.wdate+'T00:00:00');td.setHours(0,0,0,0);
       const daysDiff=Math.floor((today-td)/86400000);
       if(daysDiff<7)continue;                             // 7 din se kam — abhi overdue nahi
-      caseMap[cn]={...oldest.rec,_srcKey:oldest.srcKey,_workDate:oldest.workDate,_daysDiff:daysDiff,_trackDate:oldest.date};
+      caseMap[cn]={...oldest.rec,_srcKey:oldest.srcKey,_workDate:oldest.workDate,_daysDiff:daysDiff,_trackDate:oldest.wdate};
     }
     const result=Object.values(caseMap);
     _ovCache=result;_ovCacheTime=Date.now();_ovCacheKey=ck;
