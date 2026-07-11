@@ -842,6 +842,7 @@ button{transition:transform .12s var(--ease),filter .2s,background .2s}
         <button class="btn primary" onclick="fbPushAll()" style="margin-top:8px">☁️ Sabhi Data Push Karo</button>
         <button class="btn primary" id="fbPullBtn" onclick="fbPullAll()" style="margin-top:6px;background:linear-gradient(135deg,#0891b2,#0e7490)">⬇️ Sabhi Data Pull Karo</button>
         <button class="btn neutral" onclick="bundleDiagnose()" style="margin-top:6px;font-size:12px">🔧 Bundle Sync Diagnose</button>
+        <button class="btn neutral" onclick="pushTrace()" style="margin-top:6px;font-size:12px;background:linear-gradient(135deg,#ea580c,#c2410c);color:#fff">📤 Push Trace (MAIN pe)</button>
         <button class="btn neutral" onclick="bundleTrace()" style="margin-top:6px;font-size:12px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff">🔬 Live Pull Trace (Secondary pe)</button>
         <div id="bDiagOut" style="display:none;margin-top:8px;padding:10px 12px;border-radius:8px;font-size:11px;font-weight:600;line-height:1.6;white-space:pre-wrap"></div>
         <p class="fb-note">Firebase Console → Project Settings → Web App → Config</p>
@@ -5694,6 +5695,118 @@ function startCmPeriodicSync(){
 // ═══ LIVE PULL TRACE ═══
 // Secondary pe bundle nahi aa raha? Ye har step LIVE screen pe dikhata hai —
 // exact pata chal jayega ki kahan toot raha hai (guess-work khatam).
+// ═══ PUSH TRACE (Main pe chalao) ═══
+// Bundle Firebase pe nahi ja raha? Ye push ke ANDAR ke har step ko dikhata hai —
+// exact pata chalega ki kahan ruk raha hai ya kya push ho raha hai.
+async function pushTrace(){
+  const out=document.getElementById('bDiagOut');
+  if(!out)return;
+  out.style.display='block';
+  out.style.background='#fff7ed';out.style.color='#7c2d12';
+  const L=[];
+  const P=(s)=>{L.push(s);out.textContent=L.join('\n');};
+  P('📤 PUSH TRACE — Main device\n');
+  try{
+    // STEP 1 — guards
+    P('1️⃣ Firebase: '+(_fbDb?'connected ✓':'🔴 NAHI'));
+    if(!_fbDb){P('\n🔴 RUKA: Firebase connect karo.');return;}
+    P('2️⃣ Device role: '+(deviceRole||'(khali)'));
+    if(deviceRole==='secondary'){
+      P('   🔴 SECONDARY push nahi karta!');
+      P('\n🔴 RUKA: Ye device MAIN banao.');
+      return;
+    }
+    P('3️⃣ _bundleLoaded: '+_bundleLoaded);
+    if(!_bundleLoaded){
+      P('   🔴 false — push guard block karega!');
+      P('   FIX: Bundle tab ek baar kholo, phir try karo.');
+    }
+
+    // STEP 2 — data source
+    P('4️⃣ bFiles (memory): '+Object.keys(bFiles).length+' files');
+    let idbAll=[];
+    try{idbAll=await idbAB();}catch(e){P('   🔴 IDB read fail: '+e.message);}
+    P('5️⃣ IDB: '+idbAll.length+' files');
+
+    if(Object.keys(bFiles).length===0&&idbAll.length===0){
+      P('\n🔴 RUKA: Bundle bilkul khali hai (memory + IDB dono).');
+      P('   Bundle tab mein files add karo pehle.');
+      return;
+    }
+    if(Object.keys(bFiles).length===0&&idbAll.length>0){
+      P('   ⚠️ Memory khali par IDB mein data — recover kar rahe hain...');
+      bFiles={};idbAll.forEach(b=>{bFiles[b.id]=b;});
+      _bundleLoaded=true;
+      P('   ✓ bFiles = '+Object.keys(bFiles).length);
+    }
+
+    // STEP 3 — what will be pushed
+    const pushFiles={};
+    Object.keys(bFiles).forEach(id=>{pushFiles[id]=bFiles[id];});
+    const cnt=Object.keys(pushFiles).length;
+    const sizeKB=Math.round(JSON.stringify(pushFiles).length/1024);
+    P('6️⃣ Push karne ke liye: '+cnt+' files, '+sizeKB+' KB');
+    if(sizeKB>1000){
+      P('   🔴 1MB LIMIT SE UPAR! Firestore reject karega.');
+      const vis={};Object.keys(pushFiles).forEach(id=>{if(!pushFiles[id].hidden)vis[id]=pushFiles[id];});
+      const vSize=Math.round(JSON.stringify(vis).length/1024);
+      P('   Visible-only: '+Object.keys(vis).length+' files, '+vSize+' KB');
+      if(vSize>1000){P('\n🔴 RUKA: Visible bhi 1MB se zyada. Files hatao.');return;}
+      P('   → Visible-only push hoga');
+    }else{
+      P('   ✓ size theek hai');
+    }
+
+    // STEP 4 — ACTUAL WRITE (direct, no guards)
+    P('7️⃣ Firebase pe LIKH rahe hain...');
+    _bundleLoaded=true; // force
+    try{
+      await _fbDb.collection('bundle').doc('main').set({files:pushFiles,count:cnt,at:Date.now()});
+      P('   ✓ write ho gaya (koi error nahi)');
+    }catch(e){
+      P('   🔴 WRITE FAIL: '+e.message);
+      P('   Code: '+(e.code||'(nahi)'));
+      P('\n🔴 RUKA: Firebase ne write reject kiya.');
+      P('   Wajah: rules, size limit, ya network.');
+      return;
+    }
+
+    // STEP 5 — VERIFY (wapas padh ke check karo)
+    P('8️⃣ Verify — wapas padh rahe hain...');
+    await new Promise(r=>setTimeout(r,800)); // Firestore ko settle hone do
+    try{
+      const snap=await _fbDb.collection('bundle').doc('main').get();
+      if(!snap.exists){
+        P('   🔴 Doc exist hi nahi karta write ke baad!');
+        P('\n🔴 Bahut ajeeb — Firebase write accept karke bhi save nahi kar raha.');
+        return;
+      }
+      const d=snap.data();
+      const fbCnt=(d&&d.files)?Object.keys(d.files).length:0;
+      P('   Firebase pe ab: '+fbCnt+' files (count field: '+(d.count!=null?d.count:'?')+')');
+      P('');
+      if(fbCnt===cnt&&fbCnt>0){
+        out.style.background='#dcfce7';out.style.color='#166534';
+        P('✅ PUSH SAFAL! '+fbCnt+' files Firebase pe hain.');
+        P('   Ab Secondary pe Pull karo.');
+      }else if(fbCnt===0){
+        out.style.background='#fee2e2';out.style.color='#991b1b';
+        P('🔴 Write "safal" hua par Firebase pe 0 files!');
+        P('   Ye Firestore ka size/nesting issue ho sakta hai.');
+        P('   Files: '+cnt+', Size: '+sizeKB+'KB');
+      }else{
+        out.style.background='#fef3c7';out.style.color='#92400e';
+        P('⚠️ Adhoora: bheji '+cnt+', pahunchi '+fbCnt);
+      }
+    }catch(e){
+      P('   🔴 Verify read fail: '+e.message);
+    }
+  }catch(e){
+    out.style.background='#fee2e2';out.style.color='#991b1b';
+    P('\n🔴 CRASH: '+e.message);
+  }
+}
+
 async function bundleTrace(){
   const out=document.getElementById('bDiagOut');
   if(!out)return;
