@@ -1616,7 +1616,28 @@ async function switchTab(t){
   document.getElementById('bundleFlt').style.display=t==='bundle'?'flex':'none';
   if(t==='bundle'){
     // IDB se fresh bundle load karo (pull/sync ke baad latest data dikhe)
-    try{const all=await idbAB();bFiles={};all.forEach(b=>{bFiles[b.id]=b;});}catch(e){}
+    // CRITICAL GUARD: agar IDB khali/fail ho PAR memory mein files hain, to memory
+    // wali MAT udao. Pehle seedha bFiles={} hota tha — agar IDB read fail ho jaata
+    // (ya abhi tak write nahi hua tha), to bFiles KHALI reh jaati thi, aur agla push
+    // Firebase pe KHALI bundle bhej deta tha (count:0). Secondary ko 0 files milti thi.
+    try{
+      const all=await idbAB();
+      if(all.length>0){
+        bFiles={};all.forEach(b=>{bFiles[b.id]=b;});
+        _bundleLoaded=true;
+      }else if(Object.keys(bFiles).length>0){
+        // IDB khali par memory mein data hai — memory bachao, IDB dobara likho
+        console.warn('switchTab: IDB khali par memory mein '+Object.keys(bFiles).length+' files — memory bacha rahe hain');
+        idbBulkPutBundle(bFiles,false).catch(()=>{});
+        _bundleLoaded=true;
+      }else{
+        bFiles={};_bundleLoaded=true; // dono khali — genuinely empty
+      }
+    }catch(e){
+      // IDB read FAIL — memory mat udao (warna khali push ho jayega)
+      console.error('switchTab bundle load fail:',e);
+      if(Object.keys(bFiles).length===0)showToast('⚠️ Bundle load fail — app refresh karo','d');
+    }
     bRenderGrid();bUpdateST();
   }
 }
@@ -5892,6 +5913,34 @@ async function fbPushBundle(){
   if(deviceRole==='secondary')return false; // secondary push nahi karta
   // SAFETY: bundle files load hone se pehle push mat karo (warna empty push ho jata hai)
   if(!_bundleLoaded){console.warn('fbPushBundle skipped: bundle abhi load nahi hua');return false;}
+  // SAFETY NET: bFiles khali hai PAR IDB mein files hain? Matlab memory kisi bug se ud gayi.
+  // Aise mein KHALI push mat karo — pehle IDB se recover karo. (Ye Firebase pe count:0
+  // likhne se bachata hai, jisse Secondary ko 0 files milti thi.)
+  if(Object.keys(bFiles).length===0){
+    try{
+      const idbAll=await idbAB();
+      if(idbAll.length>0){
+        console.warn('fbPushBundle: bFiles khali thi par IDB mein '+idbAll.length+' files — recover kar rahe hain');
+        bFiles={};idbAll.forEach(b=>{bFiles[b.id]=b;});
+      }
+    }catch(e){console.error('fbPushBundle recover fail:',e);return false;}
+    // Ab bhi khali? Genuine empty ho sakta hai — par abhi bhi na push karo agar
+    // Firebase pe pehle se files hain (accidental wipe se bachao).
+    if(Object.keys(bFiles).length===0){
+      try{
+        const snap=await _fbDb.collection('bundle').doc('main').get();
+        if(snap.exists){
+          const d=snap.data();
+          const fbCount=(d&&d.files)?Object.keys(d.files).length:0;
+          if(fbCount>0){
+            console.warn('fbPushBundle BLOCKED: local khali par Firebase pe '+fbCount+' files. Accidental wipe se bacha liya.');
+            showToast('⚠️ Local bundle khali hai par Firebase pe '+fbCount+' files hain. Push roka gaya — Pull karo ya app refresh karo.','d');
+            return false;
+          }
+        }
+      }catch(e){/* read fail — aage badho */}
+    }
+  }
   try{
     // Purani HIDDEN (sent-out) files 90+ din se purani local se purge karo
     // (taaki bundle doc chhota rahe, par recent activity Secondary ko bhi dikhe)
