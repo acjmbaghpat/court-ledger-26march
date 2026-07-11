@@ -570,6 +570,7 @@ button{transition:transform .12s var(--ease),filter .2s,background .2s}
       <button class="dtab" data-dp="dp-upload"  onclick="switchDP(this)"><span class="dice">📤</span>Upload</button>
       <button class="dtab" data-dp="dp-translate" onclick="switchDP(this)"><span class="dice">🔤</span>Translate</button>
       <button class="dtab" data-dp="dp-qr" onclick="switchDP(this)"><span class="dice">🔲</span>QR Codes</button>
+      <button class="dtab" data-dp="dp-unplaced" onclick="switchDP(this)"><span class="dice">📦</span>Bundle Check</button>
       <button class="dtab" data-dp="dp-export"  onclick="switchDP(this)"><span class="dice">📥</span>Export</button>
       <button class="dtab" data-dp="dp-sync"    onclick="switchDP(this)"><span class="dice">🔥</span>Firebase</button>
       <button class="dtab" data-dp="dp-backup"  onclick="switchDP(this)"><span class="dice">🗄</span>Backup</button>
@@ -773,6 +774,24 @@ button{transition:transform .12s var(--ease),filter .2s,background .2s}
         </div>
       </div>
     </div>
+    <!-- Panel: Bundle Check (received par bundle mein nahi) -->
+    <div class="dpanel" id="dp-unplaced">
+      <div class="dsec">
+        <div class="dsec-title">📦 Bundle Check — Received par Place Nahi</div>
+        <p style="font-size:12px;color:var(--mu);margin-bottom:10px;font-weight:500">
+          Woh files jo CFM mein <strong>Received</strong> ho chuki hain, par Bundle Tracker mein
+          kahin bhi place nahi hui (na kisi date/column pe, na kisi special category mein).
+          Har file pe remark likh sakte ho.
+        </p>
+        <div style="display:flex;gap:6px;margin-bottom:10px">
+          <button class="btn primary" onclick="scanUnplacedFiles()" style="flex:1;margin-top:0;font-size:12px">🔍 Scan Karo</button>
+          <button class="btn success" onclick="unplacedDownloadExcel()" style="flex:1;margin-top:0;font-size:12px">📊 Excel</button>
+        </div>
+        <div id="unplacedInfo" style="font-size:12px;font-weight:600;padding:8px 11px;border-radius:8px;margin-bottom:10px;display:none"></div>
+        <div id="unplacedList"></div>
+      </div>
+    </div>
+
     <div class="dpanel" id="dp-export">
       <div class="dsec">
         <div class="dsec-title">📥 Download Excel</div>
@@ -1891,6 +1910,7 @@ window.onload=async()=>{
     await loadVersions();await loadCurV();await loadLocal();
     await loadLastCols(); // bundle ke last-used columns load karo
     await loadPushedHashes(); // pushed-date hashes load karo (changed-only push ke liye)
+    await unplacedLoadRemarks(); // Bundle Check ke remarks load karo
     loadPendingQueue(); // offline mein jo pending tha woh load karo (app band hone pe bhi yaad)
     await autoArchiveOldData(true).catch(()=>{}); // 90+ din data archive (Firebase push SE PEHLE complete ho)
     await bInit(); // BUNDLE files IDB se load karo — Firebase connect SE PEHLE (warna empty push ho jata hai)
@@ -1994,6 +2014,177 @@ versionSelect.addEventListener("change",async()=>{upV=parseInt(versionSelect.val
 // Scan ALL keys to correctly detect received state, then filter by 7+ day old work dates
 let _ovCache=null,_ovCacheTime=0,_ovCacheKey='';
 function invalidateOvCache(){_ovCache=null;}
+// ═══ BUNDLE CHECK — Received par bundle mein place nahi ═══
+// Woh files jo CFM mein Received ho chuki hain par Bundle Tracker mein KABHI place nahi hui
+// (na kisi date/column pe, na special category mein). Remarks IDB mein alag key pe.
+const UNPLACED_REMARKS_KEY='unplaced_remarks';
+let _unplacedRemarks={};  // {canonical-caseno: remark}
+let _unplacedData=[];     // scan ka result (Excel/render ke liye)
+
+async function unplacedLoadRemarks(){
+  try{const r=await idbGM(UNPLACED_REMARKS_KEY);if(r&&typeof r==='object')_unplacedRemarks=r;}catch(e){}
+}
+async function unplacedSaveRemarks(){
+  try{await idbSM(UNPLACED_REMARKS_KEY,_unplacedRemarks);}catch(e){console.error('unplacedSaveRemarks:',e);}
+}
+// Canonical key — leading-zero/separator/case safe (markPending jaisa hi)
+function _unpKey(s){
+  const up=String(s||'').toUpperCase();
+  const letters=up.replace(/[^A-Z]/g,'');
+  const nums=up.replace(/[^0-9/\s.\-]/g,'').split(/[/\s.\-]+/).filter(Boolean).map(n=>parseInt(n,10)).join(',');
+  return letters+'|'+nums;
+}
+
+async function getUnplacedReceivedFiles(){
+  // Bundle mein AT PRESENT rakhi files ka canonical index — O(1) lookup.
+  // hidden:true = file bundle se nikal ke CFM se send ho chuki (almari mein nahi hai).
+  // Sirf hidden:false (jo abhi almari mein rakhi hain) count hoti hain.
+  const placedIdx={};
+  for(const id in bFiles){
+    const f=bFiles[id];
+    if(f.hidden)continue;                    // bundle se ja chuki — "rakhi hui" nahi
+    const k=_unpKey(id);if(k!=='|')placedIdx[k]=true;
+  }
+
+  const allData=await getAllDatesData(); // warm cache — fast
+  // Har case ki LATEST receiving aur LATEST sending nikalo (cycle-aware).
+  // Agar latest sending, latest receiving ke BAAD hui → file wapas ja chuki hai
+  // (bundle se nikal ke Peshgar/court chali gayi) → us par tag nahi dikhana.
+  const recvInfo={};    // canonical -> {caseno, ..., recvDate, workDate}
+  const lastSent={};    // canonical -> latest sending working-date
+  const disposedSet=new Set();
+  for(const k of Object.keys(allData)){
+    const datePart=k.split('_')[0];
+    allData[k].forEach(r=>{
+      const cn=String(r.caseno||'').trim();
+      if(!cn)return;
+      const ck=_unpKey(cn);
+      if(ck==='|')return;
+      if(r._disposed)disposedSet.add(ck);
+      // Sending track (working-date basis — overdue jaisa exact)
+      if(r.sent==='Sent'){
+        if(!lastSent[ck]||datePart>lastSent[ck])lastSent[ck]=datePart;
+      }
+      if(r.received!=='Received')return;
+      // Received-date (warna working-date)
+      const rd=(r.receiveddate&&/^\d{4}-\d{2}-\d{2}$/.test(r.receiveddate))?r.receiveddate:datePart;
+      const ex=recvInfo[ck];
+      if(!ex||rd>ex.recvDate){
+        recvInfo[ck]={caseno:cn,partyname:r.partyname||'',section:r.section||'',ps:r.ps||'',recvDate:rd,workDate:datePart};
+      }
+    });
+  }
+
+  const out=[];
+  for(const ck in recvInfo){
+    if(disposedSet.has(ck))continue;         // disposed → skip
+    if(placedIdx[ck])continue;               // abhi bundle mein rakhi hai → theek hai, skip
+    // Receive hone ke BAAD dobara sent ho gayi? → bundle se ja chuki, skip
+    const info=recvInfo[ck];
+    const ls=lastSent[ck];
+    if(ls&&ls>info.recvDate)continue;
+    out.push({...info,_key:ck,remark:_unplacedRemarks[ck]||''});
+  }
+  // Sabse recent receiving pehle
+  out.sort((a,b)=>b.recvDate.localeCompare(a.recvDate));
+  return out;
+}
+
+async function scanUnplacedFiles(){
+  const info=document.getElementById('unplacedInfo');
+  const list=document.getElementById('unplacedList');
+  if(!info||!list)return;
+  info.style.display='block';info.style.background='#e0f2fe';info.style.color='#075985';
+  info.textContent='🔍 Scan ho raha hai...';
+  list.innerHTML='';
+  try{
+    if(!_bundleLoaded){info.style.background='#fef3c7';info.style.color='#92400e';info.textContent='⚠️ Bundle abhi load nahi hua — thodi der baad try karo';return;}
+    await unplacedLoadRemarks();
+    const files=await getUnplacedReceivedFiles();
+    _unplacedData=files;
+    _unplacedShown=300; // har naye scan pe limit reset
+    if(!files.length){
+      info.style.background='#dcfce7';info.style.color='#166534';
+      info.textContent='✅ Sab received files bundle mein place hain!';
+      list.innerHTML='';
+      return;
+    }
+    info.style.background='#fee2e2';info.style.color='#991b1b';
+    info.textContent='⚠️ '+files.length+' file(s) received hain par bundle mein place nahi';
+    unplacedRender();
+  }catch(e){
+    console.error('scanUnplacedFiles:',e);
+    info.style.background='#fee2e2';info.style.color='#991b1b';
+    info.textContent='❌ Scan mein error — console dekho';
+  }
+}
+
+let _unplacedShown=300; // Bahut saari files ek saath render karne se phone hang ho sakta hai
+function unplacedRender(){
+  const list=document.getElementById('unplacedList');
+  if(!list)return;
+  const total=_unplacedData.length;
+  const show=Math.min(_unplacedShown,total);
+  let h=_unplacedData.slice(0,show).map((f,i)=>{
+    const kj=esc(f._key).replace(/'/g,"\\'");
+    return `<div style="background:var(--sur);border:1.5px solid var(--bdr);border-radius:10px;padding:10px 12px;margin-bottom:8px">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+        <span style="font-size:13px;font-weight:800;color:var(--navy)">${esc(f.caseno)}</span>
+        <span style="background:#16a34a;color:#fff;font-size:9px;font-weight:700;padding:2px 7px;border-radius:8px">✓ Received ${fmtD(f.recvDate)}</span>
+      </div>
+      ${f.partyname?`<div style="font-size:11px;color:var(--mu);font-weight:600;margin-bottom:6px">👤 ${esc(f.partyname)}${f.section?' · '+esc(f.section):''}${f.ps?' · '+esc(f.ps):''}</div>`:''}
+      <input type="text" value="${esc(f.remark)}" placeholder="Remark likho..."
+        oninput="unplacedSetRemark('${kj}',this.value)"
+        style="width:100%;padding:7px 10px;border:1.5px solid var(--bdr);border-radius:8px;font-size:12px;font-family:inherit;box-sizing:border-box">
+    </div>`;
+  }).join('');
+  if(show<total){
+    h+=`<button class="btn neutral" onclick="unplacedShowMore()" style="width:100%;margin-top:4px;font-size:12px">
+      ⬇️ Aur dikhao (${show} / ${total} dikh rahi hain)
+    </button>`;
+  }
+  list.innerHTML=h;
+}
+function unplacedShowMore(){_unplacedShown+=300;unplacedRender();}
+
+let _unpRemarkT=null;
+function unplacedSetRemark(key,val){
+  const v=String(val||'').trim();
+  if(v)_unplacedRemarks[key]=v;else delete _unplacedRemarks[key];
+  // In-memory data bhi update (Excel/re-render ke liye)
+  const f=_unplacedData.find(x=>x._key===key);
+  if(f)f.remark=v;
+  // Debounced save (har keystroke pe IDB write nahi)
+  clearTimeout(_unpRemarkT);
+  _unpRemarkT=setTimeout(()=>unplacedSaveRemarks(),600);
+}
+
+async function unplacedDownloadExcel(){
+  if(!_unplacedData.length){showToast('⚠️ Pehle Scan karo','w');return;}
+  showToast('📦 Excel bana raha hai...');
+  try{
+    const headers=['Sr.No','Case No','Party Name','Section','PS','Received Date','Remark'];
+    const rows=_unplacedData.map((f,i)=>[i+1,f.caseno||'',f.partyname||'',f.section||'',f.ps||'',f.recvDate?fmtD(f.recvDate):'',f.remark||'']);
+    const fname='Bundle_Check_Unplaced_'+_localISO(new Date())+'.xlsx';
+    if(typeof ExcelJS!=='undefined'){
+      const wb=new ExcelJS.Workbook();wb.creator='ACJM Baghpat';
+      const ws=wb.addWorksheet('Unplaced Received',{pageSetup:{paperSize:9,orientation:'landscape',fitToPage:true,fitToWidth:1,fitToHeight:0}});
+      const thin={style:'thin',color:{argb:'FF000000'}};const border={top:thin,left:thin,bottom:thin,right:thin};
+      const hrow=ws.addRow(headers);
+      hrow.eachCell(cell=>{cell.border=border;cell.font={bold:true,size:10,color:{argb:'FF0D1B4B'}};cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFD4EDDA'}};cell.alignment={wrapText:true,vertical:'top',horizontal:'center'};});
+      rows.forEach(rd=>{const row=ws.addRow(rd);row.eachCell(cell=>{cell.border=border;cell.font={size:9};cell.alignment={wrapText:true,vertical:'top'};});});
+      ws.columns=[{width:6},{width:18},{width:24},{width:14},{width:12},{width:13},{width:34}];
+      const buf=await wb.xlsx.writeBuffer();
+      const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+      const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=fname;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+      showToast('✅ Excel download ho gaya');
+    }else if(typeof XLSX!=='undefined'){
+      const ws=XLSX.utils.aoa_to_sheet([headers,...rows]);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Unplaced Received');XLSX.writeFile(wb,fname);
+      showToast('✅ Excel download ho gaya');
+    }else{showToast('❌ Excel library load nahi hui','d');}
+  }catch(e){console.error('unplacedDownloadExcel:',e);showToast('❌ Excel banane mein error','d');}
+}
+
 async function getAllOverdueFiles(){
   // Cache: 20 sec ya jab tak data change na ho (saveLocal invalidate karta hai)
   const ck=workDate.value+'_'+cData.length;
