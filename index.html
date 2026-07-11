@@ -996,6 +996,11 @@ button{transition:transform .12s var(--ease),filter .2s,background .2s}
         <button class="cb" id="bcat-STAY"      onclick="bSetCat('STAY')"      style="font-size:12px;padding:7px 11px">⏸ Stay</button>
         <button class="cb" id="bcat-SPLDIR"    onclick="bSetCat('SPLDIR')"    style="font-size:12px;padding:7px 11px">📌 Spl.Dir</button>
         <button class="cb" id="bcat-FR"        onclick="bSetCat('FR')"        style="font-size:12px;padding:7px 11px">📎 FR</button>
+        <button class="cb" id="bcat-VERIFICATION" onclick="bSetCat('VERIFICATION')" style="font-size:12px;padding:7px 11px">🔍 Verification</button>
+        <button class="cb" id="bcat-STOOL"     onclick="bSetCat('STOOL')"     style="font-size:12px;padding:7px 11px">🪑 Stool</button>
+        <button class="cb" id="bcat-COMPUTER"  onclick="bSetCat('COMPUTER')"  style="font-size:12px;padding:7px 11px">💻 Computer</button>
+        <button class="cb" id="bcat-WARRANT"   onclick="bSetCat('WARRANT')"   style="font-size:12px;padding:7px 11px">📜 Warrant</button>
+        <button class="cb" id="bcat-OTHER"     onclick="bSetCat('OTHER')"     style="font-size:12px;padding:7px 11px">📦 Other</button>
       </div>
       <p style="font-size:11px;color:var(--mu);font-weight:500;margin-bottom:10px">Date ya Category — ek baar mein ek select karo</p>
       <div style="display:flex;align-items:center;margin-top:12px">
@@ -1314,7 +1319,7 @@ button{transition:transform .12s var(--ease),filter .2s,background .2s}
     <div class="msub">7+ din Sent, Received nahi — follow-up karein</div>
     <div id="ovList"></div>
     <div style="display:flex;gap:8px;margin-top:8px">
-      <button class="btn success" onclick="ovDownloadExcel()" style="flex:1;margin-top:0;font-size:12px">📊 Download Excel</button>
+      <button class="btn success" onclick="ovModalDownload()" style="flex:1;margin-top:0;font-size:12px">📊 Download Excel</button>
       <button class="btn neutral" onclick="document.getElementById('ovModal').classList.remove('on')" style="margin-top:0;font-size:12px">✕ Band Karo</button>
     </div>
   </div>
@@ -1908,7 +1913,7 @@ window.onload=async()=>{
 let _reminderShownToday=false;
 function checkReminders(){
   if(_reminderShownToday)return;
-  const today=new Date().toISOString().split('T')[0];
+  const today=_localISO(new Date());
   const due=cData.filter(r=>r._reminder&&r._reminder<=today&&r.sent==="Sent"&&r.received!=="Received");
   if(!due.length)return;
   _reminderShownToday=true;
@@ -2008,7 +2013,7 @@ async function getAllOverdueFiles(){
     const today=new Date();today.setHours(0,0,0,0);
     // PG exact-ditto: 90-din window (archive lag ho tab bhi active-window same)
     const cutoff=new Date(today);cutoff.setDate(cutoff.getDate()-90);
-    const cutoffISO=cutoff.toISOString().split('T')[0];
+    const cutoffISO=_localISO(cutoff);
     const keys=Object.keys(allData).filter(k=>k.split('_')[0]>=cutoffISO);
 
     // Pass 1: received state from ALL keys (in-memory, fast)
@@ -2020,7 +2025,11 @@ async function getAllOverdueFiles(){
       });
     }
 
-    // Pass 2: sent-but-not-received from 7+ day old keys (in-memory)
+    // Pass 2: file ki HEARING DATE (nextdate) se 7+ din — sent par received nahi
+    // LOGIC (Manu ka requirement): file ki date = uski nextdate (jab wo court mein lagi).
+    // Sent kab hui isse farak nahi (1-2 din pehle bhi ho sakti hai). File apni hearing-date
+    // se 7 din tak wapis CFM mein receive nahi hui to 8ve din overdue.
+    // Fallback: agar nextdate na ho to sentdate/upload-date se (purana behaviour).
     const caseMap={};
     for(const k of keys){
       const datePart=k.split('_')[0];
@@ -2029,14 +2038,17 @@ async function getAllOverdueFiles(){
         if(!cn||r._disposed)return;
         if(r.sent!=='Sent')return;
         if(receivedAnywhere.has(cn))return;
-        // Days calc — file SENT hui jis din se (sentdate), upload date se nahi
-        const trackDateStr=(r.sentdate&&/^\d{4}-\d{2}-\d{2}$/.test(r.sentdate))?r.sentdate:datePart;
+        // Track date = nextdate (hearing date) prefer, warna sentdate, warna upload date
+        let trackDateStr;
+        if(r.nextdate&&/^\d{4}-\d{2}-\d{2}$/.test(r.nextdate))trackDateStr=r.nextdate;
+        else if(r.sentdate&&/^\d{4}-\d{2}-\d{2}$/.test(r.sentdate))trackDateStr=r.sentdate;
+        else trackDateStr=datePart;
         const td=new Date(trackDateStr+'T00:00:00');td.setHours(0,0,0,0);
         const daysDiff=Math.floor((today-td)/86400000);
-        if(daysDiff<7)return; // 7 din se kam — overdue nahi
+        if(daysDiff<7)return; // hearing-date se 7 din se kam — overdue nahi (ya date abhi aayi nahi)
         const ex=caseMap[cn];
-        if(!ex){caseMap[cn]={...r,_srcKey:k,_workDate:datePart,_daysDiff:daysDiff};return;}
-        if(daysDiff>ex._daysDiff)caseMap[cn]={...r,_srcKey:k,_workDate:datePart,_daysDiff:daysDiff};
+        if(!ex){caseMap[cn]={...r,_srcKey:k,_workDate:datePart,_daysDiff:daysDiff,_trackDate:trackDateStr};return;}
+        if(daysDiff>ex._daysDiff)caseMap[cn]={...r,_srcKey:k,_workDate:datePart,_daysDiff:daysDiff,_trackDate:trackDateStr};
       });
     }
     const result=Object.values(caseMap);
@@ -2242,6 +2254,8 @@ function openPgMismatchModal(){
   }
   document.getElementById('ovList').innerHTML=h;
   document.querySelector('#ovModal .mt').textContent='⚠️ Peshgar Mismatch';
+  _pgMissMode=true; // download button ko batao — Peshgar Miss data download karo, overdue nahi
+  _pgMissData={normal:normal||[],reverse:reverse||[],toOffice:toOffice||[]};
   const subParts=[];
   if(reverse&&reverse.length)subParts.push(reverse.length+' critical');
   subParts.push(normal.length+' pending');
@@ -3130,7 +3144,7 @@ async function addCaseThenSend(){
     haptic('mismatch');redFlash();return;
   }
   cData[idx].sent='Sent';
-  cData[idx].sentdate=new Date().toISOString().split('T')[0];
+  cData[idx].sentdate=_localISO(new Date());
   cData[idx].senttime=Date.now();
   cData[idx].searchableText=gSrch(cData[idx]);
   await hideBundleEntry(cData[idx].caseno);
@@ -3221,8 +3235,8 @@ function drawTable(data){
       if(k==="caseno"){
         const cj=String(r.caseno).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
         const ppBadge=pp?(pp.overdue
-          ?'<span style="display:inline-block;background:var(--red);color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;margin-left:4px" title="Pichli date se '+pp.daysDiff+' din se pending — OVERDUE">⚠ '+pp.daysDiff+'d OVERDUE</span>'
-          :'<span style="display:inline-block;background:var(--amber);color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;margin-left:4px" title="Pichli date ('+fmtD(pp.workDate)+') se sent, abhi received nahi">⚠ PENDING</span>'):'';
+          ?'<span style="display:inline-block;background:var(--red);color:#fff;font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px;margin-left:4px" title="Pichli date ('+fmtD(pp.workDate)+') se Peshgar ko sent, '+pp.daysDiff+' din se CFM mein wapis received nahi — OVERDUE">❌ NOT RECEIVED · '+pp.daysDiff+'d</span>'
+          :'<span style="display:inline-block;background:#ea580c;color:#fff;font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px;margin-left:4px" title="Pichli date ('+fmtD(pp.workDate)+') se Peshgar ko sent, abhi CFM mein wapis received nahi">❌ NOT RECEIVED</span>'):'';
         row+=`<td><span class="td-caseno" onclick="openCaseDetail('${cj}')">${esc(r.caseno)}</span>${ppBadge}${renderRemarkTags(r.remark)}</td>`;
       }else if(k==="partyname"){
         row+=`<td><span class="td-party">${esc(r[k]||"")}</span></td>`;
@@ -3706,7 +3720,10 @@ const BACKUP_CUTOFF_HOUR=15, BACKUP_CUTOFF_MIN=30; // 3:30 PM
 const TG_CFG_KEY='crtTgCfg'; // {token, chatId}
 
 // Aaj ki date string (YYYY-MM-DD)
-function _todayStr(){return new Date().toISOString().split('T')[0];}
+function _todayStr(){return _localISO(new Date());}
+// LOCAL date string (YYYY-MM-DD) — toISOString() UTC deta hai jo IST (+5:30) pe ek din
+// piche ho sakta hai (subah 5:30 se pehle). Ye local calendar-date deta hai — hamesha sahi.
+function _localISO(d){const y=d.getFullYear();const m=String(d.getMonth()+1).padStart(2,'0');const day=String(d.getDate()).padStart(2,'0');return y+'-'+m+'-'+day;}
 // Abhi 3:30 PM ke baad hai?
 function _isAfterCutoff(){
   const now=new Date();
@@ -3881,7 +3898,11 @@ async function doDet(){
         scanLast=dec;scanCool=true;
         showQRBox(bs[0].boundingBox,vid);
         const fl=document.getElementById('scan-flash');fl.classList.remove('go');void fl.offsetWidth;fl.classList.add('go');
-        handleScanResult(dec);
+        await handleScanResult(dec);
+        // Agar handleScanResult ne scanning band kar di (jaise mismatch modal khula →
+        // scanActive=false), to yahin ruk jao — warna schedDet loop + scanCool-reset
+        // background mein chalta rehta tha aur dobara same file process ho sakti thi.
+        if(!scanActive){hideQRBox();return;}
         if(!contMode){setTimeout(closeScan,700);return;}
         else{setTimeout(()=>{scanCool=false;hideQRBox();},2200);schedDet();return;}
       }
@@ -3902,10 +3923,10 @@ function closeScan(){
   bFreeAdd=false; // free-add mode reset (scan band hone pe)
 }
 function toggleCont(){contMode=!contMode;scanLast='';scanCool=false;const b=document.getElementById('cont-btn');b.textContent='🔁 Continuous: '+(contMode?'ON':'OFF');b.className=contMode?'on':'';}
-function handleScanResult(dec){
-  if(scanCtx==='cfm_sent')      handleCFMScan(dec,'SENT');
-  else if(scanCtx==='cfm_rcv')  handleCFMScan(dec,'RECEIVED');
-  else if(scanCtx==='bundle')   handleBundleScan(dec);
+async function handleScanResult(dec){
+  if(scanCtx==='cfm_sent')      await handleCFMScan(dec,'SENT');
+  else if(scanCtx==='cfm_rcv')  await handleCFMScan(dec,'RECEIVED');
+  else if(scanCtx==='bundle')   await handleBundleScan(dec);
   else if(scanCtx==='bundlefree')handleBundleFreeScan(dec);
   else if(scanCtx==='urgent_scan'){
     document.getElementById('urg-cn').value=dec.trim().toUpperCase();
@@ -3965,10 +3986,10 @@ async function hideBundleEntry(caseNo){
 }
 
 // ════ BUNDLE STATE + COLUMNS ════
-const BUNDLE_CATS=['OLD','COMMITTAL','JAIL','NAKAL','STAY','SPLDIR','FR'];
-const CAT_LABELS={'OLD':'📂 Old','COMMITTAL':'⛓ Committal','JAIL':'🔒 Jail','NAKAL':'📋 Nakal','STAY':'⏸ Stay','SPLDIR':'📌 Spl. Direction','FR':'📎 FR'};
+const BUNDLE_CATS=['OLD','COMMITTAL','JAIL','NAKAL','STAY','SPLDIR','FR','VERIFICATION','STOOL','COMPUTER','WARRANT','OTHER'];
+const CAT_LABELS={'OLD':'📂 Old','COMMITTAL':'⛓ Committal','JAIL':'🔒 Jail','NAKAL':'📋 Nakal','STAY':'⏸ Stay','SPLDIR':'📌 Spl. Direction','FR':'📎 FR','VERIFICATION':'🔍 Verification','STOOL':'🪑 Stool','COMPUTER':'💻 Computer','WARRANT':'📜 Warrant','OTHER':'📦 Other'};
 // Bundle category → CFM remark word (jab file is category mein add ho, ye word remark mein auto-add)
-const CAT_REMARK_WORD={'OLD':'old','COMMITTAL':'committal','JAIL':'jail','NAKAL':'nakal','STAY':'stay','SPLDIR':'special','FR':'verification'};
+const CAT_REMARK_WORD={'OLD':'old','COMMITTAL':'committal','JAIL':'jail','NAKAL':'nakal','STAY':'stay','SPLDIR':'special','FR':'verification','VERIFICATION':'verification','STOOL':'stool','COMPUTER':'computer','WARRANT':'warrant','OTHER':'other'};
 let bActiveCat=null; // null = date mode, 'OLD'/'COMMITTAL'/'JAIL'/'NAKAL' = category mode
 
 function bSetCat(cat){
@@ -4103,7 +4124,7 @@ function bCC(arr){if(!arr||!arr.length)return'sc-e';if(arr.some(f=>f.st==='missi
 function bRenderGrid(){
   if(_subdateView){bRenderSubdateView();return;} // sub-date view ON hai to wahi dikhao
   const gc=document.getElementById('bgc');
-  const wdVal=document.getElementById('workDate')?.value||new Date().toISOString().split('T')[0];
+  const wdVal=document.getElementById('workDate')?.value||_localISO(new Date());
   const todayDay=parseInt(wdVal.split('-')[2]||new Date().getDate());
 
   // ════ SINGLE PASS — bFiles ko ek baar group karo (fast) ════
@@ -4328,6 +4349,10 @@ async function bAddFile(rawId,fromScan){
     bUpdateSP();bRenderGrid();return true;
   }
   // CFM check — file exist karni chahiye (SAARI dates mein dhundo, sirf current nahi)
+  // FRESH CACHE GUARANTEE: agar user ne abhi CFM mein receive/date-change kiya, to current
+  // date ka cData turant cache mein sync karo — taaki bundle stale date na padhe.
+  // (Pehle stale cache se galat mismatch aa sakta tha jab file current date pe na ho.)
+  updateAllDatesCacheForCurrent();
   const cfmRec=await getCFMRecordAllDates(id);
   if(fromScan){
     if(!cfmRec){showSC('❌ CFM mein nahi hai: '+id,'#dc2626');speak("File CFM mein nahi hai");haptic('error');redFlash();return false;}
@@ -4352,7 +4377,13 @@ async function bAddFile(rawId,fromScan){
   // Lekin main date (bAMD) toh CFM ki nextdate ke din ke barabar honi HI chahiye, chahe sub-date ho
   // Category files (bActiveCat) ki fixed date nahi hoti — skip
   if(!bActiveCat){
-    const cfmDay=cfmRec?await getCFMDayAllDates(id):null;
+    // cfmDay wahi cfmRec se nikalo jo upar fetch hua (dobara lookup = do baar cache-read,
+    // jisme staleness/race aa sakti thi). cfmRec latest-date record hai (fresh).
+    let cfmDay=null;
+    if(cfmRec&&cfmRec.nextdate){
+      const parts=String(cfmRec.nextdate).split('-');
+      if(parts.length>=3){const dd=parseInt(parts[2],10);if(!isNaN(dd))cfmDay=dd;}
+    }
     if(cfmDay!==null&&cfmDay!==bAMD){
       // MAIN date galat hai — CFM ki date alag hai (sub-date ho ya na ho, main date toh sahi honi chahiye)
       if(fromScan){
@@ -4478,7 +4509,7 @@ function handleBundleFreeScan(dec){
   bFreeShowNextConfirm();
 }
 function startBundleScan(){bUpdateST();openScan('bundle',`📷 Bundle → Date ${bAMD}${bASD!=null?'/'+bASD:''} ${dispCol(bAC)}`,false);}
-function handleBundleScan(dec){bAddFile(dec,true);if(scanActive)bUpdateST();}
+async function handleBundleScan(dec){await bAddFile(dec,true);if(scanActive)bUpdateST();}
 function openMismatchModal(id,cfmDay){
   mmPending={id,cfmDay};mmSD=null; // koi overflow date select nahi initially
   document.getElementById('mm-title').textContent=`File: ${id}`;
@@ -5452,6 +5483,42 @@ let _ovRemSel={},_ovData=[],_ovCustomDays={};
 function isDisposed(r){ return r._disposed===true; }
 
 // Download overdue list as Excel
+let _pgMissMode=false,_pgMissData={normal:[],reverse:[],toOffice:[]};
+function ovModalDownload(){
+  // ovModal do maqsad se use hota hai — Overdue aur Peshgar Miss. Sahi data download karo.
+  if(_pgMissMode)pgMissDownloadExcel();
+  else ovDownloadExcel();
+}
+async function pgMissDownloadExcel(){
+  const {normal,reverse,toOffice}=_pgMissData;
+  const total=(normal?.length||0)+(reverse?.length||0)+(toOffice?.length||0);
+  if(!total){showToast('⚠️ Koi Peshgar Miss data nahi','w');return;}
+  showToast('📦 Excel bana raha hai...');
+  try{
+    const headers=['Sr.No','Type','Case No','Party Name','Section','PS','Sent Date','Location','Note'];
+    const rows=[];let sr=1;
+    (reverse||[]).forEach(r=>{const loc=r.location==='steno'?'Steno':r.location==='judge'?'Judge':'';rows.push([sr++,'CRITICAL (PG received, CFM not sent)',r.caseno||'',r.partyname||'',r.section||'',r.ps||'',r.sentdate?fmtD(r.sentdate):'',loc,'Bina office se nikle Peshgar ke paas']);});
+    (normal||[]).forEach(r=>{rows.push([sr++,'Pending (CFM sent, PG not received)',r.caseno||'',r.partyname||'',r.section||'',r.ps||'',r.sentdate?fmtD(r.sentdate):'','','Peshgar ne abhi receive nahi ki']);});
+    (toOffice||[]).forEach(r=>{const loc=r.location==='steno'?'Steno':r.location==='judge'?'Judge':'';rows.push([sr++,'To-Office (PG sent, office not received)',r.caseno||'',r.partyname||'',r.section||'',r.ps||'','',loc,'Office ne wapas receive nahi ki']);});
+    const fname='Peshgar_Mismatch_'+new Date().toISOString().split('T')[0]+'.xlsx';
+    if(typeof ExcelJS!=='undefined'){
+      const wb=new ExcelJS.Workbook();wb.creator='ACJM Baghpat';
+      const ws=wb.addWorksheet('Peshgar Mismatch',{pageSetup:{paperSize:9,orientation:'landscape',fitToPage:true,fitToWidth:1,fitToHeight:0}});
+      const thin={style:'thin',color:{argb:'FF000000'}};const border={top:thin,left:thin,bottom:thin,right:thin};
+      const hrow=ws.addRow(headers);
+      hrow.eachCell(cell=>{cell.border=border;cell.font={bold:true,size:10,color:{argb:'FF0D1B4B'}};cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFF8D4D4'}};cell.alignment={wrapText:true,vertical:'top',horizontal:'center'};});
+      rows.forEach(rowData=>{const row=ws.addRow(rowData);row.eachCell(cell=>{cell.border=border;cell.font={size:9};cell.alignment={wrapText:true,vertical:'top'};});});
+      ws.columns=[{width:6},{width:32},{width:16},{width:22},{width:14},{width:12},{width:12},{width:10},{width:30}];
+      const buf=await wb.xlsx.writeBuffer();
+      const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+      const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=fname;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+      showToast('✅ Peshgar Mismatch Excel download ho gaya');
+    }else if(typeof XLSX!=='undefined'){
+      const ws=XLSX.utils.aoa_to_sheet([headers,...rows]);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Peshgar Mismatch');XLSX.writeFile(wb,fname);
+      showToast('✅ Peshgar Mismatch Excel download ho gaya');
+    }else{showToast('❌ Excel library load nahi hui','d');}
+  }catch(e){console.error('pgMissDownloadExcel:',e);showToast('❌ Excel banane mein error','d');}
+}
 async function ovDownloadExcel(){
   if(!_ovData||!_ovData.length){showToast('⚠️ Koi overdue data nahi','w');return;}
   showToast('📦 Excel bana raha hai...');
@@ -5525,9 +5592,9 @@ async function openOverdueModal(){
   od.sort((a,b)=>b._daysDiff-a._daysDiff); // most overdue first
 
   if(!od.length){showToast('✅ Koi overdue file nahi!');return;}
-  _ovRemSel={};_ovCustomDays={};_ovData=od;
+  _ovRemSel={};_ovCustomDays={};_ovData=od;_pgMissMode=false; // overdue mode — download overdue data
 
-  const todayStr=new Date().toISOString().split('T')[0];
+  const todayStr=_localISO(new Date());
   document.getElementById('ovList').innerHTML=od.map((r,i)=>{
     const hasReminder=r._reminder&&r._reminder>todayStr;
     const reminderDue=r._reminder&&r._reminder<=todayStr;
@@ -5631,7 +5698,7 @@ async function ovSave(i){
         keyData[idx].remark=remark; // always assign (khali karne pe bhi save ho — clear ho sake)
         if(days!==null){
           if(days===0){delete keyData[idx]._reminder;}
-          else{const rd=new Date();rd.setDate(rd.getDate()+days);keyData[idx]._reminder=rd.toISOString().split('T')[0];}
+          else{const rd=new Date();rd.setDate(rd.getDate()+days);keyData[idx]._reminder=_localISO(rd);}
         }
         keyData[idx].searchableText=gSrch(keyData[idx]);
         await idbSM(srcKey,keyData);invalidateAllDatesCache();
@@ -5645,7 +5712,7 @@ async function ovSave(i){
     cData[idx].remark=remark; // always assign (khali karne pe bhi save ho — clear ho sake)
     if(days!==null){
       if(days===0){delete cData[idx]._reminder;}
-      else{const rd=new Date();rd.setDate(rd.getDate()+days);cData[idx]._reminder=rd.toISOString().split('T')[0];}
+      else{const rd=new Date();rd.setDate(rd.getDate()+days);cData[idx]._reminder=_localISO(rd);}
     }
     cData[idx].searchableText=gSrch(cData[idx]);
     await saveLocal();
@@ -5703,13 +5770,13 @@ function openDisposeConfirm(cn){
   _disposePendingCN=cn;
   const r=cData.find(x=>caseMatch(x.caseno,cn));
   document.getElementById('disp-sub').textContent=(r?r.caseno+(r.partyname?' — '+r.partyname:''):'');
-  document.getElementById('disp-date').value=new Date().toISOString().split('T')[0];
+  document.getElementById('disp-date').value=_localISO(new Date());
   document.getElementById('disposeModal').classList.add('on');
 }
 
 async function confirmDisposeYes(){
   const cn=_disposePendingCN;if(!cn)return;
-  const dispDate=document.getElementById('disp-date').value||new Date().toISOString().split('T')[0];
+  const dispDate=document.getElementById('disp-date').value||_localISO(new Date());
   const idx=cData.findIndex(r=>caseMatch(r.caseno,cn));
   if(idx!==-1){
     cData[idx]._disposed=true;
@@ -5834,7 +5901,7 @@ async function urgAction(mode){
   if(!rem){showUrgMsg('⚠️ Remark zaroori hai — kyu gaya/aaya likho','err');haptic('error');document.getElementById('urg-rem').focus();return;}
 
   const now=new Date();
-  const todayISO=now.toISOString().split('T')[0];
+  const todayISO=_localISO(now);
   const timeStr=now.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
 
   // Fix 6: per-file log — ek file ke liye ek hi record, update hota rehta hai
@@ -6021,7 +6088,7 @@ async function checkTodayFiles(){
   listEl.innerHTML='<div style="text-align:center;padding:20px;color:var(--mu);font-size:13px">🔍 Check ho raha hai...</div>';
 
   const today=new Date();today.setHours(0,0,0,0);
-  const todayISO=today.toISOString().split('T')[0];
+  const todayISO=_localISO(today);
   const todayDay=today.getDate();
   const todayMon=String(today.getMonth()+1).padStart(2,'0');
   const todayYr=today.getFullYear();
