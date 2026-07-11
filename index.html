@@ -4379,8 +4379,16 @@ function bSM(){
 }
 
 async function bInit(){
-  const all=await idbAB();bFiles={};all.forEach(b=>bFiles[b.id]=b);
-  _bundleLoaded=true; // bundle files load ho gaye — ab push safe hai
+  const all=await idbAB();
+  // RACE GUARD: agar IDB khali hai PAR memory mein bundle files hain (pull/listener se
+  // abhi aayi hain aur IDB write chal raha hai), to memory wali mat udao.
+  // Warna Secondary pe pull ke dauraan Bundle tab kholne se 0 files dikhti thi.
+  if(all.length===0&&Object.keys(bFiles).length>0){
+    _bundleLoaded=true;
+  }else{
+    bFiles={};all.forEach(b=>bFiles[b.id]=b);
+    _bundleLoaded=true; // bundle files load ho gaye — ab push safe hai
+  }
   applyLastColForSlot(); // current date ka last-used column auto-select
   bRenderColButtons();
   bRenderAdd();
@@ -5100,14 +5108,21 @@ async function fbPullSilent(){
       if(d){if(Array.isArray(d.versions))await idbSV(doc.id,d.versions);if(d.cv!=null)await idbSM('cv_'+doc.id,d.cv);}
     }
     // BUNDLE
+    // RACE FIX: pehle LOCAL copy banao, IDB likho, phir bFiles ko EK BAAR assign karo.
+    // Pehle seedha bFiles=bd.files karke await-loop chalta tha — agar us beech bInit()
+    // chal jaata (user Bundle tab kholta), to wo bFiles={} kar deta aur loop khali object
+    // pe chalta → Secondary pe 0 bundle files aati thi.
     const bSnap=await _fbDb.collection('bundle').doc('main').get();
     let bundleN=0;
     if(bSnap.exists){
       const bd=bSnap.data();
       if(bd&&bd.files&&typeof bd.files==='object'){
-        bFiles=bd.files;
-        for(const id in bFiles){await idbSBn(bFiles[id]);}
-        bundleN=Object.keys(bFiles).length;
+        const incoming={};
+        for(const id in bd.files)incoming[id]=bd.files[id];
+        for(const id in incoming){try{await idbSBn(incoming[id]);}catch(e){}}
+        bFiles=incoming;          // atomic assign — await ke BAAD
+        _bundleLoaded=true;       // bundle aa gaya (bInit ab overwrite na kare)
+        bundleN=Object.keys(incoming).length;
       }
     }
     // URGENT
@@ -5279,9 +5294,13 @@ function startSecondarySync(){
           return;
         }
         _secEmptyConfirmed=false;
-        bFiles=incoming;
-        // IDB mein bhi save karo
-        for(const id in bFiles){await idbSBn(bFiles[id]);}
+        // RACE FIX: local copy → IDB → phir atomic assign (bInit beech mein bFiles={} kar
+        // sakta hai, isliye await-loop ke andar bFiles use karna khatarnak tha)
+        const copy={};
+        for(const id in incoming)copy[id]=incoming[id];
+        for(const id in copy){try{await idbSBn(copy[id]);}catch(e){}}
+        bFiles=copy;
+        _bundleLoaded=true;
         if(activeTab==='bundle')bRenderGrid();
         bUpdateSP&&bUpdateSP();
         setSyncDot('ok');
@@ -5721,11 +5740,12 @@ async function fbPullAll(){
         // Clear old IDB bundle data and replace
         const oldAll=await idbAB();
         for(const f of oldAll){try{await idbDB(f.id);}catch(e){}}
-        bFiles={};
-        for(const f of Object.values(d.files)){
-          bFiles[f.id]=f;
-          try{await idbSBn(f);}catch(e){}
-        }
+        // RACE FIX: local copy banao, IDB likho, phir atomic assign
+        const incoming={};
+        for(const id in d.files)incoming[id]=d.files[id];
+        for(const id in incoming){try{await idbSBn(incoming[id]);}catch(e){}}
+        bFiles=incoming;
+        _bundleLoaded=true;
         if(activeTab==='bundle')bRenderGrid();
       }
     }
