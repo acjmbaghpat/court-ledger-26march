@@ -1558,7 +1558,10 @@ const idbDAR =k=>idbTx(SAR,'readwrite',s=>s.delete(k));
 // ════ SHARED HELPERS ════
 const COLS=['A','B','C','D','E','F','G','H','I'];
 const DATES=Array.from({length:31},(_,i)=>i+1);
-function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+// XSS escape. null/undefined → blank (warna DOM mein literal "null"/"undefined" dikhta tha,
+// jaise khali partyname pe "👤 null"). Backtick escape ki zaroorat nahi — hum attributes
+// hamesha double-quotes mein daalte hain, aur JS-template injection ka koi path nahi hai.
+function esc(s){if(s==null)return '';return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 let toastT;
 function showToast(msg,type){
   const t=document.getElementById('toast');
@@ -1830,11 +1833,23 @@ let _allDatesCache=null; // {key: dataArray} latest-date-first
 let _allDatesIndex=null; // normSlash(caseno) → [{rec,key}] collision-safe
 let _allDatesCacheTime=0;
 const ALLDATES_CACHE_MS=60000; // 60 sec (incremental updates cache warm rakhte hain)
+let _allDatesInflight=null; // ek hi rebuild chale — concurrent callers usi promise pe wait karein
 async function getAllDatesData(force){
   const now=Date.now();
   if(!force&&_allDatesCache&&(now-_allDatesCacheTime)<ALLDATES_CACHE_MS){
     return _allDatesCache; // cache hit — fast!
   }
+  // IN-FLIGHT DEDUPE: startup pe kai functions (markPending, overdue, checkToday...) ek
+  // saath ye call karte hain. Pehle har call apna poora IDB read karta tha (cold-start pe
+  // 5x duplicate kaam). Ab pehla call rebuild karta hai, baaki usi ka result await karte hain.
+  if(_allDatesInflight)return _allDatesInflight;
+  _allDatesInflight=(async()=>{
+    try{return await _rebuildAllDates();}
+    finally{_allDatesInflight=null;}
+  })();
+  return _allDatesInflight;
+}
+async function _rebuildAllDates(){
   const cache={};
   const index={}; // normSlash(caseno) → [{rec,key}] — COLLISION-SAFE (separators preserved)
   try{
@@ -1854,10 +1869,10 @@ async function getAllDatesData(force){
       }
     });
   }catch(e){console.error('getAllDatesData:',e);}
-  _allDatesCache=cache;_allDatesIndex=index;_allDatesCacheTime=now;
+  _allDatesCache=cache;_allDatesIndex=index;_allDatesCacheTime=Date.now();
   return cache;
 }
-function invalidateAllDatesCache(){_allDatesCache=null;_allDatesIndex=null;_allDatesCacheTime=0;}
+function invalidateAllDatesCache(){_allDatesCache=null;_allDatesIndex=null;_allDatesCacheTime=0;_allDatesInflight=null;}
 // PERF FIX: har action pe poora cache invalidate karna slow tha (90 dates IDB se re-read har scan/save pe)
 // Ye sirf CURRENT date ko cache mein update karta hai — baaki 89 dates ka data warm rehta hai
 function updateAllDatesCacheForCurrent(){
@@ -2430,9 +2445,10 @@ function pgStartListen(){
   if(!date){_pgListenErr='Koi date select nahi';return;}
   _pgUnsub=_fbDb.collection('peshgar').doc(date).onSnapshot(snap=>{
     if(_pgDataDate!==date)return; // date badal gayi — ye stale snapshot hai, ignore
-    if(snap.exists&&Array.isArray(snap.data().data)){
+    const _pgRows=snap.exists?cfmFromFirebase(snap.data()):null; // naya JSON-string ya purana array
+    if(_pgRows){
       _pgData={};
-      snap.data().data.forEach(r=>{_pgData[String(r.caseno).toUpperCase().trim()]=r;});
+      _pgRows.forEach(r=>{_pgData[String(r.caseno).toUpperCase().trim()]=r;});
       _pgListenErr='';
       pgCacheSave(date); // fresh data IDB mein cache karo
     }else{
@@ -2667,7 +2683,7 @@ async function addCategoryWordToRemark(caseNo,word){
           invalidateAllDatesCache();
           // Firebase pe bhi push karo us date ko (warna secondary device ko tag nahi dikhta)
           if(_fbDb&&navigator.onLine&&deviceRole!=='secondary'){
-            try{await _fbDb.collection('cfm').doc(k).set({data:arr,at:Date.now()});}catch(e){_cmPendingDates&&_cmPendingDates.add(k);savePendingQueue&&savePendingQueue();}
+            try{await _fbDb.collection('cfm').doc(k).set(cfmToFirebase(arr));}catch(e){_cmPendingDates&&_cmPendingDates.add(k);savePendingQueue&&savePendingQueue();}
           }else if(deviceRole!=='secondary'){
             _cmPendingDates&&_cmPendingDates.add(k);savePendingQueue&&savePendingQueue();
           }
@@ -2720,6 +2736,28 @@ async function markPendingFromPrevious(){
       pendingMap[cn]={workDate:oldest.wdate,sentdate:oldest.sentdate,daysDiff:daysDiff};
     }
 
+    // ARCHIVE MERGE — 90+ din purani pending sending par bhi NOT-RECEIVED tag lage,
+    // warna file archive hote hi tag chup-chaap gayab ho jaata (overdue mein toh
+    // dikhti thi kyunki wahan already merge tha, par ye upload-tag alag path hai).
+    const archIdx=await loadArchIdx();
+    for(const ck in archIdx){
+      const ae=archIdx[ck];
+      if(ae.disposed)continue;
+      const arSends=ae.sends.map(wd=>({wdate:wd,sentdate:''}));
+      const arLastRecv=ae.recvs.length?ae.recvs.reduce((a,b)=>a>b?a:b):null;
+      const arPending=arSends.filter(s=>!arLastRecv||s.wdate>arLastRecv);
+      if(!arPending.length)continue;
+      const oldest=arPending.reduce((a,b)=>a.wdate<b.wdate?a:b);
+      const td=new Date(oldest.wdate+'T00:00:00');td.setHours(0,0,0,0);
+      const daysDiff=Math.floor((today-td)/86400000);
+      // Sirf tab add karo jab is case ka koi active-pending pehle se na ho, ya archive
+      // wali PURANI ho (sabse purani sending hi count honi chahiye — cycle-aware jaisa)
+      const caseUpper=ae.caseno.toUpperCase();
+      if(!pendingMap[caseUpper]||oldest.wdate<pendingMap[caseUpper].workDate){
+        pendingMap[caseUpper]={workDate:oldest.wdate,sentdate:'',daysDiff:daysDiff,_fromArchive:true};
+      }
+    }
+
     // Canonical-key index — O(1) lookup (pehle har row pe poora pendingMap loop hota tha
     // jo 500-row upload × 2000 pending = ~10 lakh caseMatch calls = 1.7 SECOND lagta tha).
     // Do index: (1) canonical = letters|numbers (leading-zero/separator/case safe),
@@ -2768,6 +2806,13 @@ async function uploadExcel(){
   if(typeof XLSX==='undefined'){showToast('❌ Excel library load nahi hui — page reload karo','d');return;}
   const file=excelFile.files[0];
   if(!file){showToast('⚠️ File select karo','w');return;}
+  // SIZE GUARD: bahut badi file (galti se video/backup select ho gayi) browser hang kar
+  // deti thi — koi error nahi, bas app freeze. Cause-list 20MB se badi kabhi nahi hoti.
+  const MAX_UPLOAD_MB=20;
+  if(file.size>MAX_UPLOAD_MB*1024*1024){
+    showToast('❌ File bahut badi hai ('+(file.size/1048576).toFixed(0)+' MB). Max '+MAX_UPLOAD_MB+' MB. Sahi Excel file select karo.','d');
+    return;
+  }
   const btn=document.querySelector('#dp-upload .btn.primary');
   const resetBtn=()=>{if(btn){btn.disabled=false;btn.innerHTML='📤 Upload Excel';}};
   if(btn){btn.disabled=true;btn.textContent='⏳ Uploading...';}
@@ -5148,7 +5193,8 @@ async function fbPullSilent(){
     for(const doc of cfmSnaps.docs){
       const k=doc.id;if(!/^\d{4}-\d{2}-\d{2}_\d+$/.test(k))continue;
       const d=doc.data();
-      if(d&&Array.isArray(d.data)){await idbSM(k,d.data);cfmN++;}
+      const rows=cfmFromFirebase(d);
+      if(rows){await idbSM(k,rows);cfmN++;}
     }
     invalidateAllDatesCache();
     // Meta
@@ -5304,8 +5350,9 @@ function startSecondarySync(){
       const k=ch.doc.id;
       if(!/^\d{4}-\d{2}-\d{2}_\d+$/.test(k))continue;
       const d=ch.doc.data();
-      if(d&&Array.isArray(d.data)){
-        await idbSM(k,d.data); // local IDB mirror
+      const rows=cfmFromFirebase(d); // naya JSON-string ya purana array — dono
+      if(rows){
+        await idbSM(k,rows); // local IDB mirror
         invalidateAllDatesCache();
         updated++;
       }
@@ -5458,7 +5505,7 @@ async function fbPushAll(){
         try{
           const batch=_fbDb.batch();
           chunk.forEach(item=>{
-            batch.set(_fbDb.collection('cfm').doc(item.key),{data:item.data,at:Date.now()});
+            batch.set(_fbDb.collection('cfm').doc(item.key),cfmToFirebase(item.data));
           });
           await commitWithTimeout(batch,20000); // 20s timeout — hang pe retry
           committed=true;
@@ -5567,7 +5614,7 @@ async function fbPush(){
   if(deviceRole==='secondary')return;
   try{
     setSyncDot('busy');
-    await _fbDb.collection('cfm').doc(dKey()).set({data:cData,at:Date.now()});
+    await _fbDb.collection('cfm').doc(dKey()).set(cfmToFirebase(cData));
     _cmPendingDates.delete(dKey());savePendingQueue();
     _pushedHashes[dKey()]=quickHash(JSON.stringify(cData));savePushedHashes(); // hash update
     setSyncDot('ok');
@@ -5612,7 +5659,7 @@ async function flushCmPush(){
       try{
         const d=await idbGM(dk);
         if(d&&Array.isArray(d)){
-          await _fbDb.collection('cfm').doc(dk).set({data:d,at:Date.now()});
+          await _fbDb.collection('cfm').doc(dk).set(cfmToFirebase(d));
           _cmPendingDates.delete(dk);changed=true;
         }
       }catch(e){/* agli baar try hoga */}
@@ -5709,6 +5756,27 @@ function startCmPeriodicSync(){
 // SOLUTION: Saari files ek JSON STRING mein daalo. Firestore string ko EK field maanta
 // hai → sirf 2 index entries. 748KB (1MB limit ke andar). Max ~7,300 files.
 // Bundle pe kabhi query nahi hoti (poora doc padhte hain), isliye index ki zaroorat hi nahi.
+// ═══ CFM FIREBASE FORMAT ═══
+// Bundle jaisa hi problem: Firestore array ke har element ke har field ka index banata hai.
+// 390 records × 16 fields × 2 = ~12,480 index entries (limit 40,000 per doc).
+// Yani ~1,250 records/date pe CFM push bhi FAIL ho jata ("too many index entries").
+// Abhi 390 hai, par ek din bada cause-list aaya to sync silently ruk jata.
+// SOLUTION: data ko JSON string mein — 2 index entries, aur ~2,200 records/date tak safe.
+// CFM pe kabhi query nahi hoti (poora doc padhte hain), isliye index bekaar hai.
+function cfmToFirebase(rows){
+  return {dataJson:JSON.stringify(rows||[]),count:(rows||[]).length,at:Date.now(),v:2};
+}
+// Read: naya format (dataJson) YA purana (data array) — dono support
+function cfmFromFirebase(d){
+  if(!d)return null;
+  if(typeof d.dataJson==='string'){
+    try{const p=JSON.parse(d.dataJson);return Array.isArray(p)?p:null;}
+    catch(e){console.error('cfmFromFirebase parse fail:',e);return null;}
+  }
+  if(Array.isArray(d.data))return d.data; // purana format (backward compatible)
+  return null;
+}
+
 function bundleToFirebase(files){
   const cnt=Object.keys(files).length;
   return {filesJson:JSON.stringify(files),count:cnt,at:Date.now(),v:2};
@@ -5990,7 +6058,7 @@ async function bundleDiagnose(){
         else{
           const d=snap.data();
           const _fbf=bundleFromFirebase(d);const fbCount=_fbf?Object.keys(_fbf).length:0;
-          L.push('☁️ Firebase bundle: '+fbCount+' files');
+          L.push('☁️ Firebase bundle: '+fbCount+' files'+(d&&typeof d.filesJson==='string'?' (v2 format)':' (purana format)'));
           if(fbCount===0&&memCount>0){L.push('🔴 Firebase pe 0 par local mein '+memCount);problem=problem||'empty';}
           if(fbCount>0&&memCount===0){L.push('ℹ️ Firebase pe data hai par local khali — Pull karo');}
         }
@@ -6055,6 +6123,10 @@ async function fbPushBundle(){
   if(deviceRole==='secondary')return false; // secondary push nahi karta
   // SAFETY: bundle files load hone se pehle push mat karo (warna empty push ho jata hai)
   if(!_bundleLoaded){console.warn('fbPushBundle skipped: bundle abhi load nahi hua');return false;}
+  // NULL GUARD: agar bFiles kisi bug/race se null ho gaya, to Object.keys() crash karta tha
+  // ("Cannot convert undefined or null to object"). Khali object maan lo — neeche wala
+  // recovery block IDB se files wapas le aayega.
+  if(!bFiles||typeof bFiles!=='object')bFiles={};
   // SAFETY NET: bFiles khali hai PAR IDB mein files hain? Matlab memory kisi bug se ud gayi.
   // Aise mein KHALI push mat karo — pehle IDB se recover karo. (Ye Firebase pe count:0
   // likhne se bachata hai, jisse Secondary ko 0 files milti thi.)
@@ -6171,7 +6243,8 @@ async function fbPullAll(){
       const key=doc.id;
       if(!/^\d{4}-\d{2}-\d{2}_\d+$/.test(key))continue;
       const d=doc.data();
-      if(d&&d.data&&Array.isArray(d.data)){await idbSM(key,d.data);invalidateAllDatesCache();}
+      const rows=cfmFromFirebase(d);
+      if(rows){await idbSM(key,rows);invalidateAllDatesCache();}
     }
     // 2. Version metadata
     const metaSnaps=await _fbDb.collection('cfm_meta').get();
@@ -6352,7 +6425,6 @@ async function checkPendingReceive(caseno){
   const curKey=dKey();
   // Index se sirf is case ke records (with keys) — koi full scan nahi
   const entries=await _idxLookup(cn); // [{rec,key}]
-  if(!entries.length)return{found:false};
   // CYCLE-AWARE (overdue/tag jaisa EXACT): file sent→received→dobara sent→...
   // Purani receiving nayi sending ko cover nahi karti. Dekho: last-receiving ke BAAD
   // koi sending hai jo abhi tak receive nahi hui? Agar haan → pehle wo receive karo.
@@ -6363,6 +6435,21 @@ async function checkPendingReceive(caseno){
     if(rec._disposed)disposed=true;
     if(rec.sent==='Sent')sends.push({wdate:datePart,sentdate:rec.sentdate||'',rec});
     if(rec.received==='Received')recvs.push(datePart);
+  }
+  // ARCHIVE MERGE — 90+ din purani pending sending bhi yahan dikhni chahiye, warna
+  // "Pehle receive karo" ka block archive hone ke baad chup-chaap gayab ho jaata
+  // (file 100 din se pending ho aur user seedha SENT kar de, bina block ke).
+  const ck=_unpKey(cn);
+  const archIdx=await loadArchIdx();
+  const ae=archIdx[ck];
+  if(ae){
+    if(ae.disposed)disposed=true;
+    ae.sends.forEach(wd=>{
+      if(!sends.some(s=>s.wdate===wd)){
+        sends.push({wdate:wd,sentdate:'',rec:{caseno:ae.caseno,partyname:ae.partyname||'',sent:'Sent',sentdate:'',_fromArchive:true}});
+      }
+    });
+    ae.recvs.forEach(wd=>{if(!recvs.includes(wd))recvs.push(wd);});
   }
   if(disposed||!sends.length)return{found:false};
   const lastRecv=recvs.length?recvs.reduce((a,b)=>a>b?a:b):null;
