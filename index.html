@@ -4392,7 +4392,24 @@ async function handleCFMScan(code,mode){
 // ════ BUNDLE AUTO-HIDE ════
 async function hideBundleEntry(caseNo){
   const id=String(caseNo).toUpperCase();
-  if(bFiles[id]){bFiles[id].hidden=true;await idbSBn(bFiles[id]);scheduleBundlePush();if(activeTab==='bundle')bRenderGrid();showToast('📁 '+id+' bundle se hide ho gaya (SENT)');}
+  let target=null,targetId=null;
+  if(bFiles[id]){
+    target=bFiles[id];targetId=id;
+  }else{
+    // EXACT match nahi mila — FORMAT-SAFE fallback (canonical: letters+numbers).
+    // Bug tha: bundle mein "CC/01/2026" (leading zero) ya "cc/1/2026" (lowercase) ho aur
+    // CFM se "CC/1/2026" SENT ho, to exact-match fail hota tha aur bundle entry hide
+    // NAHI hoti thi — file "Aaj ki Files" mein sent hone ke baad bhi dikhti rehti thi.
+    const ck=_unpKey(id);
+    if(ck!=='|'){
+      for(const bid in bFiles){
+        if(!bFiles[bid].hidden&&_unpKey(bid)===ck){target=bFiles[bid];targetId=bid;break;}
+      }
+    }
+  }
+  if(target){
+    target.hidden=true;await idbSBn(target);scheduleBundlePush();if(activeTab==='bundle')bRenderGrid();showToast('📁 '+targetId+' bundle se hide ho gaya (SENT)');
+  }
 }
 
 // ════ BUNDLE STATE + COLUMNS ════
