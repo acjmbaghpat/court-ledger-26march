@@ -5060,7 +5060,12 @@ function bRenderSearch(){
   const q=siEl?siEl.value.trim().toLowerCase():'';
   const res=document.getElementById('b-sr');if(!res)return;
   const allV=Object.values(bFiles);const miss=allV.filter(f=>f.st==='missing'&&!f.hidden);const tot=allV.filter(f=>!f.hidden).length;
-  if(q){const r=allV.filter(f=>f.id.toLowerCase().includes(q));res.innerHTML=r.length?r.map(f=>bFCHTML(f,true)).join(''):'<div class="nores">❌ "'+esc(q)+'" nahi mili</div>';return;}
+  // BUG FIX: search sirf abhi-almari-mein-rakhi files dikhaye (!hidden). Pehle hidden
+  // (CFM se already SENT) files bhi id-match par aa jaati thi — jaise 18-07 ke liye
+  // advance-sent file, jo A/B/C/D har column mein alag copy ki tarah dikhti thi jab tak
+  // ki wo sach mein alag-alag columns mein add hi na hui ho. Ab sent files search mein
+  // nahi aatin, chahe unka caseno match kare.
+  if(q){const r=allV.filter(f=>!f.hidden&&f.id.toLowerCase().includes(q));res.innerHTML=r.length?r.map(f=>bFCHTML(f,true)).join(''):'<div class="nores">❌ "'+esc(q)+'" nahi mili (agar SENT ho chuki hai to yahan nahi dikhegi)</div>';return;}
   if(miss.length){res.innerHTML='<div style="color:var(--red);font-weight:700;margin-bottom:10px">⚠ Missing Files ('+miss.length+')</div>'+miss.map(f=>bFCHTML(f,true)).join('');return;}
   res.innerHTML=tot?'<div style="color:var(--green);font-size:13px;text-align:center;margin-top:30px;font-weight:600">✅ Koi missing nahi</div>':'<div class="bempty">Koi file add nahi ki abhi.</div>';
 }
