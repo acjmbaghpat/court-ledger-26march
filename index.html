@@ -2055,6 +2055,22 @@ async function loadLocal(){
     if(s&&Array.isArray(s)){cData=s;cData.forEach(r=>r.searchableText=gSrch(r));}
     else cData=[];
   }catch(e){cData=[];showToast('⚠️ Data load fail!','d');}
+  // AUTO-MERGE: jo files pehle RECEIVE ho chuki hain aur unki next-date yahi hai, unhe
+  // is date ki list mein khud-ba-khud dikhao — chahe Excel upload hua ho ya sirf date
+  // navigate ki ho. Excel upload hone par yahi merge match/extra dono handle karta hai;
+  // is se pehle (sirf date switch pe) file list mein "empty" nahi dikhti agar wo pehle
+  // kabhi receive ho chuki thi is next-date ke liye.
+  try{
+    const mr=await mergeUpcomingReceived(cData,dKey().split('_')[0]);
+    if(mr.addedCount>0){
+      cData=mr.merged;
+      // Naye-merge hue rows IDB mein bhi likh do — taaki agli baar isi date pe load
+      // karne par dubara scan na karna pade, aur Bundle/overdue/tag sab isi data se
+      // consistent rahein (jaisa Excel-upload path mein already hota hai).
+      await idbSM(dKey(),cData);
+      invalidateAllDatesCache();
+    }
+  }catch(e){console.error('loadLocal upcoming-merge:',e);}
   // Pending-from-previous flag karo (date switch pe bhi highlight dikhe)
   await markPendingFromPrevious();
   drawTable(getFiltered());await updateDash();
@@ -4656,6 +4672,7 @@ function bRenderGrid(){
   const byCat={}; // cat → [files]
   const byDate={}; // date → [files]
   const byDateCol={}; // date_col → {cnt, miss}
+  const byDateColSub={}; // date_col → {sd -> {cnt, miss}}  (sub-date breakdown for pill detail)
   visible.forEach(f=>{
     if(f.cat){
       if(!byCat[f.cat])byCat[f.cat]=[];
@@ -4667,6 +4684,12 @@ function bRenderGrid(){
       if(!byDateCol[dck])byDateCol[dck]={cnt:0,miss:0};
       byDateCol[dck].cnt++;
       if(f.st==='missing')byDateCol[dck].miss++;
+      if(f.sd!=null){
+        if(!byDateColSub[dck])byDateColSub[dck]={};
+        if(!byDateColSub[dck][f.sd])byDateColSub[dck][f.sd]={cnt:0,miss:0};
+        byDateColSub[dck][f.sd].cnt++;
+        if(f.st==='missing')byDateColSub[dck][f.sd].miss++;
+      }
     }
   });
 
@@ -4714,10 +4737,24 @@ function bRenderGrid(){
     const rowCls=(missCount>0)?'sc-m':maxCnt>=40?'sc-f':maxCnt>=25?'sc-h':'sc-e';
     const dateColor=tot===0?'#cbd5e1':rowCls==='sc-e'?'var(--blue)':rowCls==='sc-h'?'var(--amber)':'var(--red)';
     const pillsHTML=colCounts.map(({col,cnt,miss})=>{
+      const sdMap=byDateColSub[date+'_'+col]; // sub-date breakdown, agar hai
       if(cnt===0)return`<span style="background:#f0f3f9;color:#cbd5e1;border-radius:6px;padding:2px 7px;font-size:11px;font-weight:600">${dispCol(col)}-0</span>`;
       const bg=miss>0?'#fee2e2':cnt>=40?'#fecaca':cnt>=25?'#fef3c7':'#e8f0fe';
       const tc=miss>0?'#b91c1c':cnt>=40?'var(--red)':cnt>=25?'var(--amber)':'var(--blue)';
-      return`<span style="background:${bg};color:${tc};border-radius:6px;padding:2px 7px;font-size:11px;font-weight:700;cursor:pointer" onclick="event.stopPropagation();bOpenDate(${date})">${dispCol(col)}-${cnt}${miss>0?'⚠':''}</span>`;
+      const mainPill=`<span style="background:${bg};color:${tc};border-radius:6px;padding:2px 7px;font-size:11px;font-weight:700;cursor:pointer" onclick="event.stopPropagation();bOpenDate(${date})">${dispCol(col)}-${cnt}${miss>0?'⚠':''}</span>`;
+      if(!sdMap)return mainPill;
+      // SUB-DATE MINI-PILLS: jaise "D-3 files" ke andar agar kuch sub-date=15 mein hain,
+      // to "D·15:2" jaisi alag chip bhi dikhao — taaki grid se hi pata chale konsi
+      // sub-date kahan rakhi hai (bina date pe click kiye). Non-sub-date wali files
+      // (sd=null) main pill mein hi count hoti hain, unke liye alag chip nahi banti.
+      const sdKeys=Object.keys(sdMap).map(Number).sort((a,b)=>a-b);
+      const sdPills=sdKeys.map(sd=>{
+        const s=sdMap[sd];
+        const sbg=s.miss>0?'#fee2e2':'#f3e8ff';
+        const stc=s.miss>0?'#b91c1c':'#7c3aed';
+        return`<span style="background:${sbg};color:${stc};border-radius:6px;padding:1px 6px;font-size:10px;font-weight:700;cursor:pointer;border:1px dashed ${stc}66" onclick="event.stopPropagation();bOpenDate(${date})" title="Date ${date} ke ${dispCol(col)} column mein, sub-date ${sd}">${dispCol(col)}·${sd}:${s.cnt}${s.miss>0?'⚠':''}</span>`;
+      }).join('');
+      return mainPill+sdPills;
     }).join('');
     const todayBadge=isToday_d?'<span style="background:#e8f0fe;color:var(--blue);font-size:10px;margin-left:6px;padding:1px 6px;border-radius:10px;font-weight:700">Aaj</span>':'';
     const border=isToday_d?'2px solid var(--blue)':'1.5px solid '+(tot===0?'var(--bdr)':rowCls==='sc-m'?'#fca5a5':rowCls==='sc-h'?'#fcd34d':rowCls==='sc-f'?'#fca5a5':'var(--bdr)');
