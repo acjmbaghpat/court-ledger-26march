@@ -2802,6 +2802,84 @@ async function markPendingFromPrevious(){
   }catch(e){console.error('markPendingFromPrevious:',e);return {pendingCount:0,overdueCount:0};}
 }
 
+// ═══ UPCOMING-DATE AUTO-MERGE ═══
+// Feature: jab file RECEIVE hoti hai aur next-date fix hoti hai, wo file us date ki
+// list mein AUTOMATICALLY dikhni chahiye — chahe us din ka Excel upload ho ya na ho.
+// Jab us date ka Excel upload karo, to donon sources CASE-NUMBER se merge hote hain:
+//   • Jo case dono mein hai (Excel + purani-received-nextdate) → EK hi entry (duplicate nahi)
+//   • Jo sirf Excel mein hai (naya case) → wo bhi rahegi
+//   • Jo sirf purani-received-nextdate mein hai (Excel mein miss/chhoot gayi) → wo bhi add hogi
+// Excel = 100, purani-received-nextdate = 90, overlap = 85 → result = 100 + (90-85) = 105 total.
+async function mergeUpcomingReceived(uploadedRows,targetDate){
+  // 1. Saari dates se woh records nikalo jinki NEXTDATE = targetDate, aur jo RECEIVED
+  //    hain (disposed skip — unka ab aana hi nahi). Case ki LATEST copy use karo.
+  const allData=await getAllDatesData();
+  const upcoming={}; // canonical -> record
+  for(const k of Object.keys(allData)){
+    const datePart=k.split('_')[0];
+    allData[k].forEach(r=>{
+      if(r.nextdate!==targetDate)return;
+      if(r.received!=='Received')return;
+      if(r._disposed)return;
+      const cn=String(r.caseno||'').trim();
+      if(!cn)return;
+      const ck=_unpKey(cn);
+      if(ck==='|')return;
+      const ex=upcoming[ck];
+      // Latest wins (working-date basis — jo baad mein receive hui uski copy le lo)
+      if(!ex||datePart>=ex._srcDate){
+        upcoming[ck]={...r,_srcDate:datePart,_fromUpcoming:true};
+      }
+    });
+  }
+  if(!Object.keys(upcoming).length)return{merged:uploadedRows,addedCount:0}; // kuch bhi upcoming nahi — Excel jaisa hi
+
+  // 2. Excel rows ke canonical-keys nikalo (match track karne ke liye)
+  const excelIdx={}; // canon -> index in uploadedRows (Excel-overlap tag-carry ke liye)
+  uploadedRows.forEach((r,i)=>{const ck=_unpKey(r.caseno);if(ck!=='|'&&!(ck in excelIdx))excelIdx[ck]=i;});
+
+  // BUNDLE CATEGORY TAGS (verification/committal/old/jail/stay/...) purani record ke remark
+  // mein hote hain — jab tak file bundle-category se KHUD (manually remark se) na hataayi
+  // jaaye, ye tag agli date pe bhi dikhne chahiye. Pehle sirf tab carry hote the jab case
+  // Excel mein NAHI tha (naya record purani copy se banta tha). Agar Excel mein wahi case
+  // pehle se hai (jo normal hai — Excel-row priority leta hai), to uska remark KHAALI hota
+  // (Excel column mein tag nahi hota), aur tag CHUP-CHAAP GAYAB ho jaata tha. Ab: Excel-row
+  // ke remark mein purani record ke category-words merge kar do (duplicate na ho).
+  const CAT_WORDS=Object.values(CAT_REMARK_WORD); // ['old','committal','jail','nakal','stay','special','verification','stool','computer','warrant','other']
+  for(const ck in upcoming){
+    if(!(ck in excelIdx))continue; // sirf Excel-overlap case handle karna hai yahan
+    const oldRemark=(upcoming[ck].remark||'').trim();
+    if(!oldRemark)continue;
+    // Purani remark mein se KAUNSE category-words hain, wahi carry karo (poora remark nahi —
+    // Excel wali baaki details, jaise koi manual note, wahi rahegi jo Excel mein hai)
+    const oldTags=oldRemark.split('|').map(s=>s.trim()).filter(t=>CAT_WORDS.some(w=>new RegExp('^'+w+'$','i').test(t)));
+    if(!oldTags.length)continue;
+    const row=uploadedRows[excelIdx[ck]];
+    const curRemark=(row.remark||'').trim();
+    const curTags=curRemark?curRemark.split('|').map(s=>s.trim()):[];
+    let changed=false;
+    for(const tag of oldTags){
+      if(!curTags.some(t=>t.toLowerCase()===tag.toLowerCase())){curTags.push(tag);changed=true;}
+    }
+    if(changed){
+      row.remark=curTags.join(' | ');
+      row.searchableText=gSrch(row);
+    }
+  }
+
+  // 3. Jo upcoming mein hai PAR Excel mein NAHI — unhe list ke END mein add karo
+  const extra=[];
+  for(const ck in upcoming){
+    if(ck in excelIdx)continue; // already Excel mein hai — tag upar merge ho chuka, duplicate row nahi
+    const rec=upcoming[ck];
+    const {_srcDate,_fromUpcoming,...clean}=rec; // internal markers hatao
+    clean._fromUpcoming=true; // UI badge ke liye rakho
+    clean.searchableText=gSrch(clean);
+    extra.push(clean);
+  }
+  return{merged:[...uploadedRows,...extra],addedCount:extra.length};
+}
+
 async function uploadExcel(){
   if(typeof XLSX==='undefined'){showToast('❌ Excel library load nahi hui — page reload karo','d');return;}
   const file=excelFile.files[0];
@@ -2842,6 +2920,12 @@ async function uploadExcel(){
         if(!out.srno)out.srno=String(row[Object.keys(row)[0]]||"").trim();
         out.searchableText=gSrch(out);return out;
       }).filter(r=>r.caseno);
+      // UPCOMING-MERGE: is date ke liye jo files pehle RECEIVE ho chuki hain aur unki
+      // next-date yahi hai, unhe bhi list mein le aao (agar Excel mein already nahi hain).
+      // Isse "Excel 100 + purani-receive-se-90, overlap 85 → total 105" wala result milta hai.
+      invalidateAllDatesCache();
+      const mergeResult=await mergeUpcomingReceived(cData,workDate.value);
+      cData=mergeResult.merged;
       const vs=await idbGV(workDate.value);
       const nv=vs&&vs.length?vs.reduce((m,v)=>Math.max(m,v),0)+1:1;upV=nv;
       const uvs=vs&&vs.length?[...vs,nv]:[nv];
@@ -2855,9 +2939,9 @@ async function uploadExcel(){
       drawTable(getFiltered());await updateDash();updateSU();
       speak("Excel uploaded");
       if(pendInfo.pendingCount>0){
-        showToast('✅ Upload! '+cData.length+' records. ⚠️ '+pendInfo.pendingCount+' files pichli date se PENDING (highlight mein)'+(pendInfo.overdueCount>0?' — '+pendInfo.overdueCount+' overdue':''),'w');
+        showToast('✅ Upload! '+cData.length+' records'+(mergeResult.addedCount>0?' (+'+mergeResult.addedCount+' pehle-se-received milaayi gayi)':'')+'. ⚠️ '+pendInfo.pendingCount+' files pichli date se PENDING (highlight mein)'+(pendInfo.overdueCount>0?' — '+pendInfo.overdueCount+' overdue':''),'w');
       }else{
-        showToast('✅ Upload ho gaya! ('+cData.length+' records)');
+        showToast('✅ Upload ho gaya! ('+cData.length+' records'+(mergeResult.addedCount>0?', +'+mergeResult.addedCount+' pehle-se-received milaayi gayi':'')+')');
       }
       excelFile.value="";
       closeDrawer();
@@ -3636,7 +3720,8 @@ function drawTable(data){
         const ppBadge=pp?(pp.overdue
           ?'<span style="display:inline-block;background:var(--red);color:#fff;font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px;margin-left:4px" title="Pichli date ('+fmtD(pp.workDate)+') se Peshgar ko sent, '+pp.daysDiff+' din se CFM mein wapis received nahi — OVERDUE">❌ NOT RECEIVED · '+pp.daysDiff+'d</span>'
           :'<span style="display:inline-block;background:#ea580c;color:#fff;font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px;margin-left:4px" title="Pichli date ('+fmtD(pp.workDate)+') se Peshgar ko sent, abhi CFM mein wapis received nahi">❌ NOT RECEIVED</span>'):'';
-        row+=`<td><span class="td-caseno" onclick="openCaseDetail('${cj}')">${esc(r.caseno)}</span>${ppBadge}${renderRemarkTags(r.remark)}</td>`;
+        const upBadge=r._fromUpcoming?'<span style="display:inline-block;background:#0891b2;color:#fff;font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px;margin-left:4px" title="Ye file Excel mein nahi thi — pehle RECEIVE ho chuki thi aur is date ki next-date fix ki gayi thi, isliye yahan auto-milaayi gayi">🔗 AUTO-ADDED</span>':'';
+        row+=`<td><span class="td-caseno" onclick="openCaseDetail('${cj}')">${esc(r.caseno)}</span>${ppBadge}${upBadge}${renderRemarkTags(r.remark)}</td>`;
       }else if(k==="partyname"){
         row+=`<td><span class="td-party">${esc(r[k]||"")}</span></td>`;
       }else if(k==="section"||k==="ps"){
@@ -4608,8 +4693,20 @@ function bRenderGrid(){
     const missCount=allInDate.filter(f=>f.st==='missing').length;
     const isSpecial=SPECIAL_DATES.includes(date);
     const cols=getColsForDate(date);
+    // BUG FIX: 29/30/31 pe naya-add sirf S1/S2 offer karta hai, isliye getColsForDate()
+    // in dates ke liye sirf S1/S2 return karta hai. PAR agar (purani version/move se)
+    // koi file normal column (A-F) mein pahunch gayi ho is date pe, uska pill kabhi
+    // render hi nahi hota tha — file grid-summary se GAYAB dikhti thi (sirf search
+    // se milti). Ab actual bFiles data se bhi columns nikalte hain aur extra columns
+    // (jo getColsForDate() ki list mein nahi) ko bhi pill mein jodte hain.
+    const actualCols=new Set(cols);
+    Object.keys(byDateCol).forEach(k=>{
+      const[dd,cc]=k.split('_');
+      if(+dd===date)actualCols.add(cc);
+    });
+    const allCols=[...actualCols];
     const isToday_d=(date===todayDay);
-    const colCounts=cols.map(col=>{
+    const colCounts=allCols.map(col=>{
       const dc=byDateCol[date+'_'+col]||{cnt:0,miss:0};
       return{col,cnt:dc.cnt,miss:dc.miss};
     });
@@ -4699,6 +4796,11 @@ function bOpenDate(date){
   document.getElementById('bdd-sub').textContent=`${tot} files — Slot tap karo`;
   let h='';
   if(isSpecial){
+    // BUG FIX: 29/30/31 pe naya-add sirf S1/S2 (safe) columns offer karta hai — par
+    // agar kabhi (purani version, move, ya data-import se) normal column (A-F) mein
+    // koi file is date pe pahunch gayi ho, wo pehle yahan bilkul nahi dikhti thi
+    // (sirf S1/S2-prefix slots render hote the). Ab woh "extra" slots bhi dikhenge,
+    // taaki file kabhi grid se gayab na ho — sirf search se hi na milni pade.
     ['S1','S2'].forEach(safe=>{
       const safeSlots=slotsForDate.filter(s=>s.col.startsWith(safe));if(!safeSlots.length)return;
       h+=`<div style="background:#f0f3f9;border-radius:9px;padding:9px 12px;margin-bottom:9px;font-size:12px;font-weight:700;color:var(--navy)">🗄 Safe ${safe.slice(1)}</div>`;
@@ -4706,6 +4808,13 @@ function bOpenDate(date){
       safeSlots.forEach(({md,sd,col,arr})=>{const cls=bCC(arr),ic=cls==='sc-e'?'⚪':cls==='sc-h'?'🟡':'🔴';const ms=arr.filter(f=>f.st==='missing').length;h+=`<button class="sc ${cls}" onclick="bOSlot(${md},${sd==null?'null':sd},'${esc(col)}','date')" style="padding:10px 8px" ondragover="onSlotDragOver(event,this)" ondragleave="onSlotDragLeave(this)" ondrop="onSlotDrop(event,${md},${sd==null?'null':sd},'${esc(col)}',this)"><div style="display:flex;align-items:center;gap:3px"><span class="scol" style="font-size:18px">${dispCol(col)}</span><span style="font-size:12px">${ic}</span></div><div class="scnt">${arr.length}</div>${ms>0?`<div class="smiss">⚠${ms}</div>`:''}</button>`;});
       h+=`</div>`;
     });
+    const extraSlots=slotsForDate.filter(s=>!s.col.startsWith('S1')&&!s.col.startsWith('S2'));
+    if(extraSlots.length){
+      h+=`<div style="background:#fef3c7;border-radius:9px;padding:9px 12px;margin-bottom:9px;font-size:12px;font-weight:700;color:#92400e">⚠️ Normal Column (is date pe alag se) — <span style="font-weight:600">migrate karo</span></div>`;
+      h+=`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px">`;
+      extraSlots.forEach(({md,sd,col,arr})=>{const cls=bCC(arr),ic=cls==='sc-e'?'⚪':cls==='sc-h'?'🟡':'🔴';const ms=arr.filter(f=>f.st==='missing').length;h+=`<button class="sc ${cls}" onclick="bOSlot(${md},${sd==null?'null':sd},'${esc(col)}','date')" ondragover="onSlotDragOver(event,this)" ondragleave="onSlotDragLeave(this)" ondrop="onSlotDrop(event,${md},${sd==null?'null':sd},'${esc(col)}',this)"><div style="display:flex;align-items:center;gap:4px"><div class="scol">${col}</div><span>${ic}</span></div>${sd!=null?`<div class="ssub">sub:${sd}</div>`:''}<div class="scnt">${arr.length} files</div>${ms>0?`<div class="smiss">⚠ ${ms} missing</div>`:''}</button>`;});
+      h+=`</div>`;
+    }
   }else{
     h+=`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">`;
     slotsForDate.forEach(({md,sd,col,arr})=>{const cls=bCC(arr),ic=cls==='sc-e'?'⚪':cls==='sc-h'?'🟡':'🔴';const ms=arr.filter(f=>f.st==='missing').length;h+=`<button class="sc ${cls}" onclick="bOSlot(${md},${sd==null?'null':sd},'${esc(col)}','date')" ondragover="onSlotDragOver(event,this)" ondragleave="onSlotDragLeave(this)" ondrop="onSlotDrop(event,${md},${sd==null?'null':sd},'${esc(col)}',this)"><div style="display:flex;align-items:center;gap:4px"><div class="scol">${col}</div><span>${ic}</span></div>${sd!=null?`<div class="ssub">sub:${sd}</div>`:''}<div class="scnt">${arr.length} files</div>${ms>0?`<div class="smiss">⚠ ${ms} missing</div>`:''}</button>`;});
@@ -4785,10 +4894,18 @@ async function bAddFile(rawId,fromScan){
     bUpdateSP();bRenderGrid();return true;
   }
   // CFM check — file exist karni chahiye (SAARI dates mein dhundo, sirf current nahi)
-  // FRESH CACHE GUARANTEE: agar user ne abhi CFM mein receive/date-change kiya, to current
-  // date ka cData turant cache mein sync karo — taaki bundle stale date na padhe.
-  // (Pehle stale cache se galat mismatch aa sakta tha jab file current date pe na ho.)
-  updateAllDatesCacheForCurrent();
+  // FRESH CACHE GUARANTEE: 60-sec TTL cache STALE ho sakta hai agar file ki nextdate
+  // kisi ANY date pe (na ki sirf current-open date) abhi-abhi badli ho — jaise:
+  //  • Secondary device pe Firebase se sync hua (cache invalidate nahi hui thi)
+  //  • File kisi purani date pe khuli, wahan next-date change hui, phir seedha Bundle
+  //    tab pe aa gaye — us date ka updateAllDatesCacheForCurrent() sirf CURRENT-OPEN
+  //    date ke liye chalta, us purani-date-wali update ke liye nahi.
+  // BUG jo isse hota tha: CFM mein date sahi dikhti (fresh load), Bundle mein "different
+  // date" ka error aata (stale cache), phir dobara wahi date try karne pe (jab tak cache
+  // kisi aur wajah se refresh ho chuki hoti) accept ho jaata — confusing aur galat.
+  // Fix: poori cache FORCE-fresh karo (bundle-add low-frequency action hai, extra IDB
+  // read ka cost negligible hai — correctness zaroori hai).
+  invalidateAllDatesCache();
   const cfmRec=await getCFMRecordAllDates(id);
   if(fromScan){
     if(!cfmRec){showSC('❌ CFM mein nahi hai: '+id,'#dc2626');speak("File CFM mein nahi hai");haptic('error');redFlash();return false;}
