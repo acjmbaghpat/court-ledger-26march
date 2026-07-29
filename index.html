@@ -2826,6 +2826,36 @@ async function markPendingFromPrevious(){
 //   • Jo sirf Excel mein hai (naya case) → wo bhi rahegi
 //   • Jo sirf purani-received-nextdate mein hai (Excel mein miss/chhoot gayi) → wo bhi add hogi
 // Excel = 100, purani-received-nextdate = 90, overlap = 85 → result = 100 + (90-85) = 105 total.
+// ═══ STALE AUTO-MERGE CLEANUP ═══
+// mergeUpcomingReceived() jab kisi date pe file auto-merge karta hai, wo IDB mein us date
+// ke record ke saath PERSIST ho jaata hai (dubara-scan se bachne ke liye). Agar baad mein
+// original-record ki nextdate BADAL di jaaye (date-refix), to purani-date wali auto-merged
+// copy "orphan" ban jaati hai — wo apne-aap nahi hatti, kyunki uska koi live-link nahi hai
+// original record se. Isse file DO dates par ek saath dikhne lagti (bug).
+// Fix: jab bhi kisi record ki nextdate change ho, PURANI nextdate wali date se agar wahan
+// isi case ki ek "abhi tak untouched" (fresh, sent/received dono khaali) copy padi hai,
+// use hata do — sirf tab jab woh copy khud kisi ki kaam-mein-li-hui na ho (safety: agar
+// user ne purani target-date pe khud SENT/RECEIVE kar diya ho, wo NAHI hatai jaati).
+async function cleanupStaleAutoMerge(caseNo,oldNextDate,newNextDate){
+  if(!oldNextDate||oldNextDate===newNextDate)return; // date badli hi nahi, kuch nahi karna
+  const key=oldNextDate+'_1'; // auto-merge hamesha version _1 mein hi save hota hai (dKey base)
+  try{
+    const rows=await idbGM(key);
+    if(!rows||!Array.isArray(rows))return;
+    const ck=_unpKey(caseNo);
+    const idx=rows.findIndex(r=>_unpKey(r.caseno)===ck);
+    if(idx===-1)return;
+    const r=rows[idx];
+    // Safety: sirf tab hatao jab record abhi bhi bilkul FRESH ho (auto-merge ke waqt jaisi
+    // thi — koi sent/received/kaam nahi hua us date pe). Agar user ne kuch kiya ho, chhodo.
+    const untouched=(!r.sent)&&(!r.received)&&(!r._disposed);
+    if(!untouched)return;
+    rows.splice(idx,1);
+    await idbSM(key,rows);
+    invalidateAllDatesCache();
+  }catch(e){console.error('cleanupStaleAutoMerge:',e);}
+}
+
 async function mergeUpcomingReceived(uploadedRows,targetDate){
   // 1. Saari dates se woh records nikalo jinki NEXTDATE = targetDate, aur jo RECEIVED
   //    hain (disposed skip — unka ab aana hi nahi). Case ki LATEST copy use karo.
@@ -2954,11 +2984,33 @@ async function uploadExcel(){
         for(const[k,a]of al){if(a.some(x=>h.includes(x)||x.includes(h)))return k;}
         return null;
       }
+      // WORK-PRESERVE SNAPSHOT: agar user ne is date pe pehle se (Excel upload ke bina,
+      // ya purane Excel-upload ke baad) manually SENT/RECEIVE kiya hua hai, wo kaam
+      // Excel dobara-upload karne se GAYAB nahi hona chahiye. Isliye purana cData
+      // (jo abhi tak yahi tha) canonical-case-key se yaad rakho.
+      const prevWorkByCase={};
+      (cData||[]).forEach(r=>{
+        const ck=_unpKey(r.caseno);
+        if(ck!=='|')prevWorkByCase[ck]={sent:r.sent||'',sentdate:r.sentdate||'',received:r.received||'',receiveddate:r.receiveddate||'',nextdate:r.nextdate||'',remark:r.remark||''};
+      });
       cData=rows.map(row=>{
         const out={};
         Object.keys(row).forEach(k=>{const mk=guessCol(k);if(mk)out[mk]=String(row[k]||"").trim();});
         if(!out.caseno)out.caseno=String(row[Object.keys(row)[1]]||"").trim();
         if(!out.srno)out.srno=String(row[Object.keys(row)[0]]||"").trim();
+        // WORK-PRESERVE: agar is case pe is date pe PEHLE SE kaam ho chuka tha (Excel
+        // column khaali ho tab bhi), purana status wapas laga do — dobara-upload se
+        // manually kiya gaya SENT/RECEIVE/next-date kabhi nahi udna chahiye.
+        const ck=_unpKey(out.caseno);
+        const prev=ck!=='|'?prevWorkByCase[ck]:null;
+        if(prev){
+          if(!out.sent&&prev.sent)out.sent=prev.sent;
+          if(!out.sentdate&&prev.sentdate)out.sentdate=prev.sentdate;
+          if(!out.received&&prev.received)out.received=prev.received;
+          if(!out.receiveddate&&prev.receiveddate)out.receiveddate=prev.receiveddate;
+          if(!out.nextdate&&prev.nextdate)out.nextdate=prev.nextdate;
+          if(!out.remark&&prev.remark)out.remark=prev.remark;
+        }
         out.searchableText=gSrch(out);return out;
       }).filter(r=>r.caseno);
       // UPCOMING-MERGE: is date ke liye jo files pehle RECEIVE ho chuki hain aur unki
@@ -3803,7 +3855,9 @@ function drawTable(data){
 searchBox.addEventListener("input",()=>{clearTimeout(sDeb);sDeb=setTimeout(()=>drawTable(getFiltered()),150);});
 async function updateNextDate(cn,val){
   const idx=cData.findIndex(r=>caseMatch(r.caseno,cn));if(idx===-1)return;
+  const oldNextDate=cData[idx].nextdate||'';
   cData[idx].nextdate=val;cData[idx].searchableText=gSrch(cData[idx]);
+  if(val&&oldNextDate)await cleanupStaleAutoMerge(cData[idx].caseno,oldNextDate,val);
   await saveLocal();await updateDash();
   if(val){speakNextDate(val);showToast('📅 Next date: '+fmtD(val));}
   else showToast('📅 Next date clear ho gaya','w');
@@ -4053,7 +4107,9 @@ async function saveNextDate(){
   }
   const idx=cData.findIndex(r=>caseMatch(r.caseno,lastRcvCase));
   if(idx!==-1&&rcvDate)cData[idx].receiveddate=rcvDate; // chosen received-date set karo
+  let oldNextDate='';
   if(idx!==-1){
+    oldNextDate=cData[idx].nextdate||'';
     if(d)cData[idx].nextdate=d;
     // Remark add karo
     if(remark){
@@ -4075,6 +4131,7 @@ async function saveNextDate(){
   }else if(d){
     speakNextDate(d);
   }
+  if(idx!==-1&&d)await cleanupStaleAutoMerge(cData[idx].caseno,oldNextDate,d);
   await saveLocal();drawTable(getFiltered());updateDash();resetJO();lastRcvCase=null;_ndRcvMode=false;
 }
 
