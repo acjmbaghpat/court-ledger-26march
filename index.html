@@ -2848,7 +2848,7 @@ async function cleanupStaleAutoMerge(caseNo,oldNextDate,newNextDate){
     const r=rows[idx];
     // Safety: sirf tab hatao jab record abhi bhi bilkul FRESH ho (auto-merge ke waqt jaisi
     // thi — koi sent/received/kaam nahi hua us date pe). Agar user ne kuch kiya ho, chhodo.
-    const untouched=(!r.sent)&&(!r.received)&&(!r._disposed);
+    const untouched=(r.sent!=='Sent')&&(r.received!=='Received')&&(!r._disposed);
     if(!untouched)return;
     rows.splice(idx,1);
     await idbSM(key,rows);
@@ -2978,7 +2978,12 @@ async function uploadExcel(){
       if(!rows.length)throw new Error("Sheet khali hai");
       function guessCol(raw){
         const h=String(raw).toLowerCase().replace(/[^a-z0-9]/g,'');
-        const al=[['srno',['srno','serialno','slno','sno','sr','sl']],['caseno',['caseno','casenum','casenumber','caseid','cno','cnno','fileno']],['partyname',['partyname','party','name','parties','accused','applicant','respondent','petitioner','complainant']],['section',['section','sec','offence','ipc','act','charge']],['ps',['ps','policestation','police','thana','station']],['sent',['sent','dispatch','despatched']],['received',['received','recv','rcvd']],['receiveddate',['receiveddate','recvdate','rcvdate','datereceived']],['nextdate',['nextdate','nextdateofhearing','nxtdate','hearingdate','nhdate']],['remark',['remark','remarks','note','notes','comment','obs']]];
+        // FIX: 'sentdate' ko apna explicit category chahiye (jaise 'receiveddate' hai),
+        // warna "Sent Date" jaisa Excel-header fuzzy-match se 'sent' (status) field mein
+        // gir jaata tha — date-string wahan "leak" ho jaati thi jo table mein raw-text
+        // ke roop mein dikhti thi (jaise Sent-column mein "2026-08-01" likha aana), aur
+        // status khud galat-ambiguous ho jaata (truthy hone se work-preserve confuse hota).
+        const al=[['srno',['srno','serialno','slno','sno','sr','sl']],['caseno',['caseno','casenum','casenumber','caseid','cno','cnno','fileno']],['partyname',['partyname','party','name','parties','accused','applicant','respondent','petitioner','complainant']],['section',['section','sec','offence','ipc','act','charge']],['ps',['ps','policestation','police','thana','station']],['sentdate',['sentdate','senddate','dispatchdate','datesent']],['sent',['sent','dispatch','despatched']],['received',['received','recv','rcvd']],['receiveddate',['receiveddate','recvdate','rcvdate','datereceived']],['nextdate',['nextdateofhearing','nxtdate','hearingdate','nhdate','nextdate']],['remark',['remark','remarks','note','notes','comment','obs']]];
         for(const[k,a]of al){if(a.some(x=>h===x))return k;}
         for(const[k,a]of al){if(a.some(x=>h.startsWith(x)||x.startsWith(h)))return k;}
         for(const[k,a]of al){if(a.some(x=>h.includes(x)||x.includes(h)))return k;}
