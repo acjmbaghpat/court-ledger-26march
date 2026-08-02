@@ -2760,14 +2760,18 @@ async function markPendingFromPrevious(){
       // date ka doosra version "pichli date" ban jaata tha. Matlab agar aaj Excel dobara
       // upload ki (version 2 bana) aur version 1 mein file SENT thi, to wo aaj ki apni
       // sending hi "pichli date se pending" dikhne lagti → FALSE "NOT RECEIVED" tag.
-      // Ab sirf DATE-part compare hota hai: aaj ke saare versions "current" hain.
-      const isCur=(datePart===curKey.split('_')[0]);
+      // FUTURE-DATE FIX: aage ki dates (advance-send — jaise 3-Aug ki list ke liye aaj
+      // hi bhej di) ki sending bhi "PICHLI date se pending" nahi hai. Pehle wo bhi count
+      // hoti thi aur daysDiff NEGATIVE aa jaata tha (jaise -1 din) → galat tag.
+      // Ab sirf STRICTLY PURANI dates hi "previous" maani jaati hain.
+      const curDatePart=curKey.split('_')[0];
+      const isCurOrFuture=(datePart>=curDatePart);
       allData[k].forEach(r=>{
         const cn=String(r.caseno||'').trim().toUpperCase();
         if(!cn)return;
         if(r._disposed)disposedSet.add(cn);
         // Sending: sirf PICHLI dates se (current upload ki apni sending count nahi)
-        if(!isCur&&r.sent==='Sent')(sends[cn]=sends[cn]||[]).push({wdate:datePart,sentdate:r.sentdate||''});
+        if(!isCurOrFuture&&r.sent==='Sent')(sends[cn]=sends[cn]||[]).push({wdate:datePart,sentdate:r.sentdate||''});
         // Receiving: kisi bhi date se (current bhi — agar aaj receive ho gayi to tag hat jaye)
         if(r.received==='Received')(recvs[cn]=recvs[cn]||[]).push(datePart);
       });
@@ -6883,10 +6887,19 @@ async function checkPendingReceive(caseno){
   // Purani receiving nayi sending ko cover nahi karti. Dekho: last-receiving ke BAAD
   // koi sending hai jo abhi tak receive nahi hui? Agar haan → pehle wo receive karo.
   const sends=[],recvs=[];let disposed=false;
+  const curDatePart=curKey.split('_')[0];
   for(const{rec,key}of entries){
-    if(key===curKey)continue;              // current upload skip
     const datePart=key.split('_')[0];      // working date
     if(rec._disposed)disposed=true;
+    // FUTURE/CURRENT SKIP: aaj ki (kisi bhi version ki) aur AAGE ki dates ki sending
+    // "pichli pending" nahi hai. Advance-send (jaise 3-Aug ki list ke liye aaj hi bhej
+    // dena) pehle yahan aa jaati thi aur aaj ka SENT galti se BLOCK ho jaata tha
+    // ("pehle receive karo") — jabki us date ka kaam abhi aaya hi nahi.
+    if(datePart>=curDatePart){
+      // receiving phir bhi count karo (ye sirf block hataati hai, lagati nahi)
+      if(rec.received==='Received')recvs.push(datePart);
+      continue;
+    }
     if(rec.sent==='Sent')sends.push({wdate:datePart,sentdate:rec.sentdate||'',rec});
     if(rec.received==='Received')recvs.push(datePart);
   }
