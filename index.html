@@ -2756,7 +2756,12 @@ async function markPendingFromPrevious(){
     const disposedSet=new Set();
     for(const k of Object.keys(allData)){
       const datePart=k.split('_')[0]; // working date
-      const isCur=(k===curKey);
+      // MULTI-VERSION FIX: pehle poori key (date_version) compare hoti thi — isliye USI
+      // date ka doosra version "pichli date" ban jaata tha. Matlab agar aaj Excel dobara
+      // upload ki (version 2 bana) aur version 1 mein file SENT thi, to wo aaj ki apni
+      // sending hi "pichli date se pending" dikhne lagti → FALSE "NOT RECEIVED" tag.
+      // Ab sirf DATE-part compare hota hai: aaj ke saare versions "current" hain.
+      const isCur=(datePart===curKey.split('_')[0]);
       allData[k].forEach(r=>{
         const cn=String(r.caseno||'').trim().toUpperCase();
         if(!cn)return;
@@ -2766,6 +2771,34 @@ async function markPendingFromPrevious(){
         // Receiving: kisi bhi date se (current bhi — agar aaj receive ho gayi to tag hat jaye)
         if(r.received==='Received')(recvs[cn]=recvs[cn]||[]).push(datePart);
       });
+    }
+
+    // ARCHIVE MERGE — archive ka data ISI sends/recvs mein daalo, alag se pending
+    // calculate MAT karo. Pehle alag loop tha jo sirf archive ki APNI recvs dekhta tha:
+    // agar sending archive mein thi par RECEIVING active data mein (nayi date pe), to wo
+    // receiving count hi nahi hoti thi aur FALSE "NOT RECEIVED" tag lag jaata tha —
+    // (jaise WSC/9109/2020: April ki sending archive mein, May/June ki receiving active
+    // mein → galat tag). Ab dono ek saath merge hote hain, bilkul getAllOverdueFiles jaisa.
+    const archIdx=await loadArchIdx();
+    if(Object.keys(archIdx).length){
+      // canonical → maujooda uppercase-key map (format alag ho to bhi sahi bucket mile)
+      const canonToKey={};
+      for(const cn in sends){const c=_unpKey(cn);if(c!=='|'&&!canonToKey[c])canonToKey[c]=cn;}
+      for(const cn in recvs){const c=_unpKey(cn);if(c!=='|'&&!canonToKey[c])canonToKey[c]=cn;}
+      for(const ck in archIdx){
+        const ae=archIdx[ck];
+        const key=canonToKey[ck]||String(ae.caseno||'').trim().toUpperCase();
+        if(!key)continue;
+        if(ae.disposed)disposedSet.add(key);
+        ae.sends.forEach(wd=>{
+          const arr=(sends[key]=sends[key]||[]);
+          if(!arr.some(s=>s.wdate===wd))arr.push({wdate:wd,sentdate:''});
+        });
+        ae.recvs.forEach(wd=>{
+          const arr=(recvs[key]=recvs[key]||[]);
+          if(!arr.includes(wd))arr.push(wd);
+        });
+      }
     }
 
     // Har case: last-receiving ke BAAD ki sabse purani un-received sending
@@ -2779,28 +2812,6 @@ async function markPendingFromPrevious(){
       const td=new Date(oldest.wdate+'T00:00:00');td.setHours(0,0,0,0);
       const daysDiff=Math.floor((today-td)/86400000);
       pendingMap[cn]={workDate:oldest.wdate,sentdate:oldest.sentdate,daysDiff:daysDiff};
-    }
-
-    // ARCHIVE MERGE — 90+ din purani pending sending par bhi NOT-RECEIVED tag lage,
-    // warna file archive hote hi tag chup-chaap gayab ho jaata (overdue mein toh
-    // dikhti thi kyunki wahan already merge tha, par ye upload-tag alag path hai).
-    const archIdx=await loadArchIdx();
-    for(const ck in archIdx){
-      const ae=archIdx[ck];
-      if(ae.disposed)continue;
-      const arSends=ae.sends.map(wd=>({wdate:wd,sentdate:''}));
-      const arLastRecv=ae.recvs.length?ae.recvs.reduce((a,b)=>a>b?a:b):null;
-      const arPending=arSends.filter(s=>!arLastRecv||s.wdate>arLastRecv);
-      if(!arPending.length)continue;
-      const oldest=arPending.reduce((a,b)=>a.wdate<b.wdate?a:b);
-      const td=new Date(oldest.wdate+'T00:00:00');td.setHours(0,0,0,0);
-      const daysDiff=Math.floor((today-td)/86400000);
-      // Sirf tab add karo jab is case ka koi active-pending pehle se na ho, ya archive
-      // wali PURANI ho (sabse purani sending hi count honi chahiye — cycle-aware jaisa)
-      const caseUpper=ae.caseno.toUpperCase();
-      if(!pendingMap[caseUpper]||oldest.wdate<pendingMap[caseUpper].workDate){
-        pendingMap[caseUpper]={workDate:oldest.wdate,sentdate:'',daysDiff:daysDiff,_fromArchive:true};
-      }
     }
 
     // Canonical-key index — O(1) lookup (pehle har row pe poora pendingMap loop hota tha
@@ -3484,6 +3495,34 @@ async function statusGetHistory(query){
     if(rec.received==='Received'&&rec.receiveddate)
       events.push({type:'received',workDate:wd,caseno:rec.caseno,partyname:rec.partyname||'',receiveddate:rec.receiveddate,nextdate:rec.nextdate||''});
   }
+  // ARCHIVE SCAN — 90+ din purani dates archive store mein chali jaati hain. Pehle yahan
+  // sirf active cache padha jaata tha, isliye archive hote hi us case ki poori purani
+  // history Status-view se GAYAB ho jaati thi (jabki data safe tha, bas dikhta nahi tha).
+  try{
+    const ark=await idbAARK();
+    for(const k of ark){
+      if(!/^\d{4}-\d{2}-\d{2}_\d+$/.test(k))continue;
+      if(allData[k])continue; // already active cache mein hai — dobara mat jodo
+      const rows=await idbGAR(k);
+      if(!Array.isArray(rows))continue;
+      const rec=rows.find(r=>caseMatch(r.caseno,q));
+      if(!rec)continue;
+      const wd=k.split('_')[0];
+      if(rec.sent==='Sent'&&rec.sentdate)
+        events.push({type:'sent',workDate:wd,caseno:rec.caseno,partyname:rec.partyname||'',sentdate:rec.sentdate,nextdate:rec.nextdate||'',_fromArchive:true});
+      if(rec.received==='Received'&&rec.receiveddate)
+        events.push({type:'received',workDate:wd,caseno:rec.caseno,partyname:rec.partyname||'',receiveddate:rec.receiveddate,nextdate:rec.nextdate||'',_fromArchive:true});
+    }
+  }catch(e){console.error('statusGetHistory archive scan:',e);}
+  // DE-DUPE — same date+type ka event do baar na aaye (active+archive overlap se bache)
+  const seenEv=new Set();
+  const uniq=[];
+  for(const ev of events){
+    const sig=ev.type+'|'+ev.workDate+'|'+(ev.sentdate||ev.receiveddate||'');
+    if(seenEv.has(sig))continue;
+    seenEv.add(sig);uniq.push(ev);
+  }
+  events.length=0;events.push(...uniq);
   events.sort((a,b)=>{
     const da=a.sentdate||a.receiveddate||a.workDate;
     const db=b.sentdate||b.receiveddate||b.workDate;
@@ -5878,7 +5917,8 @@ async function fbPushAll(){
 
     // Bundle + Urgent (95-100%)
     fbProg(96,'Bundle + Urgent push...');
-    try{await fbPushBundle();}catch(e){console.error('bundle:',e);}
+    // force=true — ye user ka apna explicit full-push hai, drop-guard override
+    try{await fbPushBundle(true);}catch(e){console.error('bundle:',e);}
     try{await fbPushUrgent();}catch(e){console.error('urgent:',e);}
     fbProg(100,'Complete!');
     setTimeout(()=>fbProg(-1),1500);
@@ -6501,7 +6541,7 @@ async function bundleDiagnose(){
   }
 }
 
-async function fbPushBundle(){
+async function fbPushBundle(force){
   if(!_fbDb)return false;
   if(deviceRole==='secondary')return false; // secondary push nahi karta
   // SAFETY: bundle files load hone se pehle push mat karo (warna empty push ho jata hai)
@@ -6532,6 +6572,29 @@ async function fbPushBundle(){
           if(fbCount>0){
             console.warn('fbPushBundle BLOCKED: local khali par Firebase pe '+fbCount+' files. Accidental wipe se bacha liya.');
             showToast('⚠️ Local bundle khali hai par Firebase pe '+fbCount+' files hain. Push roka gaya — Pull karo ya app refresh karo.','d');
+            return false;
+          }
+        }
+      }catch(e){/* read fail — aage badho */}
+    }
+  }
+  // LARGE-DROP GUARD: khali-push wala guard sirf 0 files pe lagta tha. Par agar local
+  // mein sirf 1-2 files bachi hon (partial pull, IDB corrupt, ya galat restore) aur
+  // Firebase pe 100+ hon, to push un 100 ko wipe kar deta — aur wahi wipe Secondary
+  // devices pe bhi chala jaata. Ab bade drop pe push ROK dete hain aur user ko batate
+  // hain. User ka apna explicit "Sabhi Data Push Karo" (force=true) override kar sakta hai.
+  if(!force){
+    const localCnt=Object.keys(bFiles).length;
+    if(localCnt>0){
+      try{
+        const snap=await _fbDb.collection('bundle').doc('main').get();
+        if(snap.exists){
+          const _fbf=await bundleFromFirebase(snap.data());
+          const fbCount=_fbf?Object.keys(_fbf).length:0;
+          // Sirf tab roko jab Firebase pe theek-thaak data ho AUR local aadhe se bhi kam
+          if(fbCount>=20&&localCnt<fbCount*0.5){
+            console.warn('fbPushBundle BLOCKED: local '+localCnt+' vs Firebase '+fbCount+' — bada drop, wipe se bacha liya.');
+            showToast('⚠️ Local mein sirf '+localCnt+' bundle files hain par Firebase pe '+fbCount+'. Push roka gaya (data bachane ke liye). Pehle "Pull" karo — sahi lage to Settings se "Sabhi Data Push Karo".','d');
             return false;
           }
         }
