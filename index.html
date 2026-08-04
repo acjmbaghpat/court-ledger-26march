@@ -863,6 +863,78 @@ input:focus,select:focus,textarea:focus{
   opacity:1!important;
   pointer-events:auto!important;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   UI POLISH — PASS 4: pass-1/2 ke aur regressions ka sudhaar
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── 1. STAT CARDS — fonts wapas PEHLE JAISE ──
+   Maine numeral 16→25px aur label 9→9.5px kiya tha; cards bhaari
+   ho gaye. Ab bilkul original sizes. Sunehri lekar (ledger rule)
+   rehne di hai par patli — wo height nahi badhati. */
+.stat-val{
+  font-size:16px!important;
+  font-weight:800!important;
+  letter-spacing:-.5px!important;
+  line-height:1!important;
+  margin-bottom:1px!important;
+  padding-bottom:3px!important;
+  border-bottom-width:1.5px!important;
+}
+.stat-lbl{
+  font-size:9px!important;
+  font-weight:600!important;
+  letter-spacing:.3px!important;
+  min-height:0!important;
+  margin-top:2px!important;
+  line-height:1.2!important;
+}
+.stat-icon{font-size:12px!important;margin-bottom:1px!important}
+.stat-card{padding:6px 8px!important}
+#pgMissCount{font-size:13px!important;letter-spacing:-.8px!important;padding-bottom:3px!important}
+.stat-storage .stat-val{font-size:13px!important}
+
+/* ── 2. SEARCH + CHIPS — wapas pehle jaise ──
+   Sirf input ka font 16px chhoda hai: 16px se neeche iOS focus pe
+   POORA PAGE ZOOM kar deta hai (asli bug). 15 vs 16px dikhta nahi,
+   par zoom-jump bahut khalta hai. Baaki sab original. */
+.search-inner{padding:12px 14px!important}
+.search-box{padding:10px 12px!important;margin-bottom:10px!important}
+.chip{
+  min-height:0!important;
+  padding:7px 12px!important;
+  font-size:12px!important;
+  font-weight:600!important;
+}
+.search-wrap{padding-bottom:0!important}
+
+/* ── 3. BUNDLE FIND — 🔍 icon type kiye hue text ke upar aa raha tha ──
+   Wajah MERI galti: maine input pe padding:12px 14px!important lagaya,
+   jisne .bswrap input{padding-left:38px} ko override kar diya —
+   text icon ke neeche chala gaya. Ab icon ke liye jagah wapas. */
+.bswrap input{padding-left:40px!important}
+.bsico{font-size:15px!important;left:13px!important}
+
+/* ── Grid view: Special Categories ka collapsible header ── */
+.catToggle{
+  width:100%;display:flex;align-items:center;justify-content:space-between;
+  gap:10px;background:var(--sur);border:1.5px solid var(--bdr);
+  border-radius:10px;padding:11px 13px;margin-bottom:8px;cursor:pointer;
+  font-family:inherit;transition:border-color .15s var(--ease),background .15s var(--ease);
+  min-height:44px;
+}
+.catToggle:active{transform:scale(.99)}
+.catToggle.on{border-color:rgba(26,86,219,.35);background:#f7f9ff}
+.catToggle .ct-l{
+  display:flex;align-items:center;gap:7px;
+  font-size:11px;font-weight:700;color:var(--mu);
+  text-transform:uppercase;letter-spacing:.5px;
+}
+.catToggle .ct-ar{font-size:11px;color:var(--blue);width:11px;display:inline-block}
+.catToggle .ct-c{
+  background:#e8f0fe;color:var(--blue);font-size:11px;
+  padding:3px 10px;border-radius:20px;font-weight:700;white-space:nowrap;
+}
 </style>
 </head>
 <body>
@@ -3229,6 +3301,21 @@ async function cleanupStaleAutoMerge(caseNo,oldNextDate,newNextDate){
   }catch(e){console.error('cleanupStaleAutoMerge:',e);}
 }
 
+// Remark mein se WO tag-words nikaalo jo carry-forward hone chahiye.
+// PEHLE BUG: yahan exact-segment match ('^jail$') hota tha, jabki tag DIKHANE
+// wala getRemarkTags() word-boundary match ('\\bjail\\b') karta hai. Matlab
+// "jail file" ya "old case pending" jaisi remark par tag DIKHTA tha par agli
+// date pe CARRY NAHI hota tha. Ab dono ek hi tarike se match karte hain, aur
+// CAT_REMARK_WORD ke saare words cover hote hain (stool/computer/warrant/other bhi).
+function extractCarryTags(remark){
+  if(!remark)return [];
+  const words=[...new Set(Object.values(CAT_REMARK_WORD))];
+  const out=[];
+  for(const w of words){
+    if(new RegExp('\\b'+w+'\\b','i').test(String(remark)))out.push(w);
+  }
+  return out;
+}
 async function mergeUpcomingReceived(uploadedRows,targetDate){
   // 1. Saari dates se woh records nikalo jinki NEXTDATE = targetDate, aur jo RECEIVED
   //    hain (disposed skip — unka ab aana hi nahi). Case ki LATEST copy use karo.
@@ -3264,14 +3351,14 @@ async function mergeUpcomingReceived(uploadedRows,targetDate){
   // pehle se hai (jo normal hai — Excel-row priority leta hai), to uska remark KHAALI hota
   // (Excel column mein tag nahi hota), aur tag CHUP-CHAAP GAYAB ho jaata tha. Ab: Excel-row
   // ke remark mein purani record ke category-words merge kar do (duplicate na ho).
-  const CAT_WORDS=Object.values(CAT_REMARK_WORD); // ['old','committal','jail','nakal','stay','special','verification','stool','computer','warrant','other']
+
   for(const ck in upcoming){
     if(!(ck in excelIdx))continue; // sirf Excel-overlap case handle karna hai yahan
     const oldRemark=(upcoming[ck].remark||'').trim();
     if(!oldRemark)continue;
     // Purani remark mein se KAUNSE category-words hain, wahi carry karo (poora remark nahi —
     // Excel wali baaki details, jaise koi manual note, wahi rahegi jo Excel mein hai)
-    const oldTags=oldRemark.split('|').map(s=>s.trim()).filter(t=>CAT_WORDS.some(w=>new RegExp('^'+w+'$','i').test(t)));
+    const oldTags=extractCarryTags(oldRemark);
     if(!oldTags.length)continue;
     const row=uploadedRows[excelIdx[ck]];
     const curRemark=(row.remark||'').trim();
@@ -3313,11 +3400,8 @@ async function mergeUpcomingReceived(uploadedRows,targetDate){
     };
     // Category-tag (verification/committal/old/...) carry karo — bilkul waisa jaisa
     // Excel-overlap case mein hota hai — sirf tag-words, baaki purana remark nahi.
-    const oldRemark=(rec.remark||'').trim();
-    if(oldRemark){
-      const oldTags=oldRemark.split('|').map(s=>s.trim()).filter(t=>CAT_WORDS.some(w=>new RegExp('^'+w+'$','i').test(t)));
-      if(oldTags.length)clean.remark=oldTags.join(' | ');
-    }
+    const oldTags=extractCarryTags(rec.remark);
+    if(oldTags.length)clean.remark=oldTags.join(' | ');
     clean.searchableText=gSrch(clean);
     extra.push(clean);
   }
@@ -5067,6 +5151,7 @@ function dispCol(col){if(col&&col.length===3&&(col.startsWith('S1')||col.startsW
 const SHELF_LETTERS=['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O'];
 const SPECIAL_DATES=[29,30,31];
 let bFiles={},bRM=false,bMoveId=null,bSlot=null,bActiveDate=null;
+let _bCatOpen=false; // Grid view: Special Categories khuli hain ya band (default band)
 let _bAddCacheFreshAt=0; // continuous-scan mein cache-refresh throttle (perf)
 let _bundleLoaded=false; // bInit ne bundle files load kiye? (empty push se bachne ke liye)
 let _bundleSizeWarned=false; // 800KB warning ek hi baar dikhe
@@ -5074,6 +5159,9 @@ let bAMD=1,bASD=null,bAC='A';
 let bFreeAdd=false; // Free Add mode — CFM cross-check off, bina objection ke add
 // Har date (aur category) ka last-used column yaad rakho — taaki dobara add pe wahi auto-select ho
 let _lastColForDate={}; // {dateOrCat: column}
+function loadCatOpenState(){
+  try{_bCatOpen=localStorage.getItem('cm_bCatOpen')==='1';}catch(e){_bCatOpen=false;}
+}
 async function loadLastCols(){
   try{const v=await idbGM('bundleLastCols');if(v&&typeof v==='object')_lastColForDate=v;}catch(e){}
 }
@@ -5104,6 +5192,7 @@ function bSM(){
 }
 
 async function bInit(){
+  loadCatOpenState();
   const all=await idbAB();
   // RACE GUARD: agar IDB khali hai PAR memory mein bundle files hain (pull/listener se
   // abhi aayi hain aur IDB write chal raha hai), to memory wali mat udao.
@@ -5180,6 +5269,11 @@ function bBuildMoveCR(){
 }
 function bMSetCol(c){bMC=c;bBuildMoveCR();bUpdateMP();}
 function bCC(arr){if(!arr||!arr.length)return'sc-e';if(arr.some(f=>f.st==='missing'))return'sc-m';return arr.length>=40?'sc-f':arr.length>=25?'sc-h':'sc-e';}
+function bToggleCats(){
+  _bCatOpen=!_bCatOpen;
+  try{localStorage.setItem('cm_bCatOpen',_bCatOpen?'1':'0');}catch(e){}
+  bRenderGrid();
+}
 function bRenderGrid(){
   if(_subdateView){bRenderSubdateView();return;} // sub-date view ON hai to wahi dikhao
   const gc=document.getElementById('bgc');
@@ -5222,7 +5316,17 @@ function bRenderGrid(){
   // Categories — group se
   const catUsed=BUNDLE_CATS.filter(cat=>byCat[cat]&&byCat[cat].length);
   if(catUsed.length){
-    h+=`<div style="font-size:11px;font-weight:700;color:var(--mu);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">📂 Special Categories</div>`;
+    // COLLAPSIBLE: pehle saari categories khuli hui dikhti thi aur date-wise
+    // grid ko neeche dhakel deti thi. Ab ek header — us pe tap karke hi
+    // khulti hain. Total count aur missing-warning header pe hi dikh jaate
+    // hain, isliye band hone par bhi zaroori jaankari nahi chhupti.
+    const catTot=catUsed.reduce((s,cat)=>s+byCat[cat].length,0);
+    const catMiss=catUsed.reduce((s,cat)=>s+byCat[cat].filter(f=>f.st==='missing').length,0);
+    h+=`<button type="button" class="catToggle${_bCatOpen?' on':''}" onclick="bToggleCats()" aria-expanded="${_bCatOpen?'true':'false'}">`
+      +`<span class="ct-l"><span class="ct-ar">${_bCatOpen?'▾':'▸'}</span>📂 Special Categories`
+      +`${catMiss>0?` <span style="color:var(--red);font-size:10px;font-weight:700">⚠ ${catMiss}</span>`:''}</span>`
+      +`<span class="ct-c">${catUsed.length} · ${catTot} files</span></button>`;
+    h+=`<div class="catWrap"${_bCatOpen?'':' style="display:none"'}>`;
     catUsed.forEach(cat=>{
       const inCat=byCat[cat];
       const missC=inCat.filter(f=>f.st==='missing').length;
@@ -5230,6 +5334,7 @@ function bRenderGrid(){
         +`<span style="font-size:14px;font-weight:700;color:var(--navy)">${CAT_LABELS[cat]||cat}${missC>0?` <span style="color:var(--red);font-size:11px">⚠ ${missC} missing</span>`:''}</span>`
         +`<span style="background:#e8f0fe;color:var(--blue);font-size:11px;padding:2px 9px;border-radius:20px;font-weight:700">${inCat.length} files</span></div>`;
     });
+    h+=`</div>`;
   }
   h+=`<div style="font-size:11px;font-weight:700;color:var(--mu);text-transform:uppercase;letter-spacing:.5px;margin:12px 0 8px">📅 Date-wise (1–31)</div>`;
   DATES.forEach(date=>{
