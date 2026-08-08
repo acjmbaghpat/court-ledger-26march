@@ -1900,6 +1900,28 @@ function switchDP(btn){
 const DB_NAME='CourtFileManagerDB',DB_VER=4;
 const SV='versions',SM='metadata',SB='bundles',SUL='urgent_logs',SAR='archive';
 let db;
+
+// ═══ PERSISTENT STORAGE — data ko browser eviction se bachao ═══
+// Bina iske browser IndexedDB ko "best-effort" maanta hai: phone ka storage
+// kam pade, browser data saaf ho, ya OS space khaali kare — to poora local
+// data CHUP-CHAAP mit sakta hai. Yehi wajah thi ki Peshgar ka purana kaam
+// ek din "gayab" ho gaya tha. persist() maangne par browser data ko
+// "durable" mark kar deta hai aur automatic eviction se bachaata hai.
+// Chup-chaap chalta hai — na mile to bhi app normal chalti rehti hai.
+async function requestPersistentStorage(){
+  try{
+    if(!navigator.storage||!navigator.storage.persist)return null;
+    if(navigator.storage.persisted){
+      const already=await navigator.storage.persisted();
+      if(already)return true;
+    }
+    const ok=await navigator.storage.persist();
+    console.log(ok?'✅ Storage persistent — data browser se evict nahi hoga'
+                 :'⚠️ Storage persist nahi mila — app ko home-screen pe "Add to Home screen" karo, phir milne ke chance kaafi badh jaate hain');
+    return ok;
+  }catch(e){console.error('requestPersistentStorage:',e);return null;}
+}
+
 function openDB(){
   return new Promise((res,rej)=>{
     if(db)return res(db);
@@ -1977,6 +1999,17 @@ function idbBulkPutBundle(files,clearFirst){
       tx.oncomplete=()=>{clearTimeout(timer);finish(true);};
       tx.onerror=()=>{clearTimeout(timer);finish(false);};
       tx.onabort=()=>{clearTimeout(timer);finish(false);};
+      // B03 FIX — "sab mitao aur kuch mat likho" kabhi valid intent nahi hai.
+      // clearFirst sirf mirror-sync (Secondary pull) mein aata hai. Agar remote se
+      // KHALI payload aa jaye (corrupt doc, ya galti se khali push), to pehle
+      // s.clear() chal jaata tha aur uske baad likhne ko kuch hota hi nahi —
+      // poora local bundle CHUP-CHAAP mit jaata. Ab khali payload pe clear
+      // SKIP hota hai aur false return karke caller ko pata chal jaata hai.
+      // (Bundle genuinely khali karna ho to Remove-mode se ek-ek karke hota hai.)
+      if(clearFirst&&arr.length===0){
+        console.warn('idbBulkPutBundle: khali payload ke saath clear REFUSE kiya — local bundle bacha liya');
+        clearTimeout(timer);finish(false);return;
+      }
       if(clearFirst){try{s.clear();}catch(e){}} // purana bundle hatao (Secondary = mirror)
       arr.forEach(f=>{try{s.put(f);}catch(e){}});
     }catch(e){console.error('idbBulkPutBundle:',e);finish(false);}
@@ -2422,6 +2455,7 @@ window.onload=async()=>{
   }
   try{
     await openDB();
+    requestPersistentStorage();
     workDate.value=_localISO(new Date());
     await loadVersions();await loadCurV();await loadLocal();
     await loadLastCols(); // bundle ke last-used columns load karo
@@ -3011,11 +3045,42 @@ async function pgAuditScan(){
     if(r.received==='Received')add(pgRecv,cn,d);
     if(r.sentToOffice==='Sent')add(pgOffice,cn,d);
   }
-  // Bundle mein abhi rakhi hai? → file mil gayi, laapata nahi
-  const inBundle=new Set();
-  Object.values(bFiles||{}).forEach(f=>{if(!f.hidden){const ck=_unpKey(f.id);if(ck!=='|')inBundle.add(ck);}});
+  // BUNDLE — do cheezein: (1) abhi almari mein rakhi hai, (2) KAB rakhi gayi thi.
+  // Sirf "abhi rakhi hai" kaafi nahi tha: agar file miss-date ke BAAD almari mein
+  // rakhi gayi aur phir SENT hoke hide ho gayi, tab bhi wo mil chuki thi — laapata
+  // nahi. Isliye placement ka timestamp bhi rakhte hain.
+  const inBundle=new Set();        // abhi visible (almari mein maujood)
+  const bundleAt={};               // canon -> sabse NAYA placement timestamp (ms)
+  Object.values(bFiles||{}).forEach(f=>{
+    const ck=_unpKey(f.id);if(ck==='|')return;
+    if(!f.hidden)inBundle.add(ck);
+    const t=Number(f.at)||0;
+    if(t&&(!bundleAt[ck]||t>bundleAt[ck]))bundleAt[ck]=t;
+  });
   const anyOnAfter=(map,ck,d)=>(map[ck]||[]).some(x=>x>=d);
+  const anyAfter=(map,ck,d)=>(map[ck]||[]).some(x=>x>d);
   const anyOnBefore=(map,ck,d)=>(map[ck]||[]).some(x=>x<=d);
+  // Us date ki subah 00:00 se bundle mein rakhi gayi? → file physically mil gayi thi
+  const placedOnAfter=(ck,d)=>{
+    const t=bundleAt[ck];if(!t)return false;
+    const dayStart=new Date(d+'T00:00:00').getTime();
+    return t>=dayStart;
+  };
+  // ── EK JAGAH SE PROOF: is date ke baad file par KAHIN BHI koi harkat hui? ──
+  // Agar CFM ya Peshgar ne dobara sent/received kiya, ya bundle mein rakh di —
+  // to file mil chuki hai, wo "atki hui" nahi hai.
+  const provenHandled=(ck,d,opts)=>{
+    opts=opts||{};
+    if(inBundle.has(ck))return true;                       // abhi almari mein hai
+    if(placedOnAfter(ck,d))return true;                    // baad mein almari mein rakhi gayi
+    if(anyOnAfter(cfmRecv,ck,d))return true;               // CFM ne wapas le li
+    if(anyOnAfter(pgRecv,ck,d))return true;                // Peshgar ne le li
+    if(anyOnAfter(pgOffice,ck,d))return true;              // Peshgar ne office bhej di
+    // Dobara SENT hona: (a) wale case mein usi din ki sending hi to "miss" hai,
+    // isliye wahan STRICTLY baad wali sending hi proof hai.
+    if(opts.sentStrictlyAfter?anyAfter(cfmSent,ck,d):anyOnAfter(cfmSent,ck,d))return true;
+    return false;
+  };
 
   // 4) Teeno mismatch — lifecycle ke hisaab se
   const out=[];
@@ -3032,8 +3097,8 @@ async function pgAuditScan(){
     const r=cfmByDate[d][cn];
     if(r.sent!=='Sent'||r._disposed)continue;
     const ck=_unpKey(cn);if(ck==='|')continue;
-    if(anyOnAfter(pgRecv,ck,d))continue;                 // Peshgar ne le li (chahe baad mein)
-    if(anyOnAfter(cfmRecv,ck,d))continue;                // CFM ne khud wapas le li → file mil gayi
+    // Us din ki sending hi "miss" hai — isliye SIRF uske baad ki harkat proof hai
+    if(provenHandled(ck,d,{sentStrictlyAfter:true}))continue;
     out.push({date:d,cn,ck,type:'sent-not-recv',
       label:'CFM ne bheji, Peshgar ne kabhi receive nahi ki',
       where:'Office se nikli — raste mein ya Peshgar ke paas bina entry ke ho sakti hai'});
@@ -3044,8 +3109,8 @@ async function pgAuditScan(){
     if(r.received!=='Received')continue;
     const ck=_unpKey(cn);if(ck==='|')continue;
     if(disposed[ck])continue;
-    if(anyOnBefore(cfmSent,ck,d))continue;               // CFM ne bheji thi (usi ya pehle)
-    if(anyOnAfter(cfmRecv,ck,d))continue;                // baad mein office ko wapas mil gayi
+    if(anyOnBefore(cfmSent,ck,d))continue;               // CFM ne bheji thi (usi ya pehle) → entry bas late thi
+    if(provenHandled(ck,d))continue;                     // baad mein kahin bhi handle hui
     out.push({date:d,cn,ck,type:'recv-not-sent',
       label:'Peshgar ke paas hai, par CFM se kabhi nikli hi nahi',
       where:'Peshgar ke paas'+(r.location&&r.location!=='office'?' ('+r.location+')':'')+' — CFM entry chhoot gayi'});
@@ -3056,7 +3121,7 @@ async function pgAuditScan(){
     if(r.sentToOffice!=='Sent')continue;
     const ck=_unpKey(cn);if(ck==='|')continue;
     if(disposed[ck])continue;
-    if(anyOnAfter(cfmRecv,ck,d))continue;                // office ne le li (chahe baad mein)
+    if(provenHandled(ck,d))continue;                     // baad mein kahin bhi handle hui
     out.push({date:d,cn,ck,type:'office-not-recv',
       label:'Peshgar ne office bheji, CFM ne kabhi receive nahi ki',
       where:'Peshgar se nikal chuki — office/almari mein dhoondo'});
@@ -5778,7 +5843,9 @@ function bUpdateSP(){
 }
 function bUpdateST(){const el=document.getElementById('scan-ml');if(el&&(scanCtx==='bundle'||scanCtx==='bundlefree'))el.textContent=(scanCtx==='bundlefree'?'🆓 Free ':'📷 ')+`Bundle → Date ${bAMD}${bASD!=null?'/'+bASD:''} ${dispCol(bAC)}`;}
 async function bAddFile(rawId,fromScan){
-  const id=rawId.trim().toUpperCase();if(!id)return false;
+  // NULL/UNDEFINED GUARD: scanner ya koi caller kabhi null/undefined de de to
+  // rawId.trim() par crash ho jaata tha. Ab chup-chaap false return.
+  const id=String(rawId==null?'':rawId).trim().toUpperCase();if(!id)return false;
   // FREE ADD MODE — koi CFM cross-check nahi. Jo bhi add karo, bina objection ke add ho.
   // (bina exist-check, bina received-check, bina date-mismatch check)
   if(bFreeAdd){
@@ -5954,7 +6021,10 @@ function bFreeShowNextConfirm(){
 // OK dabaya — file add karo, phir agli
 async function bFreeConfirmOk(){
   const id=_freeConfirmQueue.shift();
-  if(id){bFreeAdd=true;await bAddFile(id,false);bFreeAdd=false;}
+  // B13 FIX — pehle try/finally nahi tha: agar bAddFile beech mein throw kar de
+  // to bFreeAdd true hi atka reh jaata, aur uske baad har normal add bhi
+  // CFM-validation skip karne lagta (page refresh tak).
+  if(id){bFreeAdd=true;try{await bAddFile(id,false);}finally{bFreeAdd=false;}}
   bFreeShowNextConfirm(); // agli file ya band
 }
 // Skip — is file ko chhodo, agli pe jao
