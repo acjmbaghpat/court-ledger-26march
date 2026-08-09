@@ -1266,7 +1266,7 @@ input:focus,select:focus,textarea:focus{
         </div>
 
         <button class="btn primary" onclick="fbPushAll()" style="margin-top:8px">☁️ Sabhi Data Push Karo</button>
-        <button class="btn primary" id="fbPullBtn" onclick="fbPullAll()" style="margin-top:6px;background:linear-gradient(135deg,#0891b2,#0e7490)">⬇️ Sabhi Data Pull Karo</button>
+        <button class="btn primary" id="fbPullBtn" onclick="fbPullGuarded()" style="margin-top:6px;background:linear-gradient(135deg,#0891b2,#0e7490)">⬇️ Sabhi Data Pull Karo</button>
         <button class="btn" onclick="openPgAudit()" style="margin-top:6px;background:linear-gradient(135deg,#b91c1c,#7f1d1d);color:#fff">🔍 Peshgar Miss — Ab Bhi Atki Files</button>
         <div style="font-size:11px;color:var(--mu);margin-top:5px;line-height:1.45">
           Saari dates scan karke sirf WO files dikhata hai jinka mismatch abhi tak
@@ -1429,6 +1429,7 @@ input:focus,select:focus,textarea:focus{
   <button class="bnb"    data-bv="search" onclick="swBV('search')">🔍 Find</button>
   <button class="bnb"    data-bv="grid"   onclick="swBV('grid')">🗂 Grid View</button>
   <button class="bnb"    data-bv="check"  onclick="swBV('check')">⚠️ Check</button>
+  <button class="bnb"    data-bv="audit"  onclick="swBV('audit')">📋 Audit</button>
 </div>
 <div class="cnt" style="padding-top:14px">
 
@@ -1559,6 +1560,37 @@ input:focus,select:focus,textarea:focus{
   </div>
 
   <!-- CHECK VIEW -->
+  <div class="bview" id="bview-audit">
+    <div class="sec">
+      <div class="sec-hd"><div class="sec-ico">📋</div><div><span class="lbl">Slot Audit — Almari Milao</span>
+        <div style="font-size:11px;color:var(--mu);margin-top:2px">Ek slot chuno, phir usi slot ki files scan karo</div></div></div>
+
+      <span class="blbl">1️⃣ SLOT CHUNO — kaunsi jagah check kar rahe ho</span>
+      <div id="au-slotpick" style="margin-bottom:12px"></div>
+
+      <div id="au-active" style="display:none">
+        <div id="au-slotbar" class="sprev" style="margin-bottom:10px"></div>
+        <span class="blbl">2️⃣ FILES SCAN KARO</span>
+        <div style="display:flex;gap:7px;margin-bottom:8px">
+          <input type="text" id="auInput" placeholder="File number… (Enter dabao)"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();auSubmit();}"
+            style="flex:1;margin:0" autocomplete="off">
+          <button class="btn primary" onclick="auSubmit()" style="margin-top:0;min-width:70px">✓ Check</button>
+        </div>
+        <div style="display:flex;gap:7px;margin-bottom:12px">
+          <button class="btn neutral" onclick="openScan('audit','📋 Slot ki files scan karo...',true)" style="flex:1;margin-top:0;font-size:12px">📷 Scan</button>
+          <button class="btn neutral" onclick="auUndo()" style="margin-top:0;font-size:12px">↩️ Undo</button>
+          <button class="btn neutral" onclick="auCloseSlot()" style="margin-top:0;font-size:12px">✕ Slot Band</button>
+        </div>
+        <div id="au-result"></div>
+        <div style="display:flex;gap:7px;margin-top:12px">
+          <button class="btn success" onclick="auDownload()" style="flex:1;margin-top:0;font-size:12px">📊 Excel</button>
+          <button class="btn" onclick="auMarkMissing()" style="flex:1;margin-top:0;font-size:12px;background:linear-gradient(135deg,#b91c1c,#7f1d1d);color:#fff">🔴 Missing Mark</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="bview" id="bview-check">
     <div class="sec" style="border-color:rgba(217,119,6,.3)">
       <div class="sec-hd">
@@ -2087,6 +2119,7 @@ function redFlash(){
 }
 let activeTab='cfm';
 async function switchTab(t){
+  try{if(typeof resetPullGuard==='function')resetPullGuard();}catch(e){}
   if(scanStream)closeScan(); // tab switch pe camera band karo (battery + privacy)
   activeTab=t;
   document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('on',['cfm','bundle'][i]===t));
@@ -5330,6 +5363,7 @@ function toggleCont(){contMode=!contMode;scanLast='';scanCool=false;const b=docu
 async function handleScanResult(dec){
   if(scanCtx==='cfm_sent')      await handleCFMScan(dec,'SENT');
   else if(scanCtx==='cfm_rcv')  await handleCFMScan(dec,'RECEIVED');
+  else if(scanCtx==='audit'){ auAddId(dec); }
   else if(scanCtx==='bundle')   await handleBundleScan(dec);
   else if(scanCtx==='bundlefree')handleBundleFreeScan(dec);
   else if(scanCtx==='urgent_scan'){
@@ -5517,6 +5551,7 @@ async function bInit(){
   rebuildMoveMDG();bBuildMoveCR();bUpdateSP();bUpdateMP();bUpdateST();
 }
 function swBV(v){
+  if(v==='audit'){try{auRenderSlotPick();}catch(e){}}
   document.querySelectorAll('.bnb').forEach(b=>b.classList.toggle('on',b.dataset.bv===v));
   document.querySelectorAll('.bview').forEach(el=>el.classList.remove('on'));
   const id=v==='date'?'bview-date':v==='slot'?'bview-slot':'bview-'+v;
@@ -5584,6 +5619,232 @@ function bToggleCats(){
   try{localStorage.setItem('cm_bCatOpen',_bCatOpen?'1':'0');}catch(e){}
   bRenderGrid();
 }
+
+
+// ═══════════════════════════════════════════════════════════════
+// SLOT AUDIT — ek slot chuno, phir usi slot ki files milao
+//
+// Kaam kaise karta hai: aap ek slot chunte ho (jaise "1 — A"), phir
+// almari se usi khaane ki files uthakar scan/type karte ho.
+//  • File isi slot ki hai        → ✅ MIL GAYI
+//  • File kisi DOOSRE slot ki hai → 🔴 TURANT ERROR + batata hai kahan
+//                                    honi chahiye thi (galat jagah rakhi hai)
+//  • File tracker mein hai hi nahi → 🟡 UNTRACKED
+//  • Slot mein honi thi par scan nahi hui → 🔴 NAHI MILI
+//
+// Poori tarah READ-ONLY — jab tak aap khud "Missing Mark" na dabao,
+// kuch nahi badalta.
+// ═══════════════════════════════════════════════════════════════
+let _auSlot=null;          // {md,sd,col,cat}
+let _auFound=new Map();    // canon -> {id, status, belongsTo}
+let _auLog=[];
+
+function auSlotLabel(s){
+  if(!s)return '';
+  if(s.cat)return (CAT_LABELS[s.cat]||s.cat);
+  return 'Date '+s.md+(s.sd!=null?' / sub-'+s.sd:'')+' — Col '+dispCol(s.col);
+}
+// Kis slot mein rakhi hai — canonical key se dhoondo
+function auWhereIs(ck){
+  for(const id in bFiles){
+    const f=bFiles[id];
+    if(f.hidden)continue;
+    if(_unpKey(id)===ck)return f;
+  }
+  return null;
+}
+function auRenderSlotPick(){
+  const m=bSM();
+  const slots=[];
+  Object.keys(m).forEach(k=>{
+    const arr=m[k];if(!arr||!arr.length)return;
+    const p=bPK(k);
+    slots.push({...p,n:arr.length,key:k});
+  });
+  // Category pehle, phir date-wise
+  slots.sort((a,b)=>{
+    if(!!a.cat!==!!b.cat)return a.cat?-1:1;
+    if(a.cat&&b.cat)return String(a.cat).localeCompare(String(b.cat));
+    if(a.md!==b.md)return a.md-b.md;
+    if((a.sd||0)!==(b.sd||0))return (a.sd||0)-(b.sd||0);
+    return String(a.col).localeCompare(String(b.col));
+  });
+  const el=document.getElementById('au-slotpick');
+  if(!el)return;
+  if(!slots.length){el.innerHTML='<div class="bempty">Bundle mein abhi koi file nahi hai.</div>';return;}
+  let h='<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:7px">';
+  slots.forEach(s=>{
+    const lbl=auSlotLabel(s);
+    const arg=s.cat?("null,null,null,'"+esc(s.cat)+"'"):(s.md+","+(s.sd==null?'null':s.sd)+",'"+esc(s.col)+"',null");
+    h+='<button class="sc sc-e" onclick="auPickSlot('+arg+')" style="text-align:left">'
+      +'<div class="scol" style="font-size:13px">'+esc(lbl)+'</div>'
+      +'<div class="scnt">'+s.n+' files</div></button>';
+  });
+  h+='</div>';
+  el.innerHTML=h;
+}
+function auPickSlot(md,sd,col,cat){
+  _auSlot=cat?{cat}:{md,sd,col};
+  _auFound=new Map();_auLog=[];
+  document.getElementById('au-active').style.display='';
+  document.getElementById('au-slotpick').style.display='none';
+  const bar=document.getElementById('au-slotbar');
+  if(bar)bar.innerHTML='📍 <b>'+esc(auSlotLabel(_auSlot))+'</b> — is slot ki files milao';
+  auRender();
+  setTimeout(()=>{const el=document.getElementById('auInput');if(el)el.focus();},150);
+}
+function auCloseSlot(){
+  _auSlot=null;_auFound=new Map();_auLog=[];
+  document.getElementById('au-active').style.display='none';
+  document.getElementById('au-slotpick').style.display='';
+  auRenderSlotPick();
+}
+// Is slot mein tracker ke hisaab se jo files honi chahiye
+function auExpected(){
+  const out=[];
+  if(!_auSlot)return out;
+  Object.values(bFiles||{}).forEach(f=>{
+    if(f.hidden)return;
+    if(_auSlot.cat){ if(f.cat===_auSlot.cat)out.push(f); return; }
+    if(f.cat)return;
+    if(f.md===_auSlot.md && (f.sd==null?null:f.sd)===(_auSlot.sd==null?null:_auSlot.sd) && f.col===_auSlot.col)out.push(f);
+  });
+  return out;
+}
+function auAddId(raw){
+  if(!_auSlot){showToast('⚠️ Pehle slot chuno','w');return;}
+  const id=String(raw==null?'':raw).trim().toUpperCase();
+  if(!id)return;
+  const ck=_unpKey(id);
+  if(ck==='|'){showToast('⚠️ Ye file number samajh nahi aaya','w');haptic&&haptic('error');return;}
+  if(_auFound.has(ck)){showToast('↩️ Ye file pehle hi check ho chuki','w');haptic&&haptic('tap');return;}
+
+  const f=auWhereIs(ck);
+  let status,belongsTo=null;
+  if(!f){
+    status='untracked';
+    showToast('🟡 '+id+' — tracker mein hai hi nahi','w');
+    haptic&&haptic('error');
+  }else{
+    const inThis=_auSlot.cat ? (f.cat===_auSlot.cat)
+      : (!f.cat && f.md===_auSlot.md && (f.sd==null?null:f.sd)===(_auSlot.sd==null?null:_auSlot.sd) && f.col===_auSlot.col);
+    if(inThis){
+      status='ok';
+      haptic&&haptic('ok');
+    }else{
+      status='wrong';
+      belongsTo=auSlotLabel(f.cat?{cat:f.cat}:{md:f.md,sd:f.sd,col:f.col});
+      // TURANT ERROR — galat slot ki file
+      showToast('🔴 GALAT SLOT! '+id+' → ye "'+belongsTo+'" ki file hai','d');
+      speak&&speak("Galat slot");
+      haptic&&haptic('error');
+      redFlash&&redFlash();
+    }
+  }
+  _auFound.set(ck,{id:(f?f.id:id),status,belongsTo});
+  _auLog.push(ck);
+  auRender();
+}
+function auSubmit(){
+  const el=document.getElementById('auInput');
+  const v=(el&&el.value||'').trim();
+  if(!v)return;
+  v.split(/[,\n]+/).map(s=>s.trim()).filter(Boolean).forEach(auAddId);
+  if(el){el.value='';el.focus();}
+}
+function auUndo(){
+  if(!_auLog.length){showToast('⚠️ Undo karne ko kuch nahi','w');return;}
+  const ck=_auLog.pop();
+  const e=_auFound.get(ck);
+  _auFound.delete(ck);
+  showToast('↩️ Hataya: '+(e?e.id:ck));
+  auRender();
+}
+function auCompute(){
+  const exp=auExpected();
+  const okList=[],wrong=[],untracked=[];
+  _auFound.forEach(v=>{
+    if(v.status==='ok')okList.push(v);
+    else if(v.status==='wrong')wrong.push(v);
+    else untracked.push(v);
+  });
+  const foundOk=new Set(okList.map(v=>_unpKey(v.id)));
+  const missing=exp.filter(f=>!foundOk.has(_unpKey(f.id)));
+  return {exp,okList,wrong,untracked,missing};
+}
+function auRender(){
+  const {exp,okList,wrong,untracked,missing}=auCompute();
+  const pct=exp.length?Math.round(100*okList.length/exp.length):0;
+  let h='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px">'
+   +'<div style="background:#e8f5e9;border-radius:9px;padding:8px;text-align:center"><div style="font-size:18px;font-weight:800;color:#166534">'+okList.length+'</div><div style="font-size:8.5px;font-weight:700;color:var(--mu)">SAHI</div></div>'
+   +'<div style="background:#fee2e2;border-radius:9px;padding:8px;text-align:center"><div style="font-size:18px;font-weight:800;color:#b91c1c">'+wrong.length+'</div><div style="font-size:8.5px;font-weight:700;color:var(--mu)">GALAT SLOT</div></div>'
+   +'<div style="background:#fef3c7;border-radius:9px;padding:8px;text-align:center"><div style="font-size:18px;font-weight:800;color:#92400e">'+untracked.length+'</div><div style="font-size:8.5px;font-weight:700;color:var(--mu)">UNTRACKED</div></div>'
+   +'<div style="background:#f3e8ff;border-radius:9px;padding:8px;text-align:center"><div style="font-size:18px;font-weight:800;color:#7c3aed">'+missing.length+'</div><div style="font-size:8.5px;font-weight:700;color:var(--mu)">NAHI MILI</div></div>'
+   +'</div>'
+   +'<div style="height:6px;background:#eef2f9;border-radius:4px;overflow:hidden;margin-bottom:12px"><div style="height:100%;width:'+pct+'%;background:linear-gradient(90deg,#16a34a,#22c55e)"></div></div>'
+   +'<div style="font-size:11px;color:var(--mu);margin-bottom:10px">Is slot mein hone chahiye: <b>'+exp.length+'</b> · aapne check ki: <b>'+_auFound.size+'</b></div>';
+
+  if(wrong.length){
+    h+='<div style="font-size:11.5px;font-weight:800;color:#b91c1c;margin:12px 0 6px">🔴 GALAT SLOT MEIN RAKHI HAIN ('+wrong.length+')</div>';
+    wrong.forEach(v=>{
+      h+='<div style="background:#fef2f2;border:1px solid #fecaca;border-left:3px solid var(--red);border-radius:8px;padding:8px 11px;margin-bottom:5px">'
+        +'<div style="font-size:13px;font-weight:700;color:var(--navy)">'+esc(v.id)+'</div>'
+        +'<div style="font-size:11px;color:#b91c1c;font-weight:600;margin-top:2px">📍 Isko yahan hona chahiye: '+esc(v.belongsTo)+'</div></div>';
+    });
+  }
+  if(untracked.length){
+    h+='<div style="font-size:11.5px;font-weight:800;color:#92400e;margin:12px 0 6px">🟡 TRACKER MEIN HAI HI NAHI ('+untracked.length+')</div>';
+    untracked.forEach(v=>{
+      h+='<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 11px;margin-bottom:5px;font-size:13px;font-weight:700;color:var(--navy)">'+esc(v.id)+'</div>';
+    });
+  }
+  if(missing.length){
+    h+='<div style="font-size:11.5px;font-weight:800;color:#7c3aed;margin:12px 0 6px">🟣 IS SLOT MEIN HONI THI, PAR MILI NAHI ('+missing.length+')</div>';
+    missing.slice(0,60).forEach(f=>{
+      h+='<div style="background:var(--sur);border:1px solid var(--bdr);border-left:3px solid #7c3aed;border-radius:8px;padding:8px 11px;margin-bottom:5px;font-size:13px;font-weight:700;color:var(--navy)">'+esc(f.id)+'</div>';
+    });
+    if(missing.length>60)h+='<div style="font-size:11px;color:var(--mu);padding:4px">…aur '+(missing.length-60)+'</div>';
+  }
+  if(_auFound.size&&!wrong.length&&!untracked.length&&!missing.length)
+    h+='<div class="bempty">✅ Ye slot poori tarah sahi hai — sab files apni jagah par.</div>';
+  if(!_auFound.size)
+    h+='<div class="bempty">Is slot ki files uthao → scan ya type karo → Enter.<br>Agar koi doosre slot ki file nikli, turant laal error aayega.</div>';
+  const el=document.getElementById('au-result');
+  if(el)el.innerHTML=h;
+}
+function auDownload(){
+  const {exp,okList,wrong,untracked,missing}=auCompute();
+  if(!_auFound.size&&!missing.length){showToast('⚠️ Pehle kuch files check karo','w');return;}
+  const slot=auSlotLabel(_auSlot);
+  const rows=[['Sr','Slot','Status','File No','Kahan Honi Chahiye','Kya Karna Hai']];
+  let n=0;
+  wrong.forEach(v=>rows.push([++n,slot,'GALAT SLOT',v.id,v.belongsTo,'File uthakar sahi slot mein rakho']));
+  untracked.forEach(v=>rows.push([++n,slot,'UNTRACKED',v.id,'-','Bundle Tracker mein add karo']));
+  missing.forEach(f=>rows.push([++n,slot,'NAHI MILI',f.id,slot,'Dobara dhoondo; na mile to gum-shuda maano']));
+  okList.forEach(v=>rows.push([++n,slot,'SAHI',v.id,slot,'-']));
+  try{
+    const ws=XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols']=[{wch:5},{wch:22},{wch:13},{wch:22},{wch:24},{wch:44}];
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,'Slot Audit');
+    XLSX.writeFile(wb,'Slot_Audit_'+slot.replace(/[^\w]+/g,'_')+'_'+_localISO(new Date())+'.xlsx');
+    showToast('✅ Report download ho gayi');
+  }catch(e){showToast('❌ Excel banane mein dikkat: '+e.message,'d');}
+}
+async function auMarkMissing(){
+  const {missing}=auCompute();
+  if(!missing.length){showToast('⚠️ Koi missing file nahi','w');return;}
+  if(!confirm('🔴 '+missing.length+' file(s) ko MISSING mark karein?\n\nSlot: '+auSlotLabel(_auSlot)+'\n\n'
+    +'Files tracker se HATENGI NAHI — sirf laal nishan lagega taaki grid mein\nsaaf dikhein. Kabhi bhi wapas theek kar sakte ho.\n\nAage badhein?'))return;
+  let n=0;
+  missing.forEach(f=>{ if(bFiles[f.id]){bFiles[f.id].st='missing';n++;} });
+  await idbBulkPutBundle(bFiles,false);
+  scheduleBundlePush&&scheduleBundlePush();
+  bRenderGrid&&bRenderGrid();
+  showToast('🔴 '+n+' file(s) MISSING mark ho gayi');
+  auRender();
+}
+
 function bRenderGrid(){
   if(_subdateView){bRenderSubdateView();return;} // sub-date view ON hai to wahi dikhao
   const gc=document.getElementById('bgc');
@@ -7434,6 +7695,63 @@ async function fbPushUrgent(){
 }
 
 // Pull EVERYTHING from Firebase
+
+// ═══ PULL GUARD — Main phone pe galti se pull na ho ═══
+// Main device SOURCE-OF-TRUTH hai: yahan ka data hamesha sahi maana jaata hai
+// aur Firebase pe PUSH hota hai. Pull sirf tab chahiye jab Main phone kharab ho
+// jaaye aur naye phone ko Main banana pade. Us emergency ke alawa pull galti se
+// dab jaana KHATARNAAK hai — Firebase ka purana/tampered data local ke upar
+// chadh jaayega. Isliye ab 10 baar dabana padta hai, phir confirmation.
+// (Secondary device pe ye guard NAHI lagta — wahan pull hi normal kaam hai.)
+let _pullClicks=0, _pullResetTimer=null;
+function resetPullGuard(){
+  _pullClicks=0;
+  clearTimeout(_pullResetTimer);_pullResetTimer=null;
+  const b=document.getElementById('fbPullBtn');
+  if(b)b.textContent='⬇️ Sabhi Data Pull Karo';
+}
+async function fbPullGuarded(){
+  // Secondary pe koi guard nahi — pull wahan roz ka kaam hai
+  if(deviceRole==='secondary'){resetPullGuard();return fbPullAll();}
+  _pullClicks++;
+  const b=document.getElementById('fbPullBtn');
+  // 30 second tak kuch na dabao to counter khud reset (galti se adhoora na chhode)
+  clearTimeout(_pullResetTimer);
+  _pullResetTimer=setTimeout(()=>{resetPullGuard();showToast('⏱️ Pull counter reset ho gaya','w');},30000);
+  if(_pullClicks<10){
+    const bacha=10-_pullClicks;
+    if(b)b.textContent='⬇️ Pull — '+_pullClicks+'/10 (aur '+bacha+' baar dabao)';
+    if(_pullClicks===1)showToast('⚠️ Ye MAIN phone hai. Pull yahan ka sahi data Firebase se REPLACE kar dega. Pakka karna hai to 10 baar dabao.','w');
+    else if(_pullClicks===9)showToast('🔴 Ek aur click — phir confirmation aayega','d');
+    haptic&&haptic('tap');
+    return;
+  }
+  resetPullGuard();
+  const msg='🔴 PAKKA PULL KARNA HAI?\n\n'
+    +'Ye MAIN phone hai — yahan ka data hi asli maana jaata hai.\n\n'
+    +'Pull karne se Firebase ka data is phone ke data ke UPAR chadh jayega.\n'
+    +'Agar Firebase pe purana ya galat data hua, to aaj ka kaam kho sakta hai.\n\n'
+    +'Ye SIRF tab karo jab purana Main phone kharab ho gaya ho aur ye naya phone ho.\n\n'
+    +'Aage badhein?';
+  if(!confirm(msg)){showToast('Pull cancel — kuch nahi badla');return;}
+  // Suraksha: chalne se pehle poora local backup file mein utaar do
+  try{
+    const bk=await buildBackupData();
+    const blob=new Blob([JSON.stringify(bk)],{type:'application/json'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;a.download='CourtBackup_BEFORE_PULL_'+_localISO(new Date())+'.json';
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url),1500);
+    showToast('💾 Backup download ho gaya — ab pull shuru');
+  }catch(e){
+    if(!confirm('⚠️ Backup file download nahi ho payi.\nBina backup ke pull karein?')){
+      showToast('Pull roka gaya (backup fail)','d');return;
+    }
+  }
+  return fbPullAll();
+}
+
 async function fbPullAll(){
   if(!_fbDb){showToast('⚠️ Firebase connected nahi hai','w');return;}
   // Main device ka data MASTER hai — usko pull se overwrite nahi karna chahiye
