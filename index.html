@@ -2694,9 +2694,16 @@ async function getUnplacedReceivedFiles(){
     if(disposedSet.has(ck))continue;         // disposed → skip
     if(placedIdx[ck])continue;               // abhi bundle mein rakhi hai → theek hai, skip
     // Receive hone ke BAAD dobara sent ho gayi? → bundle se ja chuki, skip
+    // BUG FIX: pehle yahan lastSent (WORKING-date) ki tulna recvDate
+    // (receiveddate field) se hoti thi — do alag cheezein. Normally dono ek
+    // hi din hote hain isliye pata nahi chalta tha, par ADVANCE-DATED kaam
+    // mein (aage ki date ki list par aaj kaam karna) working-date aage nikal
+    // jaati hai aur file galti se "dobara sent ho gayi" maani jaake Bundle
+    // Check se GAYAB ho jaati thi. Ab dono taraf WORKING-date hi compare
+    // hoti hai — bilkul overdue/tag wale logic jaisa.
     const info=recvInfo[ck];
     const ls=lastSent[ck];
-    if(ls&&ls>info.recvDate)continue;
+    if(ls&&ls>info.workDate)continue;
     out.push({...info,_key:ck,remark:_unplacedRemarks[ck]||''});
   }
   // Sabse recent receiving pehle
