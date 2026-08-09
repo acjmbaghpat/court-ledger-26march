@@ -4517,7 +4517,16 @@ function filterCaseTypes(val){
   const matches=q?CASE_TYPES.filter(t=>t.toLowerCase().includes(q)):CASE_TYPES;
   if(!matches.length){dd.style.display='none';return;}
   _ctIdx=-1;
-  dd.innerHTML=matches.map(t=>`<div class="di" onmousedown="event.preventDefault()" onclick="selectCaseType(${JSON.stringify(t)})" style="padding:10px 13px;font-size:13px;cursor:pointer;border-bottom:1px solid var(--bdr);font-weight:500">${t}</div>`).join('');
+  // BUG FIX: pehle yahan JSON.stringify(t) tha, jo DOUBLE-QUOTES banata hai —
+  // aur wo double-quoted onclick="..." attribute ke andar tha. Browser attribute
+  // ko pehle hi " par khatam kar deta tha, isliye onclick TOOTA hua banta tha
+  // (selectCaseType( ... adhoora) aur dropdown se case-type chunna kaam hi
+  // nahi karta tha. Ab wahi tarika jo baaki app mein chalta hai: JS-string ke
+  // liye backslash/apostrophe escape + attribute ke liye &quot;.
+  dd.innerHTML=matches.map(t=>{
+    const tj=String(t).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+    return `<div class="di" onmousedown="event.preventDefault()" onclick="selectCaseType('${tj}')" style="padding:10px 13px;font-size:13px;cursor:pointer;border-bottom:1px solid var(--bdr);font-weight:500">${esc(t)}</div>`;
+  }).join('');
   dd.style.display='block';
 }
 function selectCaseType(val){
@@ -5319,9 +5328,21 @@ async function openScan(ctx,label,defaultCont){
   const cb=document.getElementById('cont-btn');cb.textContent='🔁 Continuous: '+(contMode?'ON':'OFF');cb.className=contMode?'on':'';
   document.getElementById('scan-ml').textContent=label||'—';document.getElementById('scan-card').style.display='none';
   setSS('📷 Camera shuru ho rahi hai...');
-  try{if(!scanDetector)scanDetector=new BarcodeDetector({formats:['qr_code']});}catch(e){setSS('❌ BarcodeDetector not supported');return;}
+  // BarcodeDetector Chrome/Edge/Android-WebView mein hai; Firefox aur purane
+  // iOS Safari mein nahi. Crash nahi hota — saaf message milta hai ki kya karein.
+  try{
+    if(typeof BarcodeDetector!=='function'){setSS('❌ Is browser mein QR-scan nahi chalta. Chrome mein kholo (ya app wala version use karo).');return;}
+    if(!scanDetector)scanDetector=new BarcodeDetector({formats:['qr_code']});
+  }catch(e){setSS('❌ QR-scan is browser mein support nahi hai — Chrome mein kholo');return;}
   scanActive=true;
   try{
+    // SECURE-CONTEXT GUARD: navigator.mediaDevices sirf HTTPS (ya localhost) par
+    // hota hai. HTTP par ye undefined hai aur .getUserMedia() par TypeError aata
+    // tha. Ab saaf message milta hai ki kya karna hai.
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
+      setSS('❌ Camera nahi khul sakta — app HTTPS par kholo (http:// par camera band rehta hai)');
+      return;
+    }
     const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:1280},height:{ideal:720}}});
     scanStream=stream;
     const vid=document.getElementById('scan-vid');vid.srcObject=stream;
@@ -6353,7 +6374,12 @@ function cancelMismatch(){document.getElementById('mmModal').classList.remove('o
 async function bSetStatus(id,st){if(!bFiles[id])return;bFiles[id].st=st;await idbSBn(bFiles[id]);scheduleBundlePush();showToast(st==='missing'?'⚠ Missing: '+id:'✅ Restored: '+id,st==='missing'?'w':'');bRenderGrid();if(bSlot)bRenderSlot();bRenderSearch();}
 async function bUnhide(id){if(!bFiles[id])return;bFiles[id].hidden=false;await idbSBn(bFiles[id]);scheduleBundlePush();showToast('✅ '+id+' wapas dikhaya');bRenderGrid();bRenderSearch();}
 async function bDelFile(id){delete bFiles[id];await idbDB(id);scheduleBundlePush();showToast('Hata diya: '+id,'d');bRenderGrid();if(bSlot)bRenderSlot();bRenderSearch();}
-function bOpenMove(id){bMoveId=id;const f=bFiles[id];bMMD=f.md;bMSD=f.sd!=null?f.sd:null;bMC=f.col;bMCat=f.cat||null;document.getElementById('bm-fid').textContent=id;bmApplyMode(bMCat?'cat':'date');bRenderMoveForm();document.getElementById('bmModal').classList.add('on');}
+function bOpenMove(id){bMoveId=id;const f=bFiles[id];
+  // NULL GUARD: agar file beech mein hat gayi (Firebase sync, doosre device se
+  // remove) aur user purana button daba de, to f undefined hota tha aur
+  // f.md par crash ho jaata tha. Ab saaf message, crash nahi.
+  if(!f){showToast('⚠️ Ye file ab bundle mein nahi hai — grid refresh karo','w');bMoveId=null;return;}
+  bMMD=f.md;bMSD=f.sd!=null?f.sd:null;bMC=f.col;bMCat=f.cat||null;document.getElementById('bm-fid').textContent=id;bmApplyMode(bMCat?'cat':'date');bRenderMoveForm();document.getElementById('bmModal').classList.add('on');}
 function bmSetMode(mode){
   if(mode==='cat'&&!bMCat)bMCat=BUNDLE_CATS[0]; // default pehli category
   if(mode==='date')bMCat=null;
