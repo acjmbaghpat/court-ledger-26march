@@ -8409,22 +8409,49 @@ async function loadUrgLog(){
     const all=await ulGetAll();
     if(!all.length){listEl.innerHTML='<div class="bempty" style="margin-top:12px">Koi urgent log nahi abhi tak</div>';return;}
 
-    // CFM received status — cache se (fast)
-    const cfmReceivedMap={}; // caseno → {date, sentdate}
+    // ROUTINE-WAPSI DETECTION — urgent entry ke BAAD file normal flow mein
+    // wapas aa gayi kya? Teen tarah se pata chalta hai:
+    //   • CFM se SENT hui        • CFM se RECEIVED hui      • BUNDLE mein rakhi gayi
+    // Matching CANONICAL key se hoti hai (CC/1 aur CC/01 ek hi maane jaate hain),
+    // aur sirf urgent entry ki DATE KE BAAD wali activity ginti hai — warna
+    // purani receiving galti se "wapas aa gayi" dikha deti thi.
+    const cfmSentMap={},cfmRecvMap={},bundleMap={};   // canonKey → {date}
     try{
       const allData=await getAllDatesData();
       for(const k of Object.keys(allData)){
         allData[k].forEach(r=>{
-          const cn=String(r.caseno||'').trim().toUpperCase();
-          if(cn&&r.received==='Received'){
-            const ex=cfmReceivedMap[cn];
-            if(!ex||(r.receiveddate||'')>(ex.date||'')){
-              cfmReceivedMap[cn]={date:r.receiveddate||'',via:'CFM'};
-            }
+          const ck=_unpKey(r.caseno);
+          if(ck==='|')return;
+          if(r.sent==='Sent'){
+            const d=r.sentdate||k.split('_')[0];
+            if(!cfmSentMap[ck]||d>cfmSentMap[ck].date)cfmSentMap[ck]={date:d};
+          }
+          if(r.received==='Received'){
+            const d=r.receiveddate||k.split('_')[0];
+            if(!cfmRecvMap[ck]||d>cfmRecvMap[ck].date)cfmRecvMap[ck]={date:d};
           }
         });
       }
     }catch(e){}
+    // Bundle mein kab rakhi gayi (at = placement timestamp)
+    try{
+      Object.values(bFiles||{}).forEach(f=>{
+        const ck=_unpKey(f.id);
+        if(ck==='|')return;
+        const t=Number(f.at)||0;
+        if(!t)return;
+        const d=_localISO(new Date(t));
+        if(!bundleMap[ck]||d>bundleMap[ck].date)bundleMap[ck]={date:d,hidden:!!f.hidden};
+      });
+    }catch(e){}
+    const _badge=(bg,fg,ico,label,date,extra)=>
+      `<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #f0f3f9">
+         <div>
+           <span style="background:${bg};color:${fg};font-size:10px;padding:2px 7px;border-radius:20px;font-weight:700">${ico} ${label}</span>
+           <span style="font-size:11px;color:var(--mu);margin-left:6px">${fmtD(date)}</span>
+           ${extra||''}
+         </div>
+       </div>`;
 
     // Sort by latest activity
     all.sort((a,b)=>new Date(b.ts)-new Date(a.ts));
@@ -8448,22 +8475,27 @@ async function loadUrgLog(){
             </div>
             ${x.receivedRemark?`<span style="font-size:11px;color:var(--mu);font-style:italic">${esc(x.receivedRemark)}</span>`:''}
           </div>`;
-      } else {
-        // Urgent received nahi — CFM mein check karo
-        const cfmRcv=cfmReceivedMap[x.caseno];
-        if(cfmRcv){
-          rcvBadge=`<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0">
-              <div>
-                <span style="background:#dcfce7;color:#15803d;font-size:10px;padding:2px 7px;border-radius:20px;font-weight:700">📥 Received</span>
-                <span style="font-size:11px;color:var(--mu);margin-left:6px">${fmtD(cfmRcv.date)}</span>
-                <span style="background:#dbeafe;color:#1e40af;font-size:9px;padding:1px 6px;border-radius:20px;font-weight:700;margin-left:4px">CFM se</span>
-              </div>
-            </div>`;
-        }
       }
+      // ── ROUTINE MEIN WAPAS? — urgent entry ki date ke BAAD ki activity ──
+      const ck=_unpKey(x.caseno);
+      const refDate=x.sentDate||x.receivedDate||_localISO(new Date(x.ts||Date.now()));
+      const after=(m)=>{const e=m[ck];return (e&&e.date&&e.date>=refDate)?e:null;};
+      const rSent=after(cfmSentMap), rRecv=after(cfmRecvMap), rBundle=after(bundleMap);
+      const viaTag='<span style="background:#dbeafe;color:#1e40af;font-size:9px;padding:1px 6px;border-radius:20px;font-weight:700;margin-left:4px">routine</span>';
+      let routine='';
+      if(rSent)  routine+=_badge('#fef9c3','#a16207','📤','Sent',rSent.date,viaTag);
+      if(rRecv)  routine+=_badge('#dcfce7','#15803d','📥','Received',rRecv.date,viaTag);
+      if(rBundle)routine+=_badge('#ede9fe','#6d28d9','🗂','Bundle mein rakhi',rBundle.date,
+                   rBundle.hidden?'<span style="background:#f1f5f9;color:var(--mu);font-size:9px;padding:1px 6px;border-radius:20px;font-weight:700;margin-left:4px">ab nikal chuki</span>':viaTag);
+      const backHdr=routine
+        ? '<div style="font-size:10px;font-weight:800;color:#15803d;margin:8px 0 2px;letter-spacing:.4px">✅ ROUTINE MEIN WAPAS</div>'
+        : (x.sentDate&&!x.receivedDate
+            ? '<div style="font-size:10px;font-weight:800;color:#b91c1c;margin:8px 0 2px;letter-spacing:.4px">⚠️ ABHI BHI BAHAR</div>'
+            : '');
       return`<div class="ulog-row">
         <span class="ulog-cn">${esc(x.caseno)}</span>
         <div style="margin-top:6px">${sentBadge}${rcvBadge}</div>
+        ${backHdr}${routine}
       </div>`;
     }).join('');
   }catch(e){listEl.innerHTML='<div class="bempty">Log load fail</div>';}
