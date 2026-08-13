@@ -7215,7 +7215,8 @@ async function bundleToFirebase(files){
     const enc=new TextEncoder().encode(json);
     const cs=new CompressionStream('gzip');
     const writer=cs.writable.getWriter();
-    writer.write(enc);writer.close();
+    writer.write(enc).catch(()=>{});
+    writer.close().catch(()=>{});
     const compressed=await new Response(cs.readable).arrayBuffer();
     const bytes=new Uint8Array(compressed);
     // CHUNK-BASED base64 encode: String.fromCharCode(...bytes) crashes with
@@ -7244,7 +7245,13 @@ async function bundleFromFirebase(d){
       const bin=Uint8Array.from(atob(d.filesGz),c=>c.charCodeAt(0));
       const ds=new DecompressionStream('gzip');
       const writer=ds.writable.getWriter();
-      writer.write(bin);writer.close();
+      // UNHANDLED-REJECTION FIX: writer.write()/close() promises lautate hain.
+      // Corrupt/adhoore gzip data par ye REJECT hote hain — aur agar inhe pakda
+      // na jaaye to ye try/catch se bahar nikal kar app ko hi gira dete hain.
+      // (Yahi hota tha jab Firebase pe koi doc kharab ho jaata.) Ab dono taraf
+      // se catch hai — kharab doc par app chalti rehti hai, bas null lautata hai.
+      writer.write(bin).catch(()=>{});
+      writer.close().catch(()=>{});
       const decompressed=await new Response(ds.readable).arrayBuffer();
       const json=new TextDecoder().decode(decompressed);
       const parsed=JSON.parse(json);
