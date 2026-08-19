@@ -1267,6 +1267,11 @@ input:focus,select:focus,textarea:focus{
 
         <button class="btn primary" onclick="fbPushAll()" style="margin-top:8px">☁️ Sabhi Data Push Karo</button>
         <button class="btn primary" id="fbPullBtn" onclick="fbPullGuarded()" style="margin-top:6px;background:linear-gradient(135deg,#0891b2,#0e7490)">⬇️ Sabhi Data Pull Karo</button>
+        <button class="btn" onclick="openActivity()" style="margin-top:6px;background:linear-gradient(135deg,#7c3aed,#5b21b6);color:#fff">📈 Mera Kaam Ka Hisaab (30 din)</button>
+        <div style="font-size:11px;color:var(--mu);margin-top:5px;line-height:1.45">
+          Kitni files bheji, kitni wapas li, kitni date lagayi, kitni almari mein rakhi —
+          pichle 30 din ka hisaab.
+        </div>
         <button class="btn" onclick="overdueDiff()" style="margin-top:6px;background:linear-gradient(135deg,#0891b2,#155e75);color:#fff">🔍 Overdue Farak Check (CFM vs Peshgar)</button>
         <div style="font-size:11px;color:var(--mu);margin-top:5px;line-height:1.45">
           Agar CFM aur Peshgar ke overdue number alag dikhein, to ye batayega ki
@@ -1819,6 +1824,17 @@ input:focus,select:focus,textarea:focus{
 </div>
 
 <!-- OVERDUE MODAL -->
+<div class="modal" id="actModal">
+  <div class="msh" style="max-height:92vh;overflow-y:auto">
+    <div class="mt">📈 Mera Kaam Ka Hisaab</div>
+    <div class="msub">Kitna kaam hua — pichle kuch dinon ka</div>
+    <div id="actBody"></div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="btn success" onclick="actDownload()" style="flex:1;margin-top:0;font-size:12px">📊 Excel</button>
+      <button class="btn neutral" onclick="document.getElementById('actModal').classList.remove('on')" style="margin-top:0;font-size:12px">✕ Band</button>
+    </div>
+  </div>
+</div>
 <div class="modal" id="pgAuditModal">
   <div class="msh" style="max-height:92vh;overflow-y:auto">
     <div class="mt">🔍 Peshgar Miss — Ab Bhi Atki Files</div>
@@ -2177,7 +2193,7 @@ async function switchTab(t){
 // ════ CFM STATE ════
 const DK=["srno","caseno","partyname","section","ps","sent","received","receiveddate","nextdate","remark"];
 let cData=[],upV=1,aFilter='all',lastRcvCase=null,dropIdx=-1;
-let sDeb;
+let sDeb,_searchActTimer;
 const rTimers={};
 function sId(id){return String(id||"").replace(/[^a-zA-Z0-9-_]/g,'_');}
 
@@ -2557,7 +2573,17 @@ function updateHdrDate(){
 }
 async function loadVersions(){
   versionSelect.innerHTML="";
-  const vs=await idbGV(workDate.value);
+  let vs=await idbGV(workDate.value);
+  // Archive-only date ke liye version-list archive keys se bana lo, warna purani date
+  // par "Upload 1" ke alawa kuch nahi dikhta tha chahe wahan 2-3 uploads rahe hon.
+  if(!vs||!vs.length){
+    try{
+      const ark=await idbAARK();
+      const pre=workDate.value+'_';
+      const found=ark.filter(k=>k.startsWith(pre)).map(k=>parseInt(k.slice(pre.length),10)).filter(n=>!isNaN(n)).sort((a,b)=>a-b);
+      if(found.length)vs=found;
+    }catch(e){}
+  }
   if(!vs||!vs.length){versionSelect.innerHTML='<option value="1">Upload 1</option>';return;}
   vs.forEach(v=>{const o=document.createElement("option");o.value=v;o.text="Upload "+v;versionSelect.appendChild(o);});
 }
@@ -2578,6 +2604,19 @@ async function loadCurV(){
 }
 async function saveLocal(){
   try{
+    // ARCHIVE → ACTIVE WAPSI: agar aap archived date par kaam kar rahe ho, to us date
+    // ko wapas active data mein le aao. Matlab: dikhna hamesha hota hai, par SYNC sirf
+    // tab hota hai jab us date par asli kaam ho — roz-marra ka sync halka rehta hai.
+    if(_viewingArchived){
+      _viewingArchived=false;
+      try{
+        await idbDAR(dKey());                 // archive se hatao
+        _archKeepActive.add(dKey());_saveArchKeep();   // dobara archive na ho
+        invalidateAllDatesCache();_archIdx=null;
+        showToast('📂 Purani date wapas active ho gayi — ab sync bhi hogi');
+      }catch(e){console.error('archive→active wapsi:',e);}
+      try{showArchiveBanner(false);}catch(e){}
+    }
     invalidateOvCache(); // data badla — overdue cache fresh karo
     updateAllDatesCacheForCurrent(); // PERF: sirf current date cache update (full rebuild nahi — 90x kam IDB)
     await idbSM(dKey(),cData);
@@ -2590,12 +2629,44 @@ async function saveLocal(){
   }
   catch(e){console.error('saveLocal fail:',e);showToast('⚠️ Data save fail! Storage full ho sakta hai.','d');}
 }
+
+// Purani (archived) date kholne par saaf batao — data dikh raha hai par abhi sync se bahar hai
+function showArchiveBanner(on){
+  let el=document.getElementById('archBanner');
+  if(!on){ if(el)el.style.display='none'; return; }
+  if(!el){
+    el=document.createElement('div');
+    el.id='archBanner';
+    el.style.cssText='background:#fffbeb;border:1.5px solid #fde68a;border-left:4px solid #d97706;border-radius:10px;padding:10px 13px;margin:0 0 12px;font-size:12px;color:#92400e;line-height:1.5;font-weight:500';
+    const host=document.querySelector('#tab-cfm .sec')||document.getElementById('tab-cfm');
+    if(host&&host.parentNode)host.parentNode.insertBefore(el,host);
+    else return;
+  }
+  el.style.display='';
+  el.innerHTML='📂 <b>Purani date (90+ din)</b> — ye data archive mein hai. Dikh raha hai aur '
+    +'padha ja sakta hai, par roz ke sync mein shaamil nahi hai (taaki sync halka rahe). '
+    +'Jaise hi aap is par koi kaam karenge, ye apne aap wapas active ho jayegi aur sync bhi hone lagegi.';
+}
+
+// Ye date archive mein padi hai? (active store mein nahi hai par archive mein hai)
+let _viewingArchived=false;
 async function loadLocal(){
+  _viewingArchived=false;
   try{
-    const s=await idbGM(dKey());
+    let s=await idbGM(dKey());
+    // ARCHIVE-READ: 90+ din purani dates archive store mein chali jaati hain taaki
+    // roz ka sync halka rahe. Pehle yahan sirf active store padha jaata tha, isliye
+    // purani date kholne par list KHALI dikhti thi — data hota tha par dikhta nahi.
+    // Ab agar active mein na mile to archive se padh lete hain (read-only tarike se);
+    // us par kaam karte hi wo apne aap active mein wapas aa jaati hai (neeche dekho).
+    if(!s||!Array.isArray(s)||!s.length){
+      const ar=await idbGAR(dKey());
+      if(ar&&Array.isArray(ar)&&ar.length){s=ar;_viewingArchived=true;}
+    }
     if(s&&Array.isArray(s)){cData=s;cData.forEach(r=>r.searchableText=gSrch(r));}
     else cData=[];
   }catch(e){cData=[];showToast('⚠️ Data load fail!','d');}
+  try{showArchiveBanner(_viewingArchived);}catch(e){}
   // AUTO-MERGE: jo files pehle RECEIVE ho chuki hain aur unki next-date yahi hai, unhe
   // is date ki list mein khud-ba-khud dikhao — chahe Excel upload hua ho ya sirf date
   // navigate ki ho. Excel upload hone par yahi merge match/extra dono handle karta hai;
@@ -3874,7 +3945,7 @@ async function uploadExcel(){
       drawTable(getFiltered());await updateDash();updateSU();
       speak("Excel uploaded");
       if(pendInfo.pendingCount>0){
-        showToast('✅ Upload! '+cData.length+' records'+(mergeResult.addedCount>0?' (+'+mergeResult.addedCount+' pehle-se-received milaayi gayi)':'')+'. ⚠️ '+pendInfo.pendingCount+' files pichli date se PENDING (highlight mein)'+(pendInfo.overdueCount>0?' — '+pendInfo.overdueCount+' overdue':''),'w');
+        actLog('upload');showToast('✅ Upload! '+cData.length+' records'+(mergeResult.addedCount>0?' (+'+mergeResult.addedCount+' pehle-se-received milaayi gayi)':'')+'. ⚠️ '+pendInfo.pendingCount+' files pichli date se PENDING (highlight mein)'+(pendInfo.overdueCount>0?' — '+pendInfo.overdueCount+' overdue':''),'w');
       }else{
         showToast('✅ Upload ho gaya! ('+cData.length+' records'+(mergeResult.addedCount>0?', +'+mergeResult.addedCount+' pehle-se-received milaayi gayi':'')+')');
       }
@@ -4731,7 +4802,14 @@ function drawTable(data){
     },0);
   }
 }
-searchBox.addEventListener("input",()=>{clearTimeout(sDeb);sDeb=setTimeout(()=>drawTable(getFiltered()),150);});
+searchBox.addEventListener("input",()=>{clearTimeout(sDeb);sDeb=setTimeout(()=>{
+  // Ek search = ek count (har keystroke nahi). 1.2 sec ruk jaane par hi ginti hai,
+  // taaki "CC/1" type karte-karte 4 search count na ho jayein.
+  try{clearTimeout(_searchActTimer);_searchActTimer=setTimeout(()=>{
+    const v=(searchBox.value||'').trim();if(v.length>1)actLog('search');
+  },1200);}catch(e){}
+  drawTable(getFiltered());
+},150);});
 async function updateNextDate(cn,val){
   const idx=cData.findIndex(r=>caseMatch(r.caseno,cn));if(idx===-1)return;
   const oldNextDate=cData[idx].nextdate||'';
@@ -4906,13 +4984,13 @@ async function manualAction(mode){
       showMS(`❌ Pehle receive karo! ${wdStr}${sdStr?' (Sent '+sdStr+')':''} mein pending hai`,"err");
       speak("Pehle receive karo");haptic('mismatch');redFlash();return;
     }
-    cData[idx].sent="Sent";cData[idx].sentdate=_localISO(new Date());cData[idx].senttime=Date.now();cData[idx].searchableText=gSrch(cData[idx]);
+    cData[idx].sent="Sent";cData[idx].sentdate=_localISO(new Date());cData[idx].senttime=Date.now();cData[idx].searchableText=gSrch(cData[idx]);actLog("sent");
     showMS("✅ SENT: "+actualCN,"ok");speak("File sent");haptic('success');manualCaseInput.value="";
     await hideBundleEntry(actualCN);
   }else{
     if(rec.sent!=="Sent"){showMS("❌ Pehle SENT karo","err");speak("File not sent yet");return;}
     if(rec.received==="Received"){showMS("ℹ️ Already RECEIVED: "+actualCN,"info");speak("Already received");return;}
-    cData[idx].received="Received";cData[idx].receiveddate=_localISO(new Date());cData[idx]._pendingPrev=null;
+    cData[idx].received="Received";cData[idx].receiveddate=_localISO(new Date());cData[idx]._pendingPrev=null;actLog("received");
     lastRcvCase=actualCN;_ndRcvMode=true;cData[idx].searchableText=gSrch(cData[idx]);
     showMS("✅ RECEIVED: "+actualCN,"ok");speak("File received");haptic('success');manualCaseInput.value="";
     // Search/filter clear karo TABHI taaki row visible ho highlight ke liye
@@ -4964,6 +5042,7 @@ function openNDModal(cn){resetJO();const rec=cData.find(r=>caseMatch(r.caseno,cn
 function closeNDModal(){resetJO();document.getElementById("ndModal").classList.remove("on");lastRcvCase=null;_ndRcvMode=false;}
 document.getElementById("ndModal").addEventListener("click",function(e){if(e.target===this&&!_ndRcvMode)closeNDModal();}); // received mode mein bahar-click se band nahi (date choose zaroori)
 async function saveNextDate(){
+  try{actLog("nextdate");}catch(e){}
   if(!lastRcvCase)return;
   const d=document.getElementById("ndInput").value;
   const remark=(document.getElementById("ndRemark")?.value||'').trim();
@@ -5084,6 +5163,12 @@ async function downloadExcel(){
 // Active app fast rehta hai (getAllDatesData sirf recent data scan karta hai)
 // Archive mein data safe rehta hai (delete nahi) — backup mein bhi aata hai
 let _archiveRunning=false;
+// Jin purani dates par aapne DOBARA kaam kar liya hai — unhe auto-archive
+// wapas archive na kare. Warna kaam karne ke turant baad agla archive-run
+// use phir se archive kar deta aur wo sync se bahar ho jaati.
+// (Aap chaho to bhi ye sirf tab hatti hai jab aap khud data delete karo.)
+let _archKeepActive=(()=>{try{return new Set(JSON.parse(localStorage.getItem('cm_arch_keep')||'[]'));}catch(e){return new Set();}})();
+function _saveArchKeep(){try{localStorage.setItem('cm_arch_keep',JSON.stringify([..._archKeepActive]));}catch(e){}}
 async function autoArchiveOldData(silent){
   if(_archiveRunning)return;
   _archiveRunning=true;
@@ -5100,6 +5185,7 @@ async function autoArchiveOldData(silent){
       const fd=new Date(ds+'T00:00:00');
       if(isNaN(fd))continue;
       const daysDiff=(today-fd)/86400000;
+      if(_archKeepActive.has(key))continue;   // is date par dobara kaam ho chuka hai — active hi rehne do
       if(daysDiff>90){
         // 90+ din purana — archive mein move karo
         const d=await idbGM(key);
@@ -5159,6 +5245,7 @@ async function deleteOldData(){
     else{showToast('🧹 '+count+' purani date-versions delete ho gayi (180d+).');}
     updateSU();
   }catch(err){showToast('❌ Delete fail: '+err,'d');}
+  try{_archKeepActive.clear();_saveArchKeep();}catch(e){}
 }
 // Backup data builder — JSON object banata hai (auto-download + telegram dono use karte hain)
 async function buildBackupData(){
@@ -5443,7 +5530,7 @@ async function handleCFMScan(code,mode){
       showSC(`❌ Pehle receive karo!\n📅 ${wdStr}${sdStr?' (Sent: '+sdStr+')':''} mein receive pending hai`,'#dc2626');
       speak("Pehle receive karo");haptic('mismatch');redFlash();return;
     }
-    cData[idx].sent="Sent";cData[idx].sentdate=_localISO(new Date());cData[idx].senttime=Date.now();cData[idx]._qrScanned=true;cData[idx].searchableText=gSrch(cData[idx]);
+    cData[idx].sent="Sent";cData[idx].sentdate=_localISO(new Date());cData[idx].senttime=Date.now();cData[idx]._qrScanned=true;cData[idx].searchableText=gSrch(cData[idx]);actLog("sent");actLog("scan");
     // Scan se sent = QR pehle se hai — QR pending mein mat dikhao
     showSC('✅ SENT: '+actualCN,'#16a34a');speak("File sent");haptic('scan');await hideBundleEntry(actualCN);
   }else{
@@ -5466,6 +5553,7 @@ async function handleCFMScan(code,mode){
 
 // ════ BUNDLE AUTO-HIDE ════
 async function hideBundleEntry(caseNo){
+  try{actLog("bundleHide");}catch(e){}
   const id=String(caseNo).toUpperCase();
   let target=null,targetId=null;
   if(bFiles[id]){
@@ -5760,6 +5848,7 @@ function auExpected(){
   return out;
 }
 function auAddId(raw){
+  try{actLog("audit");}catch(e){}
   if(!_auSlot){showToast('⚠️ Pehle slot chuno','w');return;}
   const id=String(raw==null?'':raw).trim().toUpperCase();
   if(!id)return;
@@ -6043,6 +6132,138 @@ function auTallyDownload(){
   }catch(e){showToast('❌ Excel banane mein dikkat: '+e.message,'d');}
 }
 
+
+// ═══════════════════════════════════════════════════════════════
+// KAAM KA HISAAB — 30 din ki activity
+// Har action ka sirf ek COUNTER badhta hai (date-wise), koi case-detail
+// nahi rakhi jaati — isliye ye halka hai aur privacy-safe bhi.
+// localStorage mein rakha hai (IDB schema chhedne ki zaroorat nahi), aur
+// 30 din se purana khud-b-khud saaf ho jaata hai.
+// Ye poori tarah SIDE-FEATURE hai — agar kabhi fail ho to app par koi asar nahi.
+// ═══════════════════════════════════════════════════════════════
+const ACT_KEY='cm_activity';
+const ACT_LABELS={
+  sent:'📤 Bheji (SENT)', received:'📥 Wapas li (RECEIVED)', nextdate:'📅 Agli date lagayi',
+  scan:'📷 Scan ki', search:'🔍 Search ki', bundleAdd:'🗂 Almari mein rakhi',
+  bundleMove:'↔️ Jagah badli', bundleHide:'📦 Almari se nikali',
+  upload:'📊 Excel upload', urgent:'⚡ Urgent bheji', dispose:'✅ Dispose ki', audit:'📋 Audit check'
+};
+let _actCache=null;
+function actLoad(){
+  if(_actCache)return _actCache;
+  try{_actCache=JSON.parse(localStorage.getItem(ACT_KEY)||'{}')||{};}catch(e){_actCache={};}
+  return _actCache;
+}
+let _actSaveTimer=null;
+function actSave(){
+  clearTimeout(_actSaveTimer);
+  _actSaveTimer=setTimeout(()=>{
+    try{
+      const a=_actCache||{};
+      // 30 din se purana hata do
+      const cut=new Date();cut.setDate(cut.getDate()-30);
+      const cutISO=_localISO(cut);
+      Object.keys(a).forEach(d=>{if(d<cutISO)delete a[d];});
+      localStorage.setItem(ACT_KEY,JSON.stringify(a));
+    }catch(e){/* activity-log optional hai — app kabhi na ruke */}
+  },800);
+}
+// Har action yahan se count hota hai. Kabhi throw nahi karta.
+function actLog(type,n){
+  try{
+    if(!type)return;
+    const a=actLoad();
+    const d=_localISO(new Date());
+    const day=a[d]||(a[d]={});
+    day[type]=(day[type]||0)+(n||1);
+    actSave();
+  }catch(e){}
+}
+function actRange(days){
+  const a=actLoad();
+  const out={},byDay=[];
+  const today=new Date();
+  for(let i=days-1;i>=0;i--){
+    const dt=new Date(today);dt.setDate(dt.getDate()-i);
+    const iso=_localISO(dt);
+    const day=a[iso]||{};
+    let tot=0;Object.keys(day).forEach(k=>{out[k]=(out[k]||0)+day[k];tot+=day[k];});
+    byDay.push({date:iso,total:tot,detail:day});
+  }
+  return {totals:out,byDay};
+}
+function openActivity(){
+  document.getElementById('actModal').classList.add('on');
+  actRender(30);
+}
+function actRender(days){
+  _actDays=days;
+  const {totals,byDay}=actRange(days);
+  const el=document.getElementById('actBody');
+  if(!el)return;
+  const grand=Object.values(totals).reduce((s,x)=>s+x,0);
+  const activeDays=byDay.filter(d=>d.total>0).length;
+  const busiest=byDay.reduce((a,b)=>b.total>a.total?b:a,{total:0,date:''});
+
+  let h='<div style="display:flex;gap:7px;margin-bottom:12px">';
+  [[7,'7 din'],[15,'15 din'],[30,'30 din']].forEach(([d,lbl])=>{
+    h+='<button class="chip'+(days===d?' on':'')+'" onclick="actRender('+d+')" style="flex:1;justify-content:center">'+lbl+'</button>';
+  });
+  h+='</div>';
+
+  h+='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:14px">'
+   +'<div style="background:#eef2ff;border-radius:10px;padding:10px;text-align:center"><div style="font-size:20px;font-weight:800;color:var(--navy)">'+grand+'</div><div style="font-size:9px;font-weight:700;color:var(--mu)">KUL KAAM</div></div>'
+   +'<div style="background:#f0fdf4;border-radius:10px;padding:10px;text-align:center"><div style="font-size:20px;font-weight:800;color:#166534">'+activeDays+'</div><div style="font-size:9px;font-weight:700;color:var(--mu)">DIN KAAM KIYA</div></div>'
+   +'<div style="background:#fef3c7;border-radius:10px;padding:10px;text-align:center"><div style="font-size:20px;font-weight:800;color:#92400e">'+(busiest.total||0)+'</div><div style="font-size:9px;font-weight:700;color:var(--mu)">SABSE ZYADA</div></div>'
+   +'</div>';
+
+  const keys=Object.keys(ACT_LABELS).filter(k=>totals[k]);
+  if(!keys.length){
+    h+='<div class="bempty">Is duration mein abhi koi kaam record nahi hua.<br><span style="font-size:11px">Jaise-jaise aap kaam karenge, yahan apne aap jama hota jayega.</span></div>';
+  }else{
+    const max=Math.max(...keys.map(k=>totals[k]));
+    h+='<div style="font-size:10.5px;font-weight:800;color:var(--mu);letter-spacing:.5px;margin-bottom:8px">KIS CHEEZ MEIN KITNA</div>';
+    keys.sort((a,b)=>totals[b]-totals[a]).forEach(k=>{
+      const pct=Math.round(100*totals[k]/max);
+      h+='<div style="margin-bottom:9px">'
+        +'<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px">'
+        +'<span style="font-size:12.5px;font-weight:600;color:var(--txt)">'+ACT_LABELS[k]+'</span>'
+        +'<span style="font-size:14px;font-weight:800;color:var(--navy)">'+totals[k]+'</span></div>'
+        +'<div style="height:6px;background:#eef2f9;border-radius:4px;overflow:hidden"><div style="height:100%;width:'+pct+'%;background:linear-gradient(90deg,var(--blue),#60a5fa)"></div></div>'
+        +'</div>';
+    });
+    // Din-wise chhoti bar-line
+    h+='<div style="font-size:10.5px;font-weight:800;color:var(--mu);letter-spacing:.5px;margin:16px 0 8px">DIN-WISE</div>';
+    const dmax=Math.max(1,...byDay.map(d=>d.total));
+    h+='<div style="display:flex;align-items:flex-end;gap:2px;height:56px;padding:0 1px">';
+    byDay.forEach(d=>{
+      const ht=d.total?Math.max(4,Math.round(52*d.total/dmax)):2;
+      const c=d.total?'var(--blue)':'#e5e9f2';
+      h+='<div title="'+fmtD(d.date)+' — '+d.total+'" style="flex:1;height:'+ht+'px;background:'+c+';border-radius:2px 2px 0 0"></div>';
+    });
+    h+='</div>';
+    h+='<div style="display:flex;justify-content:space-between;font-size:9.5px;color:var(--mu);margin-top:4px"><span>'+fmtD(byDay[0].date)+'</span><span>'+fmtD(byDay[byDay.length-1].date)+'</span></div>';
+  }
+  h+='<div style="font-size:10.5px;color:var(--mu);margin-top:14px;line-height:1.5">Sirf ginti rakhi jaati hai — kaunsi file thi wo nahi. 30 din se purana apne aap saaf ho jaata hai.</div>';
+  el.innerHTML=h;
+}
+let _actDays=30;
+function actDownload(){
+  const {totals,byDay}=actRange(_actDays);
+  const types=Object.keys(ACT_LABELS).filter(k=>totals[k]);
+  const rows=[['Date',...types.map(t=>ACT_LABELS[t].replace(/^\S+\s/,'')),'Total']];
+  byDay.forEach(d=>rows.push([fmtD(d.date),...types.map(t=>d.detail[t]||0),d.total]));
+  rows.push(['TOTAL',...types.map(t=>totals[t]||0),Object.values(totals).reduce((s,x)=>s+x,0)]);
+  try{
+    const ws=XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols']=[{wch:13},...types.map(()=>({wch:16})),{wch:9}];
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,'Kaam Ka Hisaab');
+    XLSX.writeFile(wb,'Kaam_Ka_Hisaab_'+_actDays+'din_'+_localISO(new Date())+'.xlsx');
+    showToast('✅ Report download ho gayi');
+  }catch(e){showToast('❌ Excel banane mein dikkat: '+e.message,'d');}
+}
+
 function bRenderGrid(){
   if(_subdateView){bRenderSubdateView();return;} // sub-date view ON hai to wahi dikhao
   const gc=document.getElementById('bgc');
@@ -6316,7 +6537,7 @@ async function bAddFile(rawId,fromScan){
       if(fromScan){showSC(msg,'#dc2626');haptic('mismatch');redFlash();}else{showToast(msg,'d');}
       speak("File pehle se bundle mein hai");haptic('error');return false;
     }
-    const obj={id,md:bActiveCat?0:bAMD,sd:bActiveCat?null:bASD,col:bAC,cat:bActiveCat||null,at:Date.now(),st:'placed',hidden:false,_freeAdd:true};
+    const obj={id,md:bActiveCat?0:bAMD,sd:bActiveCat?null:bASD,col:bAC,cat:bActiveCat||null,at:Date.now(),st:'placed',hidden:false,_freeAdd:true};actLog('bundleAdd');
     bFiles[id]=obj;await idbSBn(obj);scheduleBundlePush();
     if(bActiveCat&&CAT_REMARK_WORD[bActiveCat]){await addCategoryWordToRemark(id,CAT_REMARK_WORD[bActiveCat]);}
     _lastColForDate[bColKey()]=bAC;saveLastCols();
@@ -6394,7 +6615,7 @@ async function bAddFile(rawId,fromScan){
       return false;
     }
   }
-  const obj={id,md:bActiveCat?0:bAMD,sd:bActiveCat?null:bASD,col:bAC,cat:bActiveCat||null,at:Date.now(),st:'placed',hidden:false};
+  const obj={id,md:bActiveCat?0:bAMD,sd:bActiveCat?null:bASD,col:bAC,cat:bActiveCat||null,at:Date.now(),st:'placed',hidden:false};actLog('bundleAdd');
   bFiles[id]=obj;await idbSBn(obj);scheduleBundlePush();
   // Agar file kisi CATEGORY (old/stay/committal etc) mein add hui, to us category ka word
   // CFM remark mein automatically add karo (taaki CFM mein tag dikhe, sent/received ke baad bhi rahe)
@@ -6595,6 +6816,7 @@ function bmEnableSD(){bMSD=1;document.getElementById('bm-sds').innerHTML='<div c
 function bmClearSD(){bMSD=null;document.getElementById('bm-sds').innerHTML='<button class="sdadd" onclick="bmEnableSD()">+ Sub-Date add karo</button>';document.getElementById('bm-sdc').style.display='none';bUpdateMP();}
 function bUpdateMP(){document.getElementById('bm-prev').textContent=bMCat?`${CAT_LABELS[bMCat]||bMCat} — ${dispCol(bMC)}`:`Date ${bMMD}${bMSD!=null?'/'+bMSD:''} — ${dispCol(bMC)}`;}
 async function doBundleMove(){
+  try{actLog("bundleMove");}catch(e){}
   // Category mode: md=0, sd=null, cat set. Date mode: cat=null.
   const applyTarget=(fileObj)=>{
     if(bMCat){fileObj.md=0;fileObj.sd=null;fileObj.col=bMC;fileObj.cat=bMCat;}
@@ -8509,6 +8731,7 @@ function openDisposeConfirm(cn){
 }
 
 async function confirmDisposeYes(){
+  try{actLog("dispose");}catch(e){}
   const cn=_disposePendingCN;if(!cn)return;
   const dispDate=document.getElementById('disp-date').value||_localISO(new Date());
   const idx=cData.findIndex(r=>caseMatch(r.caseno,cn));
@@ -8628,6 +8851,7 @@ function acScan(){
 }
 
 async function urgAction(mode){
+  try{actLog("urgent");}catch(e){}
   const cn=(document.getElementById('urg-cn').value||'').trim().toUpperCase();
   if(!cn){showUrgMsg('⚠️ Case No daalo','err');haptic('error');return;}
   // Fix 5: remark compulsory
