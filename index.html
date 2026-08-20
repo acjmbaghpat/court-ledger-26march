@@ -3766,7 +3766,11 @@ async function mergeUpcomingReceived(uploadedRows,targetDate){
       }
     });
   }
-  if(!Object.keys(upcoming).length)return{merged:uploadedRows,addedCount:0}; // kuch bhi upcoming nahi — Excel jaisa hi
+  // NOTE: pehle yahan seedha return tha jab koi file "upcoming" na ho. Us wajah se
+  // neeche wala TAG-HISTORY block chalta hi nahi tha — aur purane tag (jail/committal
+  // waghera) us case par gayab ho jaate the. Ab hum aage badhte hain; extra-rows wala
+  // kaam apne aap skip ho jayega kyunki upcoming khali hai.
+  const _noUpcoming=!Object.keys(upcoming).length;
 
   // 2. Excel rows ke canonical-keys nikalo (match track karne ke liye)
   const excelIdx={}; // canon -> index in uploadedRows (Excel-overlap tag-carry ke liye)
@@ -3779,6 +3783,42 @@ async function mergeUpcomingReceived(uploadedRows,targetDate){
   // pehle se hai (jo normal hai — Excel-row priority leta hai), to uska remark KHAALI hota
   // (Excel column mein tag nahi hota), aur tag CHUP-CHAAP GAYAB ho jaata tha. Ab: Excel-row
   // ke remark mein purani record ke category-words merge kar do (duplicate na ho).
+
+  // TAG HISTORY: sirf "upcoming" (jinki next-date aaj hai) se tag uthana kaafi nahi tha.
+  // Agar wahi case Excel mein aaye par upcoming na ho (fresh cause-list entry, ya
+  // next-date kahin aur ho), to uska purana tag CHUP-CHAAP kho jaata tha.
+  // Ab har Excel-row ke case ka SABSE NAYA tag poori history se dhoondte hain —
+  // tag case-number se chipka rehta hai jab tak aap khud remark se na hataao.
+  const tagHist={};   // canonKey -> [tag words]
+  try{
+    const allData=await getAllDatesData();
+    const dkeys=Object.keys(allData).sort();   // purani se nayi
+    for(const k of dkeys){
+      const dpart=k.split('_')[0];
+      if(dpart>=targetDate)continue;           // sirf AAJ SE PEHLE ka itihaas
+      for(const r of allData[k]){
+        const ck2=_unpKey(r.caseno);
+        if(ck2==='|'||!(ck2 in excelIdx))continue;
+        const t=extractCarryTags(r.remark);
+        // Sabse naya faisla hi maanya — agar us din remark se tag hata diya tha,
+        // to aage bhi nahi jaana chahiye. Isliye khali bhi record karte hain.
+        tagHist[ck2]=t;
+      }
+    }
+  }catch(e){console.error('tagHist:',e);}
+  for(const ck in tagHist){
+    if(!tagHist[ck].length)continue;
+    if(ck in upcoming)continue;                // ye neeche wale loop mein handle hoga
+    const row=uploadedRows[excelIdx[ck]];
+    if(!row)continue;
+    const curRemark=(row.remark||'').trim();
+    const curTags=curRemark?curRemark.split('|').map(s=>s.trim()):[];
+    let ch=false;
+    for(const tag of tagHist[ck]){
+      if(!curTags.some(t=>t.toLowerCase()===tag.toLowerCase())){curTags.push(tag);ch=true;}
+    }
+    if(ch){row.remark=curTags.join(' | ');row.searchableText=gSrch(row);}
+  }
 
   for(const ck in upcoming){
     if(!(ck in excelIdx))continue; // sirf Excel-overlap case handle karna hai yahan
@@ -4746,6 +4786,37 @@ function renderRemarkTags(remark){
   return tags.map(t=>'<span style="display:inline-block;background:'+t.color+';color:#fff;font-size:8px;font-weight:700;padding:1px 5px;border-radius:7px;margin-left:3px;letter-spacing:.3px" title="Remark mein \''+t.word+'\' hai">'+t.label+'</span>').join('');
 }
 
+
+// ═══ BUNDLE LOCATION BADGE ═══
+// Jo file abhi Peshgar ko bheji NAHI gayi hai aur almari mein rakhi hai, uski
+// jagah CFM ki list mein hi dikha do (jaise "25-C" ya "🔒 Jail") — taaki bina
+// Bundle-tab khole pata chale ki file kahan padi hai. SENT hote hi ye hat jaata
+// hai (kyunki file ab almari mein hai hi nahi).
+function bundleLocBadge(r){
+  try{
+    if(!r||r.sent==='Sent')return '';          // bheji ja chuki — location ka matlab nahi
+    if(!bFiles||!Object.keys(bFiles).length)return '';
+    const ck=_unpKey(r.caseno);
+    if(ck==='|')return '';
+    let f=bFiles[String(r.caseno).toUpperCase()];
+    if(!f||f.hidden){
+      f=null;
+      for(const id in bFiles){
+        const x=bFiles[id];
+        if(!x.hidden&&_unpKey(id)===ck){f=x;break;}
+      }
+    }
+    if(!f||f.hidden)return '';
+    const label=f.cat
+      ? (CAT_LABELS[f.cat]||f.cat)
+      : (f.md+'-'+dispCol(f.col)+(f.sd!=null?'·'+f.sd:''));
+    const title=f.cat
+      ? ('Almari mein — '+(CAT_LABELS[f.cat]||f.cat))
+      : ('Almari mein — Date '+f.md+(f.sd!=null?' / sub-'+f.sd:'')+', Column '+dispCol(f.col));
+    return '<span style="display:inline-block;background:#ede9fe;color:#5b21b6;border:1px solid #ddd6fe;font-size:8px;font-weight:800;padding:1px 5px;border-radius:7px;margin-left:3px;letter-spacing:.3px" title="'+esc(title)+'">🗂 '+esc(label)+'</span>';
+  }catch(e){return '';}
+}
+
 function drawTable(data){
   const tbl=document.getElementById("cfmTable");
   if(!data||!data.length){tbl.innerHTML='<tr><td colspan="10" style="text-align:center;padding:40px;color:var(--mu);font-weight:500">Koi data nahi — Excel upload karo ya date change karo</td></tr>';return;}
@@ -4764,7 +4835,7 @@ function drawTable(data){
           ?'<span style="display:inline-block;background:var(--red);color:#fff;font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px;margin-left:4px" title="Pichli date ('+fmtD(pp.workDate)+') se Peshgar ko sent, '+pp.daysDiff+' din se CFM mein wapis received nahi — OVERDUE">❌ NOT RECEIVED · '+pp.daysDiff+'d</span>'
           :'<span style="display:inline-block;background:#ea580c;color:#fff;font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px;margin-left:4px" title="Pichli date ('+fmtD(pp.workDate)+') se Peshgar ko sent, abhi CFM mein wapis received nahi">❌ NOT RECEIVED</span>'):'';
         const upBadge=r._fromUpcoming?'<span style="display:inline-block;background:#0891b2;color:#fff;font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px;margin-left:4px" title="Ye file Excel mein nahi thi — pehle RECEIVE ho chuki thi aur is date ki next-date fix ki gayi thi, isliye yahan auto-milaayi gayi">🔗 AUTO-ADDED</span>':'';
-        row+=`<td><span class="td-caseno" onclick="openCaseDetail('${cj}')">${esc(r.caseno)}</span>${ppBadge}${upBadge}${renderRemarkTags(r.remark)}</td>`;
+        row+=`<td><span class="td-caseno" onclick="openCaseDetail('${cj}')">${esc(r.caseno)}</span>${ppBadge}${upBadge}${renderRemarkTags(r.remark)}${bundleLocBadge(r)}</td>`;
       }else if(k==="partyname"){
         row+=`<td><span class="td-party">${esc(r[k]||"")}</span></td>`;
       }else if(k==="section"||k==="ps"){
@@ -4865,20 +4936,23 @@ async function openCaseDetail(cn){
   document.getElementById('cd-title').textContent='📁 '+cn;
   document.getElementById('cd-sub').textContent=r.partyname||'';
 
-  // Previous Fixed Date — second-last fixed date (current se DO hearings pehle)
-  // Index se sirf is case ke records (fast — saari dates scan nahi)
+  // PICHLI DATE — is file ki AAJ SE PEHLE wali hearing-date.
+  // BUG THA: pehle ye next-date VALUES ki list se nikalti thi. Auto-added row ka
+  // nextdate khali hota hai, isliye list mein wo milta hi nahi tha aur code
+  // "last-but-one" utha leta tha — natija ye ki 21/7 se aayi file par bhi PICHLI
+  // DATE 21/8 (yani aaj wali) dikh jaati thi. Ab hum WORKING-DATES se nikalte hain:
+  // is file ke jitne bhi din the, unme se aaj se pehle wala aakhri din.
   let prevFixedDate='—';
   try{
-    const entries=await _idxLookup(cn); // [{rec,key}]
-    const ndSet=new Set();
-    entries.forEach(e=>{if(e.rec&&e.rec.nextdate)ndSet.add(e.rec.nextdate);});
-    const uniqueNd=[...ndSet].sort(); // chronological
-    const curIdx=uniqueNd.indexOf(r.nextdate);
-    if(curIdx>=2){
-      prevFixedDate=fmtD(uniqueNd[curIdx-2]);
-    }else if(curIdx===-1&&uniqueNd.length>=2){
-      prevFixedDate=fmtD(uniqueNd[uniqueNd.length-2]);
-    }
+    const curDate=dKey().split('_')[0];
+    const entries=await _idxLookup(cn); // [{rec,key}] — latest-first
+    const days=new Set();
+    entries.forEach(e=>{
+      const d=String(e.key||'').split('_')[0];
+      if(/^\d{4}-\d{2}-\d{2}$/.test(d))days.add(d);
+    });
+    const before=[...days].filter(d=>d<curDate).sort();
+    if(before.length)prevFixedDate=fmtD(before[before.length-1]);
   }catch(e){console.error('prevFixedDate:',e);}
 
   const rows=[
