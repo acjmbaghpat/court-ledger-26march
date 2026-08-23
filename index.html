@@ -287,6 +287,15 @@ td input:focus{background:#fff;border-color:var(--blue)}
 @keyframes sheetUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
 @keyframes popIn{from{opacity:0;transform:scale(.9) translateY(20px)}to{opacity:1;transform:scale(1) translateY(0)}}
 .mt{font-size:17px;font-weight:800;color:var(--navy);margin-bottom:3px;letter-spacing:-.3px}
+/* MODAL TOP-CLOSE: lambi list wale modal (Status, Overdue, Urgent, Audit) band
+   karne ke liye pehle neeche tak scroll karna padta tha. Ab har modal ke
+   title ke saath hi ek ✕ rehta hai — upar se seedha band. */
+.mt{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.mt-x{flex:0 0 auto;width:34px;height:34px;min-width:34px;border-radius:50%;border:1.5px solid var(--bdr);
+  background:var(--bg);color:var(--mu);font-size:17px;font-weight:700;line-height:1;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;margin:-3px -2px 0 0;transition:all .15s}
+.mt-x:active{background:#fee2e2;border-color:#fecaca;color:#b91c1c;transform:scale(.94)}
+.msh{position:relative}
 .msub{font-size:13px;color:var(--mu);margin-bottom:16px;font-weight:500}
 
 /* ═══════════════ HIGHLIGHT ═══════════════ */
@@ -1266,6 +1275,11 @@ input:focus,select:focus,textarea:focus{
         </div>
 
         <button class="btn primary" onclick="fbPushAll()" style="margin-top:8px">☁️ Sabhi Data Push Karo</button>
+        <button class="btn" onclick="openHealth()" style="margin-top:6px;background:linear-gradient(135deg,#059669,#047857);color:#fff">🩺 Data Health Check</button>
+        <div style="font-size:11px;color:var(--mu);margin-top:5px;line-height:1.45">
+          Kitna data hai, aakhri backup kab hua, Firebase se milta hai ya nahi,
+          aur koi kharabi to nahi — sab ek jagah.
+        </div>
         <button class="btn primary" id="fbPullBtn" onclick="fbPullGuarded()" style="margin-top:6px;background:linear-gradient(135deg,#0891b2,#0e7490)">⬇️ Sabhi Data Pull Karo</button>
         <button class="btn" onclick="openActivity()" style="margin-top:6px;background:linear-gradient(135deg,#7c3aed,#5b21b6);color:#fff">📈 Mera Kaam Ka Hisaab (30 din)</button>
         <div style="font-size:11px;color:var(--mu);margin-top:5px;line-height:1.45">
@@ -1824,6 +1838,17 @@ input:focus,select:focus,textarea:focus{
 </div>
 
 <!-- OVERDUE MODAL -->
+<div class="modal" id="healthModal">
+  <div class="msh" style="max-height:92vh;overflow-y:auto">
+    <div class="mt">🩺 Data Health Check</div>
+    <div class="msub">Aapka data theek hai ya nahi — ek nazar mein</div>
+    <div id="healthBody"></div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="btn success" onclick="exportBackup()" style="flex:1;margin-top:0;font-size:12px">💾 Abhi Backup Lo</button>
+      <button class="btn neutral" onclick="document.getElementById('healthModal').classList.remove('on')" style="margin-top:0;font-size:12px">✕ Band</button>
+    </div>
+  </div>
+</div>
 <div class="modal" id="actModal">
   <div class="msh" style="max-height:92vh;overflow-y:auto">
     <div class="mt">📈 Mera Kaam Ka Hisaab</div>
@@ -1873,11 +1898,13 @@ input:focus,select:focus,textarea:focus{
     <div class="field" style="margin-bottom:8px">
       <label>Kiske paas? * <span style="color:var(--red)">(zaroori hai)</span></label>
       <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:5px">
-        <button type="button" class="urg-who-btn" onclick="urgSetWho('Babu',this)">👤 Babu</button>
-        <button type="button" class="urg-who-btn" onclick="urgSetWho('Peshgar',this)">📋 Peshgar</button>
-        <button type="button" class="urg-who-btn" onclick="urgSetWho('Steno',this)">🖊️ Steno</button>
-        <button type="button" class="urg-who-btn" onclick="urgSetWho('Judge',this)">⚖️ Judge</button>
-        <button type="button" class="urg-who-btn" onclick="urgSetWho('',this)">✏️ Other</button>
+        <button type="button" class="urg-who-btn" onclick="urgSetWho('बाबू',this)">👤 बाबू</button>
+        <button type="button" class="urg-who-btn" onclick="urgSetWho('पेशगार',this)">📋 पेशगार</button>
+        <button type="button" class="urg-who-btn" onclick="urgSetWho('स्टेनो',this)">🖊️ स्टेनो</button>
+        <button type="button" class="urg-who-btn" onclick="urgSetWho('जज',this)">⚖️ जज</button>
+        <button type="button" class="urg-who-btn" onclick="urgSetWho('बेल',this)">🔓 बेल</button>
+        <button type="button" class="urg-who-btn" onclick="urgSetWho('वारंट',this)">📜 वारंट</button>
+        <button type="button" class="urg-who-btn" onclick="urgSetWho('',this)">✏️ अन्य</button>
       </div>
       <input type="text" id="urg-rem" placeholder="Select karo ya yahan likho..." style="margin-top:6px">
     </div>
@@ -2524,6 +2551,7 @@ window.onload=async()=>{
   try{
     await openDB();
     requestPersistentStorage();
+    try{installModalCloseButtons();}catch(e){}
     workDate.value=_localISO(new Date());
     await loadVersions();await loadCurV();await loadLocal();
     await loadLastCols(); // bundle ke last-used columns load karo
@@ -2620,6 +2648,7 @@ async function saveLocal(){
     invalidateOvCache(); // data badla — overdue cache fresh karo
     updateAllDatesCacheForCurrent(); // PERF: sirf current date cache update (full rebuild nahi — 90x kam IDB)
     await idbSM(dKey(),cData);
+    try{syncAutoCategories();}catch(e){}
     // Fire and forget — Firebase backup, not critical path
     // But schedule properly to avoid race conditions
     if(_fbDb){
@@ -2667,6 +2696,7 @@ async function loadLocal(){
     else cData=[];
   }catch(e){cData=[];showToast('⚠️ Data load fail!','d');}
   try{showArchiveBanner(_viewingArchived);}catch(e){}
+  try{syncAutoCategories();}catch(e){}
   // AUTO-MERGE: jo files pehle RECEIVE ho chuki hain aur unki next-date yahi hai, unhe
   // is date ki list mein khud-ba-khud dikhao — chahe Excel upload hua ho ya sirf date
   // navigate ki ho. Excel upload hone par yahi merge match/extra dono handle karta hai;
@@ -2756,7 +2786,8 @@ async function getUnplacedReceivedFiles(){
   // (bundle se nikal ke Peshgar/court chali gayi) → us par tag nahi dikhana.
   const recvInfo={};    // canonical -> {caseno, ..., recvDate, workDate}
   const lastSent={};    // canonical -> latest sending working-date
-  const disposedSet=new Set();
+  // LIFECYCLE-AWARE dispose (revoke support) — dekho buildDisposedSet
+  const disposedSet=buildDisposedSet(allData);
   for(const k of Object.keys(allData)){
     const datePart=k.split('_')[0];
     allData[k].forEach(r=>{
@@ -2764,7 +2795,6 @@ async function getUnplacedReceivedFiles(){
       if(!cn)return;
       const ck=_unpKey(cn);
       if(ck==='|')return;
-      if(r._disposed)disposedSet.add(ck);
       // Sending track (working-date basis — overdue jaisa exact)
       if(r.sent==='Sent'){
         if(!lastSent[ck]||datePart>lastSent[ck])lastSent[ck]=datePart;
@@ -2946,6 +2976,36 @@ function pruneArchIdx(idx){
   }
 }
 
+
+// ═══ DISPOSE — LIFECYCLE-AWARE ═══
+// Case REVOKE ho sakta hai: CIS mein order ke baad wahi case-number dobara
+// cause-list mein aa jaata hai. Pehle "kabhi bhi _disposed dikha to hamesha
+// disposed" maana jaata tha — isliye revoke ke baad wo file overdue/Bundle-Check
+// mein aati hi nahi thi (chup-chaap gayab ho jaati). Ab sirf SABSE NAYE record
+// ka faisla maanya hai: agar baad ki kisi date par wo file bina dispose ke aayi
+// hai, to case dobara ZINDA maana jayega.
+function buildDisposedSet(allData){
+  const latest={};   // canonKey -> {date, disposed}
+  try{
+    for(const k in allData){
+      const dpart=String(k).split('_')[0];
+      const arr=allData[k];
+      if(!Array.isArray(arr))continue;
+      for(const r of arr){
+        const cn=String(r.caseno||'').trim();
+        if(!cn)continue;
+        const ck=_unpKey(cn);
+        if(ck==='|')continue;
+        const ex=latest[ck];
+        if(!ex||dpart>=ex.date)latest[ck]={date:dpart,disposed:!!r._disposed};
+      }
+    }
+  }catch(e){console.error('buildDisposedSet:',e);}
+  const out=new Set();
+  for(const ck in latest)if(latest[ck].disposed)out.add(ck);
+  return out;
+}
+
 async function getAllOverdueFiles(){
   // Cache: 20 sec ya jab tak data change na ho (saveLocal invalidate karta hai)
   const ck=workDate.value+'_'+cData.length;
@@ -2975,7 +3035,8 @@ async function getAllOverdueFiles(){
     // warna same file do baar aa sakti thi (format alag ho to).
     const sends={};   // canon -> [{wdate, rec, srcKey, workDate}]
     const recvs={};   // canon -> [received working-date, ...]
-    const disposedSet=new Set();
+    // LIFECYCLE-AWARE: sirf sabse naye record ka dispose maanya (revoke support).
+    const disposedSet=buildDisposedSet(allData);
     for(const k of keys){
       const datePart=k.split('_')[0]; // working date (jis list mein file hai)
       allData[k].forEach(r=>{
@@ -2983,7 +3044,6 @@ async function getAllOverdueFiles(){
         if(!cn)return;
         const ck=_unpKey(cn);
         if(ck==='|')return;
-        if(r._disposed)disposedSet.add(ck);
         if(r.sent==='Sent'){
           // Count working-date (datePart) se — file is din Peshgar gayi
           (sends[ck]=sends[ck]||[]).push({wdate:datePart,rec:r,srcKey:k,workDate:datePart});
@@ -3166,7 +3226,13 @@ async function pgAuditScan(){
   const add=(map,cn,d)=>{const ck=_unpKey(cn);if(ck==='|')return;(map[ck]=map[ck]||[]).push(d);};
   for(const d in cfmByDate)for(const cn in cfmByDate[d]){
     const r=cfmByDate[d][cn];
-    if(r._disposed)disposed[_unpKey(cn)]=true;
+    // LIFECYCLE-AWARE: baad ki date par bina dispose ke aaye to case zinda maano
+    // (revoke). Isliye har date par flag SET bhi hota hai aur CLEAR bhi.
+    const _ck=_unpKey(cn);
+    if(_ck!=='|'){
+      if(!disposed._at)disposed._at={};
+      if(!disposed._at[_ck]||d>=disposed._at[_ck]){disposed._at[_ck]=d;disposed[_ck]=!!r._disposed;}
+    }
     if(r.sent==='Sent')add(cfmSent,cn,d);
     if(r.received==='Received')add(cfmRecv,cn,d);
   }
@@ -5337,7 +5403,7 @@ async function exportBackup(){
     const blob=new Blob([JSON.stringify(bk,null,2)],{type:"application/json"});
     const url=URL.createObjectURL(blob),a=document.createElement("a");
     a.href=url;a.download="CourtBundleBackup_"+new Date().toISOString().split("T")[0]+".json";
-    document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+    document.body.appendChild(a);a.click();markBackupDone('manual');document.body.removeChild(a);URL.revokeObjectURL(url);
     if(stEl){stEl.textContent="✅ Backup export ho gaya!";stEl.className="smsg s-ok";clearTimeout(stEl._t);stEl._t=setTimeout(()=>stEl.className="smsg",3000);}
   }catch(err){if(stEl){stEl.textContent="❌ Export fail: "+err;stEl.className="smsg s-err";}}
 }
@@ -5380,7 +5446,7 @@ function tgLoadCfg(){
 // ── Telegram pe backup file bhejo ──
 async function tgSendBackup(silent){
   const cfg=tgGetCfg();
-  if(!cfg||!cfg.token||!cfg.chatId){if(!silent)showToast('⚠️ Pehle Telegram bot setup karo','d');return false;}
+  if(!cfg||!cfg.token||!cfg.chatId){if(!silent)markBackupDone('telegram');showToast('⚠️ Pehle Telegram bot setup karo','d');return false;}
   if(!navigator.onLine){if(!silent)showToast('📡 Net nahi — net aane pe bheji jayegi','w');return false;}
   try{
     const bk=await buildBackupData();
@@ -5474,6 +5540,45 @@ async function importBackup(event){
   try{
     const text=await file.text();const bk=JSON.parse(text);
     if(!bk.versionsStore&&!bk.metadataStore){stEl.textContent="❌ Invalid backup file";stEl.className="smsg s-err";return;}
+
+    // ═══ PREVIEW + CONFIRM ═══
+    // Pehle seedha import ho jaata tha — galat ya purani file chun li to pata bhi
+    // nahi chalta tha ki kya aa raha hai. Ab pehle dikhate hain ki file mein kya
+    // hai aur abhi phone par kya hai, phir aapki haan ke baad hi kuch hota hai.
+    const bkDates=Object.keys(bk.metadataStore||{}).filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k));
+    let bkRows=0;bkDates.forEach(k=>{const a=bk.metadataStore[k];if(Array.isArray(a))bkRows+=a.length;});
+    const bkBundle=Array.isArray(bk.bundlesStore)?bk.bundlesStore.length:0;
+    const curKeys=(await idbAMK()).filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k));
+    let curRows=0;for(const k of curKeys){const a=await idbGM(k);if(Array.isArray(a))curRows+=a.length;}
+    const curBundle=(await idbAB()).length;
+    const when=bk.exportedAt?String(bk.exportedAt).slice(0,10):'pata nahi';
+    const warn=(bkRows<curRows*0.5)?'\n\n🔴 DHYAAN DO: backup mein abhi ke data se KAAFI KAM records hain.\nGalat ya bahut purani file to nahi chun li?':'';
+    const msg='📂 Backup import karein?\n\n'
+      +'FILE MEIN:  '+bkRows+' records ('+bkDates.length+' dates), '+bkBundle+' bundle files\n'
+      +'FILE KI DATE: '+when+'\n\n'
+      +'ABHI PHONE PAR: '+curRows+' records ('+curKeys.length+' dates), '+curBundle+' bundle files\n\n'
+      +'Import JODTA hai — jo date file mein hai wo REPLACE hogi, baaki dates waisi hi rahengi.'
+      +warn+'\n\nAage badhein?';
+    if(!confirm(msg)){
+      stEl.textContent='Import cancel — kuch nahi badla';stEl.className='smsg s-warn';
+      try{event.target.value='';}catch(e){}
+      return;
+    }
+    // ═══ SAFETY SNAPSHOT — import se PEHLE poora abhi ka data file mein ═══
+    try{
+      const snap=await buildBackupData();
+      const blob=new Blob([JSON.stringify(snap)],{type:'application/json'});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');
+      a.href=url;a.download='CourtBackup_BEFORE_IMPORT_'+_localISO(new Date())+'.json';
+      document.body.appendChild(a);a.click();document.body.removeChild(a);
+      setTimeout(()=>URL.revokeObjectURL(url),1500);
+      showToast('💾 Import se pehle ka backup download ho gaya');
+    }catch(e){
+      if(!confirm('⚠️ Safety-backup download nahi ho paya.\nBina uske import karein?')){
+        stEl.textContent='Import roka gaya (safety-backup fail)';stEl.className='smsg s-err';return;
+      }
+    }
     if(bk.versionsStore)for(const[d,v]of Object.entries(bk.versionsStore))await idbSV(d,v);
     if(bk.metadataStore)for(const[k,v]of Object.entries(bk.metadataStore))await idbSM(k,v);
     // Archive store restore (90+ din purana data)
@@ -6338,6 +6443,134 @@ function actDownload(){
   }catch(e){showToast('❌ Excel banane mein dikkat: '+e.message,'d');}
 }
 
+
+// ═══════════════════════════════════════════════════════════════
+// AUTO-CATEGORY PLACEMENT
+// Jis file par koi tag hai (committal / stay / jail / old / verification
+// waghera) aur wo bundle mein kisi DATE par rakhi hui nahi hai, wo apne aap
+// us tag wali CATEGORY mein dikhni chahiye — taaki grid view mein pata rahe
+// ki wo file kis category ki hai aur abhi almari mein maujood hai.
+//
+// Niyam:
+//   • Tag hai + kisi date-slot par NAHI + Peshgar ko bheji NAHI  → category mein rakho
+//   • SENT ho gayi                                              → category se hatao
+//   • Wapas RECEIVED ho gayi aur kisi date par nahi              → phir category mein
+//   • Kisi DATE par manually rakh di                             → category se hat jaye
+//                                                                  (date-slot priority)
+//   • TAG kabhi nahi hatta — wo remark se hi hatta hai
+// Ye sirf category-placement sambhalta hai; date-slot wali files ko haath nahi lagata.
+// ═══════════════════════════════════════════════════════════════
+function _catOfTags(remark){
+  const tags=getRemarkTags(remark);          // wahi list jo UI badge dikhati hai
+  if(!tags.length)return null;
+  // tag-word se bundle-category nikalo.
+  // Do category ek hi word par bhi ho sakti hain (jaise FR aur VERIFICATION dono
+  // 'verification' par). Aise mein wahi chuno jiska NAAM word se milta ho —
+  // warna har baar alag category mein chali jaati aur bhram hota.
+  for(const t of tags){
+    for(const cat in CAT_REMARK_WORD){
+      if(CAT_REMARK_WORD[cat]===t.word&&cat.toLowerCase()===t.word.toLowerCase())return cat;
+    }
+    for(const cat in CAT_REMARK_WORD){
+      if(CAT_REMARK_WORD[cat]===t.word)return cat;
+    }
+  }
+  return null;
+}
+let _autoCatBusy=false;
+async function syncAutoCategories(){
+  if(_autoCatBusy)return {added:0,removed:0};
+  if(!_bundleLoaded)return {added:0,removed:0};
+  _autoCatBusy=true;
+  let added=0,removed=0;
+  try{
+    const rows=Array.isArray(cData)?cData:[];
+    for(const r of rows){
+      const cn=String(r.caseno||'').trim();
+      if(!cn||r._disposed)continue;
+      const ck=_unpKey(cn);
+      if(ck==='|')continue;
+      const cat=_catOfTags(r.remark);
+
+      // Bundle mein is file ki maujooda entry (format-safe)
+      let key=null,f=null;
+      for(const id in bFiles){
+        if(_unpKey(id)===ck){key=id;f=bFiles[id];break;}
+      }
+      const isSent=(r.sent==='Sent'&&r.received!=='Received');
+      const onDateSlot=!!(f&&!f.hidden&&!f.cat);        // kisi DATE par rakhi hai
+      const inAutoCat=!!(f&&!f.hidden&&f.cat&&f._autoCat); // humne category mein rakhi thi
+
+      // ── Hataana kab? ──
+      if(inAutoCat&&(isSent||!cat)){
+        // Peshgar ko bheji ja chuki, ya tag hi hat gaya
+        bFiles[key].hidden=true;
+        removed++;continue;
+      }
+      // ── Daalna kab? ──
+      if(cat&&!isSent&&!onDateSlot){
+        if(f&&!f.hidden&&f.cat===cat)continue;          // pehle se sahi category mein
+        if(f&&!f.hidden&&f.cat&&f.cat!==cat&&f._autoCat){
+          bFiles[key].cat=cat;added++;continue;         // tag badla — category badlo
+        }
+        if(f&&!f.hidden&&f.cat&&!f._autoCat)continue;   // aapne KHUD category mein rakhi — chhedo mat
+        if(f){                                          // hidden thi — wapas category mein
+          bFiles[key]={...f,cat,md:0,sd:null,col:'A',hidden:false,st:'placed',_autoCat:true,at:Date.now()};
+        }else{
+          bFiles[cn.toUpperCase()]={id:cn.toUpperCase(),md:0,sd:null,col:'A',cat,
+            at:Date.now(),st:'placed',hidden:false,_autoCat:true};
+        }
+        added++;
+      }
+    }
+    if(added||removed){
+      await idbBulkPutBundle(bFiles,false);
+      scheduleBundlePush&&scheduleBundlePush();
+      try{if(activeTab==='bundle')bRenderGrid();}catch(e){}
+      console.log('syncAutoCategories: +'+added+' category mein, -'+removed+' hataayi');
+    }
+  }catch(e){console.error('syncAutoCategories:',e);}
+  finally{_autoCatBusy=false;}
+  return {added,removed};
+}
+
+
+// Har modal ke title ke saath ✕ lagao — taaki lambi list wale modal
+// (Status, Overdue, Urgent, Audit, Health) upar se hi band ho sakein.
+function installModalCloseButtons(){
+  try{
+    const modals=document.querySelectorAll('.modal');
+    if(!modals||!modals.length)return;
+    modals.forEach(m=>{
+      if(!m||!m.id)return;
+      const t=m.querySelector?m.querySelector('.mt'):null;
+      if(!t||t.querySelector&&t.querySelector('.mt-x'))return;
+      const b=document.createElement('button');
+      b.type='button';b.className='mt-x';b.textContent='✕';
+      b.setAttribute('aria-label','Band karo');
+      b.setAttribute('title','Band karo');
+      b.onclick=(ev)=>{ if(ev&&ev.stopPropagation)ev.stopPropagation(); closeAnyModal(m.id); };
+      t.appendChild(b);
+    });
+  }catch(e){console.error('installModalCloseButtons:',e);}
+}
+// Modal band karo — agar us modal ka apna close-function hai to wahi chalao
+// (taaki uska cleanup/state-reset na chhoote), warna seedha class hata do.
+function closeAnyModal(id){
+  try{
+    const special={
+      scanModal:'closeScan', bmModal:'closeBundleMove', ndModal:'closeNDModal',
+      mmModal:'closeMismatch', courtModal:null
+    };
+    const fnName=special[id];
+    if(fnName&&typeof window!=='undefined'&&typeof globalThis[fnName]==='function'){globalThis[fnName]();return;}
+    const el=document.getElementById(id);
+    if(el&&el.classList)el.classList.remove('on');
+  }catch(e){
+    try{const el=document.getElementById(id);if(el&&el.classList)el.classList.remove('on');}catch(_){}
+  }
+}
+
 function bRenderGrid(){
   if(_subdateView){bRenderSubdateView();return;} // sub-date view ON hai to wahi dikhao
   const gc=document.getElementById('bgc');
@@ -6604,7 +6837,12 @@ async function bAddFile(rawId,fromScan){
   // (bina exist-check, bina received-check, bina date-mismatch check)
   if(bFreeAdd){
     // Sirf duplicate-in-bundle check rakho (same file physically do jagah nahi ho sakti)
-    if(bFiles[id]&&!bFiles[id].hidden){
+    // AUTO-CATEGORY OVERRIDE: agar file sirf apne TAG ki wajah se apne aap
+    // category mein rakhi gayi thi (_autoCat), to use "pehle se bundle mein hai"
+    // kehkar rokna galat hai — aap use asli date-slot par rakh rahe ho, jo hamesha
+    // category se upar hai. Aise mein chup-chaap aage badhne do.
+    if(bFiles[id]&&!bFiles[id].hidden&&bFiles[id]._autoCat){/* override — aage badho */}
+    else if(bFiles[id]&&!bFiles[id].hidden){
       const ex=bFiles[id];
       const exLoc=ex.cat?(CAT_LABELS[ex.cat]||ex.cat)+' — '+dispCol(ex.col):'Date '+ex.md+(ex.sd!=null?'/'+ex.sd:'')+' — Col '+dispCol(ex.col);
       const msg=`⚠ "${id}" pehle se bundle mein hai\n📍 ${exLoc}`;
@@ -6654,7 +6892,10 @@ async function bAddFile(rawId,fromScan){
       speak("File received nahi hai");haptic('error');redFlash();return false;
     }
   }
-  if(bFiles[id]&&!bFiles[id].hidden){
+  // AUTO-CATEGORY OVERRIDE (dekho upar wali tippani) — tag ki wajah se apne aap
+  // category mein padi file ko asli date-slot par rakhne se roka nahi jayega.
+  if(bFiles[id]&&!bFiles[id].hidden&&bFiles[id]._autoCat){/* override — aage badho */}
+  else if(bFiles[id]&&!bFiles[id].hidden){
     const ex=bFiles[id];
     const exLoc=ex.cat?(CAT_LABELS[ex.cat]||ex.cat)+' — '+dispCol(ex.col):'Date '+ex.md+(ex.sd!=null?'/'+ex.sd:'')+' — Col '+dispCol(ex.col);
     const nextDateStr=cfmRec&&cfmRec.nextdate?(' | Next Date: '+fmtD(cfmRec.nextdate)):'';
@@ -6689,7 +6930,9 @@ async function bAddFile(rawId,fromScan){
       return false;
     }
   }
-  const obj={id,md:bActiveCat?0:bAMD,sd:bActiveCat?null:bASD,col:bAC,cat:bActiveCat||null,at:Date.now(),st:'placed',hidden:false};actLog('bundleAdd');
+  // _autoCat NAHI lagta — ye aapka apna faisla hai, isliye auto-category
+    // system ise kabhi nahi hataayega ya badlega.
+    const obj={id,md:bActiveCat?0:bAMD,sd:bActiveCat?null:bASD,col:bAC,cat:bActiveCat||null,at:Date.now(),st:'placed',hidden:false};actLog('bundleAdd');
   bFiles[id]=obj;await idbSBn(obj);scheduleBundlePush();
   // Agar file kisi CATEGORY (old/stay/committal etc) mein add hui, to us category ka word
   // CFM remark mein automatically add karo (taaki CFM mein tag dikhe, sent/received ke baad bhi rahe)
@@ -6895,6 +7138,8 @@ async function doBundleMove(){
   const applyTarget=(fileObj)=>{
     if(bMCat){fileObj.md=0;fileObj.sd=null;fileObj.col=bMC;fileObj.cat=bMCat;}
     else{fileObj.md=bMMD;fileObj.sd=bMSD;fileObj.col=bMC;fileObj.cat=null;}
+    // Aapne KHUD jagah chuni — ab auto-category system ise nahi chhedega
+    delete fileObj._autoCat;
   };
   const targetLabel=bMCat?`${CAT_LABELS[bMCat]||bMCat}-${dispCol(bMC)}`:`Date ${bMMD}${bMSD!=null?'/'+bMSD:''}-${dispCol(bMC)}`;
   if(_bulkMoveMode&&_ddSel.size>0){
@@ -8367,6 +8612,129 @@ async function overdueDiff(){
     onlyMine.forEach(ck=>{const r=mineSet.get(ck);P('   • '+r.caseno+'  ('+fmtD(r.workDate||'')+', '+r._daysDiff+' din)');});
     P('   ➜ "Sabhi Data Push Karo" se ye bhi barabar ho jayega.');
   }
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// DATA HEALTH CHECK — "mera data theek to hai?" ka seedha jawab
+// Ye kuch badalta nahi — sirf jaanch karta hai aur batata hai:
+//   • Kitna data hai (CFM / bundle / archive)
+//   • Aakhri backup kab hua (Telegram + manual JSON)
+//   • Firebase par jo hai wo local se milta hai ya nahi
+//   • Koi kharabi to nahi (duplicate case, khali case-no, adhoori row)
+// Roz ke kaam mein sabse bada bharosa yahi deta hai.
+// ═══════════════════════════════════════════════════════════════
+const LAST_BK_KEY='cm_last_backup';
+function markBackupDone(kind){
+  try{
+    const a=JSON.parse(localStorage.getItem(LAST_BK_KEY)||'{}');
+    a[kind||'manual']=Date.now();
+    localStorage.setItem(LAST_BK_KEY,JSON.stringify(a));
+  }catch(e){}
+}
+function lastBackupInfo(){
+  try{return JSON.parse(localStorage.getItem(LAST_BK_KEY)||'{}');}catch(e){return {};}
+}
+function _agoText(ts){
+  if(!ts)return 'kabhi nahi';
+  const h=Math.floor((Date.now()-ts)/3600000);
+  if(h<1)return 'abhi thodi der pehle';
+  if(h<24)return h+' ghante pehle';
+  const d=Math.floor(h/24);
+  return d+' din pehle';
+}
+async function openHealth(){
+  document.getElementById('healthModal').classList.add('on');
+  const el=document.getElementById('healthBody');
+  el.innerHTML='<div class="bempty">🔎 Data ki jaanch ho rahi hai…</div>';
+  let h='';
+  try{
+    // ── 1. Kitna data hai ──
+    const mk=await idbAMK();
+    const dateKeys=mk.filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k));
+    let cfmRows=0;const seenCase=new Set();const dupes=[];const blanks=[];
+    for(const k of dateKeys){
+      const d=await idbGM(k);
+      if(!Array.isArray(d))continue;
+      cfmRows+=d.length;
+      const local=new Set();
+      d.forEach(r=>{
+        const cn=String(r.caseno||'').trim();
+        if(!cn){blanks.push(k);return;}
+        const ck=_unpKey(cn);
+        if(local.has(ck))dupes.push(k+' → '+cn);
+        local.add(ck);seenCase.add(ck);
+      });
+    }
+    const bAll=await idbAB();
+    const ark=(await idbAARK()).filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k));
+    let arRows=0;for(const k of ark){const d=await idbGAR(k);if(Array.isArray(d))arRows+=d.length;}
+
+    h+='<div style="font-size:10.5px;font-weight:800;color:var(--mu);letter-spacing:.5px;margin-bottom:8px">📦 AAPKA DATA</div>'
+     +'<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:7px;margin-bottom:14px">'
+     +'<div style="background:#eef2ff;border-radius:10px;padding:10px"><div style="font-size:19px;font-weight:800;color:var(--navy)">'+cfmRows.toLocaleString()+'</div><div style="font-size:9.5px;font-weight:700;color:var(--mu)">CFM RECORDS ('+dateKeys.length+' dates)</div></div>'
+     +'<div style="background:#f0fdf4;border-radius:10px;padding:10px"><div style="font-size:19px;font-weight:800;color:#166534">'+bAll.length.toLocaleString()+'</div><div style="font-size:9.5px;font-weight:700;color:var(--mu)">BUNDLE FILES</div></div>'
+     +'<div style="background:#fef3c7;border-radius:10px;padding:10px"><div style="font-size:19px;font-weight:800;color:#92400e">'+arRows.toLocaleString()+'</div><div style="font-size:9.5px;font-weight:700;color:var(--mu)">ARCHIVE ('+ark.length+' dates)</div></div>'
+     +'<div style="background:#f5f3ff;border-radius:10px;padding:10px"><div style="font-size:19px;font-weight:800;color:#6d28d9">'+seenCase.size.toLocaleString()+'</div><div style="font-size:9.5px;font-weight:700;color:var(--mu)">ALAG-ALAG CASE</div></div>'
+     +'</div>';
+
+    // ── 2. Backup kab hua ──
+    const bk=lastBackupInfo();
+    const tgAge=bk.telegram?((Date.now()-bk.telegram)/86400000):999;
+    const mnAge=bk.manual?((Date.now()-bk.manual)/86400000):999;
+    const worst=Math.min(tgAge,mnAge);
+    const bcol=worst>3?'#fef2f2':(worst>1?'#fffbeb':'#f0fdf4');
+    const bbdr=worst>3?'#fecaca':(worst>1?'#fde68a':'#bbf7d0');
+    const bico=worst>3?'🔴':(worst>1?'🟡':'✅');
+    h+='<div style="font-size:10.5px;font-weight:800;color:var(--mu);letter-spacing:.5px;margin-bottom:8px">💾 BACKUP</div>'
+     +'<div style="background:'+bcol+';border:1.5px solid '+bbdr+';border-radius:10px;padding:11px 13px;margin-bottom:14px">'
+     +'<div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:4px">'+bico+' Telegram: '+_agoText(bk.telegram)+'</div>'
+     +'<div style="font-size:12px;color:var(--mu)">JSON export: '+_agoText(bk.manual)+'</div>'
+     +(worst>3?'<div style="font-size:11.5px;color:#b91c1c;font-weight:700;margin-top:6px">⚠️ Backup bahut purana hai — abhi le lo</div>':'')
+     +'</div>';
+
+    // ── 3. Firebase se milaan ──
+    h+='<div style="font-size:10.5px;font-weight:800;color:var(--mu);letter-spacing:.5px;margin-bottom:8px">☁️ FIREBASE</div>';
+    if(!_fbDb){
+      h+='<div style="background:#f1f5f9;border-radius:10px;padding:11px 13px;margin-bottom:14px;font-size:12px;color:var(--mu)">Connect nahi hai — sirf is phone par data hai.</div>';
+    }else{
+      try{
+        const snap=await _fbDb.collection('cfm').get();
+        const fbDates=snap.docs.filter(d=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(d.id)).length;
+        const bs=await _fbDb.collection('bundle').doc('main').get();
+        const fbB=bs.exists?await bundleFromFirebase(bs.data()):null;
+        const fbBn=fbB?Object.keys(fbB).length:0;
+        const diffD=dateKeys.length-fbDates, diffB=bAll.length-fbBn;
+        const ok=Math.abs(diffB)<=Math.max(5,bAll.length*0.02);
+        h+='<div style="background:'+(ok?'#f0fdf4':'#fffbeb')+';border:1.5px solid '+(ok?'#bbf7d0':'#fde68a')+';border-radius:10px;padding:11px 13px;margin-bottom:14px">'
+         +'<div style="font-size:12.5px;font-weight:600;color:var(--txt)">Dates — is phone: <b>'+dateKeys.length+'</b> · Firebase: <b>'+fbDates+'</b></div>'
+         +'<div style="font-size:12.5px;font-weight:600;color:var(--txt);margin-top:3px">Bundle — is phone: <b>'+bAll.length+'</b> · Firebase: <b>'+fbBn+'</b></div>'
+         +(ok?'<div style="font-size:11.5px;color:#15803d;font-weight:700;margin-top:6px">✅ Dono taraf lagbhag barabar</div>'
+             :'<div style="font-size:11.5px;color:#92400e;font-weight:700;margin-top:6px">🟡 Farak hai — "Sabhi Data Push Karo" se milaa lo</div>')
+         +'</div>';
+      }catch(e){
+        h+='<div style="background:#fef2f2;border-radius:10px;padding:11px 13px;margin-bottom:14px;font-size:12px;color:#b91c1c">Firebase padha nahi ja saka: '+esc(e.message)+'</div>';
+      }
+    }
+
+    // ── 4. Kharabi ──
+    h+='<div style="font-size:10.5px;font-weight:800;color:var(--mu);letter-spacing:.5px;margin-bottom:8px">🔍 JAANCH</div>';
+    const issues=[];
+    if(dupes.length)issues.push('⚠️ '+dupes.length+' duplicate case-entry — jaise '+esc(dupes[0]));
+    if(blanks.length)issues.push('⚠️ '+blanks.length+' row bina case-number ke');
+    if(!cfmRows)issues.push('🔴 CFM mein koi record nahi — Excel upload karo ya backup restore karo');
+    if(worst>7)issues.push('🔴 7+ din se koi backup nahi');
+    if(!issues.length){
+      h+='<div style="background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:10px;padding:11px 13px;font-size:13px;font-weight:700;color:#15803d">✅ Sab theek hai — koi kharabi nahi mili</div>';
+    }else{
+      h+='<div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:10px;padding:11px 13px">';
+      issues.forEach(i=>{h+='<div style="font-size:12.5px;color:#92400e;font-weight:600;margin-bottom:4px">'+i+'</div>';});
+      h+='</div>';
+    }
+  }catch(e){
+    h='<div class="bempty">❌ Jaanch mein dikkat: '+esc(e.message)+'</div>';
+  }
+  el.innerHTML=h;
 }
 
 async function fbPullAll(){
