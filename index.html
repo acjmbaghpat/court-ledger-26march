@@ -3010,7 +3010,13 @@ function buildDisposedSet(allData){
   const latest={};   // canonKey -> {date, disposed}
   try{
     for(const k in allData){
+      // Key = "YYYY-MM-DD_N". Sirf date se compare karna kaafi nahi tha: ek hi
+      // date ke kai upload (v1, v2, v3) hote hain aur wo kisi bhi order mein
+      // process hote hain. Pehle aakhri-process hua version jeet jaata tha —
+      // yaani v1 v3 ko haraa deta tha. Ab (date, version) DONO se compare hota
+      // hai, taaki hamesha sabse naya upload hi faisla kare.
       const dpart=String(k).split('_')[0];
+      const vpart=parseInt(String(k).split('_')[1],10)||0;
       const arr=allData[k];
       if(!Array.isArray(arr))continue;
       for(const r of arr){
@@ -3019,7 +3025,8 @@ function buildDisposedSet(allData){
         const ck=_unpKey(cn);
         if(ck==='|')continue;
         const ex=latest[ck];
-        if(!ex||dpart>=ex.date)latest[ck]={date:dpart,disposed:!!r._disposed};
+        const newer=!ex||(dpart>ex.date)||(dpart===ex.date&&vpart>=ex.ver);
+        if(newer)latest[ck]={date:dpart,ver:vpart,disposed:!!r._disposed};
       }
     }
   }catch(e){console.error('buildDisposedSet:',e);}
