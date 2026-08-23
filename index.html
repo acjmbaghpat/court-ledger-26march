@@ -1009,6 +1009,8 @@ input:focus,select:focus,textarea:focus{
       <button class="dtab" data-dp="dp-export"  onclick="switchDP(this)"><span class="dice">📥</span>Export</button>
       <button class="dtab" data-dp="dp-sync"    onclick="switchDP(this)"><span class="dice">🔥</span>Firebase</button>
       <button class="dtab" data-dp="dp-backup"  onclick="switchDP(this)"><span class="dice">🗄</span>Backup</button>
+      <button class="dtab" data-dp="dp-mywork"  onclick="switchDP(this)"><span class="dice">📈</span>Mera Kaam</button>
+      <button class="dtab" data-dp="dp-peshgar" onclick="switchDP(this)"><span class="dice">⚠️</span>Peshgar</button>
     </div>
   </div>
 
@@ -1275,29 +1277,7 @@ input:focus,select:focus,textarea:focus{
         </div>
 
         <button class="btn primary" onclick="fbPushAll()" style="margin-top:8px">☁️ Sabhi Data Push Karo</button>
-        <button class="btn" onclick="openHealth()" style="margin-top:6px;background:linear-gradient(135deg,#059669,#047857);color:#fff">🩺 Data Health Check</button>
-        <div style="font-size:11px;color:var(--mu);margin-top:5px;line-height:1.45">
-          Kitna data hai, aakhri backup kab hua, Firebase se milta hai ya nahi,
-          aur koi kharabi to nahi — sab ek jagah.
-        </div>
         <button class="btn primary" id="fbPullBtn" onclick="fbPullGuarded()" style="margin-top:6px;background:linear-gradient(135deg,#0891b2,#0e7490)">⬇️ Sabhi Data Pull Karo</button>
-        <button class="btn" onclick="openActivity()" style="margin-top:6px;background:linear-gradient(135deg,#7c3aed,#5b21b6);color:#fff">📈 Mera Kaam Ka Hisaab (30 din)</button>
-        <div style="font-size:11px;color:var(--mu);margin-top:5px;line-height:1.45">
-          Kitni files bheji, kitni wapas li, kitni date lagayi, kitni almari mein rakhi —
-          pichle 30 din ka hisaab.
-        </div>
-        <button class="btn" onclick="overdueDiff()" style="margin-top:6px;background:linear-gradient(135deg,#0891b2,#155e75);color:#fff">🔍 Overdue Farak Check (CFM vs Peshgar)</button>
-        <div style="font-size:11px;color:var(--mu);margin-top:5px;line-height:1.45">
-          Agar CFM aur Peshgar ke overdue number alag dikhein, to ye batayega ki
-          <b>exactly kaunsi file</b> farak paida kar rahi hai aur <b>kyun</b>.
-        </div>
-        <pre id="ovDiffOut" style="font-size:10.5px;white-space:pre-wrap;background:var(--bg);border:1px solid var(--bdr);border-radius:8px;padding:9px;margin-top:6px;max-height:280px;overflow:auto;line-height:1.5"></pre>
-        <button class="btn" onclick="openPgAudit()" style="margin-top:6px;background:linear-gradient(135deg,#b91c1c,#7f1d1d);color:#fff">🔍 Peshgar Miss — Ab Bhi Atki Files</button>
-        <div style="font-size:11px;color:var(--mu);margin-top:5px;line-height:1.45">
-          Saari dates scan karke sirf WO files dikhata hai jinka mismatch abhi tak
-          nahi sulajha — matlab us date ke baad na dobara sent/received hui, na bundle
-          mein rakhi gayi. Date-wise, aur ye bhi ki file kahan atki hai.
-        </div>
         <button class="btn neutral" onclick="bundleDiagnose()" style="margin-top:6px;font-size:12px">🔧 Bundle Sync Diagnose</button>
         <button class="btn neutral" onclick="pushTrace()" style="margin-top:6px;font-size:12px;background:linear-gradient(135deg,#ea580c,#c2410c);color:#fff">📤 Push Trace (MAIN pe)</button>
         <button class="btn neutral" onclick="bundleTrace()" style="margin-top:6px;font-size:12px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff">🔬 Live Pull Trace (Secondary pe)</button>
@@ -1311,6 +1291,11 @@ input:focus,select:focus,textarea:focus{
       <div class="dsec">
         <div class="dsec-title">🗄 Backup &amp; Restore</div>
         <p style="font-size:12px;color:var(--mu);margin-bottom:10px;font-weight:500">Full data backup export/import karo (JSON format).</p>
+        <button class="btn" onclick="openHealth()" style="margin-top:6px;background:linear-gradient(135deg,#059669,#047857);color:#fff">🩺 Data Health Check</button>
+        <div style="font-size:11px;color:var(--mu);margin-top:5px;line-height:1.45">
+          Kitna data hai, aakhri backup kab hua, Firebase se milta hai ya nahi,
+          aur koi kharabi to nahi — sab ek jagah.
+        </div>
         <button class="btn solid-purple" onclick="exportBackup()" style="margin-top:0">⬇️ Export Backup</button>
         <button class="btn outline-purple" onclick="document.getElementById('restoreFile').click()" style="margin-top:8px">⬆️ Restore Backup</button>
         <input type="file" id="restoreFile" accept=".json" style="display:none" onchange="importBackup(event)">
@@ -1344,6 +1329,42 @@ input:focus,select:focus,textarea:focus{
         <button class="btn danger" onclick="deleteOldData()" style="margin-top:0">🧹 Delete Old Data (180d+)</button>
       </div>
     </div>
+    <div class="dpanel" id="dp-mywork">
+      <div class="dsec">
+        <div class="dsec-title">📈 Mera Kaam Ka Hisaab</div>
+        <p style="font-size:12px;color:var(--mu);line-height:1.5;margin-bottom:10px">
+          Pichle 30 din mein kitna kaam hua — kitni files bheji, kitni wapas li,
+          kitni date lagayi, kitni almari mein rakhi. Din-wise chart aur Excel report bhi.
+        </p>
+        <button class="btn primary" onclick="openActivity()" style="margin-top:0">📈 Hisaab Kholo</button>
+        <p style="font-size:11px;color:var(--mu);line-height:1.45;margin-top:10px">
+          Sirf <b>ginti</b> rakhi jaati hai — kaunsi file thi wo nahi. 30 din se purana
+          apne aap saaf ho jaata hai.
+        </p>
+      </div>
+    </div>
+
+    <div class="dpanel" id="dp-peshgar">
+      <div class="dsec">
+        <div class="dsec-title">⚠️ Peshgar Miss — Ab Bhi Atki Files</div>
+        <p style="font-size:12px;color:var(--mu);line-height:1.5;margin-bottom:10px">
+          Saari dates scan karke sirf WO files dikhata hai jinka mismatch abhi tak nahi
+          sulajha — matlab us date ke baad na dobara sent/received hui, na bundle mein
+          rakhi gayi. Date-wise, aur ye bhi ki file kahan atki hai.
+        </p>
+        <button class="btn" onclick="openPgAudit()" style="margin-top:0;background:linear-gradient(135deg,#b91c1c,#7f1d1d);color:#fff">🔍 Atki Files Dhundo</button>
+      </div>
+      <div class="dsec">
+        <div class="dsec-title">🔍 Overdue Farak Check</div>
+        <p style="font-size:12px;color:var(--mu);line-height:1.5;margin-bottom:10px">
+          Agar CFM aur Peshgar ke overdue number alag dikhein, to ye batayega ki
+          <b>exactly kaunsi file</b> farak paida kar rahi hai aur <b>kyun</b>.
+        </p>
+        <button class="btn" onclick="overdueDiff()" style="margin-top:0;background:linear-gradient(135deg,#0891b2,#155e75);color:#fff">🔍 Farak Check Karo</button>
+        <pre id="ovDiffOut" style="font-size:10.5px;white-space:pre-wrap;background:var(--bg);border:1px solid var(--bdr);border-radius:8px;padding:9px;margin-top:8px;max-height:280px;overflow:auto;line-height:1.5"></pre>
+      </div>
+    </div>
+
 
   </div><!-- /drawer-body -->
 </div><!-- /drawer -->
@@ -1507,6 +1528,7 @@ input:focus,select:focus,textarea:focus{
       </div>
     </div>
 
+    <!-- FREE ADD — bina CFM check -->
     <!-- FREE ADD — bina CFM check -->
     <div class="sec" style="border:1.5px dashed #0891b2">
       <div class="sec-hd">
