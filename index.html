@@ -2684,6 +2684,17 @@ async function saveLocal(){
     if(_fbDb){
       fbPush().catch(e=>console.warn('fbPush:',e));
       fbPushVersionMeta().catch(e=>console.warn('fbPushVersionMeta:',e));
+    }else if(deviceRole!=='secondary'){
+      // 🔴 YAHI SABSE BADA GAP THA:
+      // Agar Firebase CONNECT hi na hua ho (office mein net na mile, ya connect
+      // fail ho jaye), to fbPush() call hi nahi hoti — aur uske andar wala
+      // "offline to queue mein daalo" wala code bhi kabhi nahi chalta.
+      // Natija: poore din ka kaam local mein to bach jaata tha, par Firebase par
+      // KABHI nahi jaata tha. Ghar wale (Secondary) phone ko purana data milta
+      // rehta tha — isliye Main par 91 overdue aur Secondary par 190 dikhta tha.
+      // Ab bina Firebase ke bhi date queue mein chali jaati hai, aur net aate hi
+      // apne aap push ho jaati hai.
+      try{_cmPendingDates.add(dKey());savePendingQueue();setSyncDot('off');}catch(e){}
     }
   }
   catch(e){console.error('saveLocal fail:',e);showToast('⚠️ Data save fail! Storage full ho sakta hai.','d');}
@@ -8934,6 +8945,27 @@ async function openHealth(){
      +'<div style="font-size:12px;color:var(--mu)">JSON export: '+_agoText(bk.manual)+'</div>'
      +(worst>3?'<div style="font-size:11.5px;color:#b91c1c;font-weight:700;margin-top:6px">⚠️ Backup bahut purana hai — abhi le lo</div>':'')
      +'</div>';
+
+    // ── 2b. Kya kuch push hona baaki hai? ──
+    // Ye sabse zaroori signal hai: agar Main par kaam ho chuka hai par Firebase
+    // par nahi gaya, to Secondary/Peshgar ko purana data milta rahega aur unke
+    // number (overdue waghera) Main se alag aayenge — bina kisi wajah ke.
+    try{
+      const pend=(_cmPendingDates&&_cmPendingDates.size)||0;
+      const pendB=!!_cmPendingBundle, pendU=!!_cmPendingUrgent;
+      if(pend||pendB||pendU){
+        const parts=[];
+        if(pend)parts.push(pend+' date(s)');
+        if(pendB)parts.push('bundle');
+        if(pendU)parts.push('urgent');
+        h+='<div style="background:#fef2f2;border:1.5px solid #fecaca;border-radius:10px;padding:11px 13px;margin-bottom:14px">'
+         +'<div style="font-size:13px;font-weight:800;color:#b91c1c">🔴 '+parts.join(' + ')+' abhi Firebase par nahi gaya</div>'
+         +'<div style="font-size:11.5px;color:#b91c1c;margin-top:4px">Jab tak ye push nahi hota, doosre phone (Secondary/Peshgar) par purana data hi dikhega. '
+         +'Net on karke Firebase → "Sabhi Data Push Karo" dabao.</div></div>';
+      }else{
+        h+='<div style="background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:10px;padding:9px 13px;margin-bottom:14px;font-size:12.5px;font-weight:600;color:#15803d">✅ Sab kuch Firebase par ja chuka hai — kuch pending nahi</div>';
+      }
+    }catch(e){}
 
     // ── 3. Firebase se milaan ──
     h+='<div style="font-size:10.5px;font-weight:800;color:var(--mu);letter-spacing:.5px;margin-bottom:8px">☁️ FIREBASE</div>';
