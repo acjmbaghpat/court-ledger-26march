@@ -2220,7 +2220,7 @@ async function switchTab(t){
     try{
       const all=await idbAB();
       if(all.length>0){
-        bFiles={};all.forEach(b=>{bFiles[b.id]=b;});
+        bFiles={};all.forEach(b=>{bFiles[b.id]=b;});invalidateBundleIdx();
         _bundleLoaded=true;
       }else if(Object.keys(bFiles).length>0){
         // IDB khali par memory mein data hai — memory bachao, IDB dobara likho
@@ -4882,6 +4882,62 @@ function renderRemarkTags(remark){
 }
 
 
+
+// ═══════════════════════════════════════════════════════════════
+// BUNDLE CANONICAL INDEX — speed ke liye
+// bundleLocBadge() aur auWhereIs() ko canonical-key se file dhoondhni hoti hai
+// (taaki "CC/01/2026" aur "CC/1/2026" ek hi maane jaayein). Pehle dono POORE
+// bFiles par linear scan karte the — 5,500 files par ~2ms per lookup. drawTable
+// har ROW ke liye ye call karta hai, matlab 200 rows = 400ms+ har render par,
+// aur render har search-keystroke/filter/tab-switch par hota hai. Isi se poori
+// app sust ho gayi thi.
+// Ab ek baar index ban jaata hai (canonKey → ids) aur lookup turant hota hai.
+// Index bFiles badalne par khud-b-khud reset ho jaata hai.
+let _bCanonIdx=null, _bCanonIdxSize=-1;
+function invalidateBundleIdx(){_bCanonIdx=null;_bCanonIdxSize=-1;_bCanonIdxAt=0;}
+let _bCanonIdxAt=0;
+function _bIdx(){
+  // Table-render ke dauraan ye 200+ baar call hota hai. Object.keys() khud O(n)
+  // hai (5,500 keys), isliye us backstop ko HAR call pe chalana mehenga tha.
+  // Ab: 400ms tak index par bharosa karte hain (ek render-burst isi ke andar
+  // pura ho jaata hai), uske baad size dobara verify karte hain. Explicit
+  // invalidateBundleIdx() har mutation par chalti hai, ye sirf backstop hai.
+  const now=Date.now();
+  if(_bCanonIdx&&(now-_bCanonIdxAt)<400)return _bCanonIdx;
+  const size=bFiles?Object.keys(bFiles).length:0;
+  if(_bCanonIdx&&_bCanonIdxSize===size){_bCanonIdxAt=now;return _bCanonIdx;}
+  const m=new Map();
+  for(const id in bFiles){
+    const ck=_unpKey(id);
+    if(ck==='|')continue;
+    const a=m.get(ck);
+    if(a)a.push(id);else m.set(ck,[id]);
+  }
+  _bCanonIdx=m;_bCanonIdxSize=size;_bCanonIdxAt=now;
+  return m;
+}
+// Canonical key se KOI BHI entry (hidden bhi) — O(1). Return: [id, file] ya null
+function bFindAny(ck){
+  if(!bFiles)return null;
+  const ids=_bIdx().get(ck);
+  if(!ids||!ids.length)return null;
+  // Visible ko preference do; warna pehli hidden
+  for(const id of ids){const f=bFiles[id];if(f&&!f.hidden)return [id,f];}
+  const id0=ids[0];
+  return bFiles[id0]?[id0,bFiles[id0]]:null;
+}
+// Canonical key se VISIBLE (hidden nahi) bundle-entry dhoondo — O(1)
+function bFindVisible(ck){
+  if(!bFiles)return null;
+  const ids=_bIdx().get(ck);
+  if(!ids)return null;
+  for(const id of ids){
+    const f=bFiles[id];
+    if(f&&!f.hidden)return f;
+  }
+  return null;
+}
+
 // ═══ BUNDLE LOCATION BADGE ═══
 // Jo file abhi Peshgar ko bheji NAHI gayi hai aur almari mein rakhi hai, uski
 // jagah CFM ki list mein hi dikha do (jaise "25-C" ya "🔒 Jail") — taaki bina
@@ -4890,17 +4946,14 @@ function renderRemarkTags(remark){
 function bundleLocBadge(r){
   try{
     if(!r||r.sent==='Sent')return '';          // bheji ja chuki — location ka matlab nahi
-    if(!bFiles||!Object.keys(bFiles).length)return '';
+    // Object.keys() O(n) hai — 5,500 files par har ROW ke liye ek 5,500-element
+    // array banta tha. drawTable ise har row ke liye call karta hai, isliye ye
+    // akela hi poore table-render ko sust kar deta tha. Ab sasta check.
+    if(!bFiles||!_bundleLoaded)return '';
     const ck=_unpKey(r.caseno);
     if(ck==='|')return '';
     let f=bFiles[String(r.caseno).toUpperCase()];
-    if(!f||f.hidden){
-      f=null;
-      for(const id in bFiles){
-        const x=bFiles[id];
-        if(!x.hidden&&_unpKey(id)===ck){f=x;break;}
-      }
-    }
+    if(!f||f.hidden)f=bFindVisible(ck);      // O(1) index lookup (pehle full scan tha)
     if(!f||f.hidden)return '';
     const label=f.cat
       ? (CAT_LABELS[f.cat]||f.cat)
@@ -5089,7 +5142,7 @@ async function confirmUndo(){
     cData[idx]._disposed=false; // dispose flag bhi hatao
     cData[idx].remark=cleanUndoRemark(cData[idx].remark); // Dispose/Jail/Old tags hatao
     const bid=_cdCN.toUpperCase();
-    if(bFiles[bid]&&bFiles[bid].hidden){bFiles[bid].hidden=false;await idbSBn(bFiles[bid]);scheduleBundlePush();if(activeTab==='bundle')bRenderGrid();}
+    if(bFiles[bid]&&bFiles[bid].hidden){bFiles[bid].hidden=false;invalidateBundleIdx();await idbSBn(bFiles[bid]);scheduleBundlePush();if(activeTab==='bundle')bRenderGrid();}
     showToast('↩ SENT undo ho gaya: '+_cdCN);
   }else if(_undoAction==='unreceived'){
     cData[idx].received='';cData[idx].receiveddate='';cData[idx].nextdate='';
@@ -5618,7 +5671,7 @@ async function importBackup(event){
       await idbBulkPutBundle(bmap,false); // BULK — ek transaction (5000 files bhi instant)
     }
     await loadVersions();await loadCurV();await loadLocal();
-    if(bk.bundlesStore){const allB=await idbAB();bFiles={};allB.forEach(b=>bFiles[b.id]=b);}
+    if(bk.bundlesStore){const allB=await idbAB();bFiles={};allB.forEach(b=>bFiles[b.id]=b);invalidateBundleIdx();}
     stEl.textContent="✅ Restore ho gaya!";stEl.className="smsg s-ok";showToast('✅ Backup restore ho gaya!');
     clearTimeout(stEl._t);stEl._t=setTimeout(()=>stEl.className="smsg",4000);
   }catch(err){stEl.textContent="❌ Restore fail: "+err;stEl.className="smsg s-err";}
@@ -5884,7 +5937,7 @@ async function bInit(){
   if(all.length===0&&Object.keys(bFiles).length>0){
     _bundleLoaded=true;
   }else{
-    bFiles={};all.forEach(b=>bFiles[b.id]=b);
+    bFiles={};all.forEach(b=>bFiles[b.id]=b);invalidateBundleIdx();
     _bundleLoaded=true; // bundle files load ho gaye — ab push safe hai
   }
   applyLastColForSlot(); // current date ka last-used column auto-select
@@ -5989,12 +6042,7 @@ function auSlotLabel(s){
 }
 // Kis slot mein rakhi hai — canonical key se dhoondo
 function auWhereIs(ck){
-  for(const id in bFiles){
-    const f=bFiles[id];
-    if(f.hidden)continue;
-    if(_unpKey(id)===ck)return f;
-  }
-  return null;
+  return bFindVisible(ck);   // O(1) — dekho _bIdx()
 }
 function auRenderSlotPick(){
   const m=bSM();
@@ -6512,6 +6560,7 @@ async function syncAutoCategories(){
   if(!_bundleLoaded)return {added:0,removed:0};
   _autoCatBusy=true;
   let added=0,removed=0;
+  const touched=new Set();   // sirf inhe IDB mein likhna hai
   try{
     const rows=Array.isArray(cData)?cData:[];
     for(const r of rows){
@@ -6521,11 +6570,12 @@ async function syncAutoCategories(){
       if(ck==='|')continue;
       const cat=_catOfTags(r.remark);
 
-      // Bundle mein is file ki maujooda entry (format-safe)
-      let key=null,f=null;
-      for(const id in bFiles){
-        if(_unpKey(id)===ck){key=id;f=bFiles[id];break;}
-      }
+      // Bundle mein is file ki maujooda entry (format-safe).
+      // PEHLE yahan POORE bFiles par linear scan tha — 200 rows × 5,500 files
+      // = 11 lakh iteration, HAR sent/received/scan par. Isi se ek-ek action
+      // 2 second le raha tha. Ab canonical index se O(1) lookup.
+      const hit=bFindAny(ck);
+      let key=hit?hit[0]:null, f=hit?hit[1]:null;
       const isSent=(r.sent==='Sent'&&r.received!=='Received');
       const onDateSlot=!!(f&&!f.hidden&&!f.cat);        // kisi DATE par rakhi hai
       const inAutoCat=!!(f&&!f.hidden&&f.cat&&f._autoCat); // humne category mein rakhi thi
@@ -6533,27 +6583,43 @@ async function syncAutoCategories(){
       // ── Hataana kab? ──
       if(inAutoCat&&(isSent||!cat)){
         // Peshgar ko bheji ja chuki, ya tag hi hat gaya
-        bFiles[key].hidden=true;
+        bFiles[key].hidden=true;touched.add(key);
         removed++;continue;
       }
       // ── Daalna kab? ──
       if(cat&&!isSent&&!onDateSlot){
         if(f&&!f.hidden&&f.cat===cat)continue;          // pehle se sahi category mein
         if(f&&!f.hidden&&f.cat&&f.cat!==cat&&f._autoCat){
-          bFiles[key].cat=cat;added++;continue;         // tag badla — category badlo
+          bFiles[key].cat=cat;touched.add(key);added++;continue;         // tag badla — category badlo
         }
         if(f&&!f.hidden&&f.cat&&!f._autoCat)continue;   // aapne KHUD category mein rakhi — chhedo mat
         if(f){                                          // hidden thi — wapas category mein
-          bFiles[key]={...f,cat,md:0,sd:null,col:'A',hidden:false,st:'placed',_autoCat:true,at:Date.now()};
+          bFiles[key]={...f,cat,md:0,sd:null,col:'A',hidden:false,st:'placed',_autoCat:true,at:Date.now()};touched.add(key);
         }else{
-          bFiles[cn.toUpperCase()]={id:cn.toUpperCase(),md:0,sd:null,col:'A',cat,
+          const nk=cn.toUpperCase();
+          bFiles[nk]={id:nk,md:0,sd:null,col:'A',cat,
             at:Date.now(),st:'placed',hidden:false,_autoCat:true};
+          touched.add(nk);
         }
         added++;
       }
     }
+    // Index ek hi baar reset — PEHLE ye loop ke ANDAR har add pe hota tha,
+    // isliye 172 files add karte waqt index 172 BAAR dobara banta tha
+    // (172 × 5,500 = 9.5 lakh kaam). Wahi 2-second freeze ki asli wajah thi.
+    if(added||removed)invalidateBundleIdx();
     if(added||removed){
-      await idbBulkPutBundle(bFiles,false);
+      // PEHLE yahan idbBulkPutBundle(bFiles) tha — SAARE 5,500 bundle files
+      // dobara likhta tha, chahe sirf 1 file badli ho. Phir maine per-file
+      // idbSBn() kiya, par pehli baar (jab bahut si tag wali files ek saath
+      // category mein aati hain) wo 170+ ALAG-ALAG IDB round-trip ban jaate the
+      // — 2 second ka freeze. Ab sirf badli hui files, par EK hi transaction mein.
+      const touchedMap={};
+      for(const id of touched)if(bFiles[id])touchedMap[id]=bFiles[id];
+      if(Object.keys(touchedMap).length){
+        try{ await idbBulkPutBundle(touchedMap,false); }   // clearFirst=false → kuch mitta nahi
+        catch(e){console.error('autoCat save:',e);}
+      }
       scheduleBundlePush&&scheduleBundlePush();
       try{if(activeTab==='bundle')bRenderGrid();}catch(e){}
       console.log('syncAutoCategories: +'+added+' category mein, -'+removed+' hataayi');
@@ -6879,7 +6945,7 @@ async function bAddFile(rawId,fromScan){
       speak("File pehle se bundle mein hai");haptic('error');return false;
     }
     const obj={id,md:bActiveCat?0:bAMD,sd:bActiveCat?null:bASD,col:bAC,cat:bActiveCat||null,at:Date.now(),st:'placed',hidden:false,_freeAdd:true};actLog('bundleAdd');
-    bFiles[id]=obj;await idbSBn(obj);scheduleBundlePush();
+    bFiles[id]=obj;invalidateBundleIdx();await idbSBn(obj);scheduleBundlePush();
     if(bActiveCat&&CAT_REMARK_WORD[bActiveCat]){await addCategoryWordToRemark(id,CAT_REMARK_WORD[bActiveCat]);}
     _lastColForDate[bColKey()]=bAC;saveLastCols();
     const slotLabel=bActiveCat?((CAT_LABELS[bActiveCat]||bActiveCat)+'-'+dispCol(bAC)):('Date '+bAMD+(bASD!=null?'/'+bASD:'')+'-'+dispCol(bAC));
@@ -6962,7 +7028,7 @@ async function bAddFile(rawId,fromScan){
   // _autoCat NAHI lagta — ye aapka apna faisla hai, isliye auto-category
     // system ise kabhi nahi hataayega ya badlega.
     const obj={id,md:bActiveCat?0:bAMD,sd:bActiveCat?null:bASD,col:bAC,cat:bActiveCat||null,at:Date.now(),st:'placed',hidden:false};actLog('bundleAdd');
-  bFiles[id]=obj;await idbSBn(obj);scheduleBundlePush();
+  bFiles[id]=obj;invalidateBundleIdx();await idbSBn(obj);scheduleBundlePush();
   // Agar file kisi CATEGORY (old/stay/committal etc) mein add hui, to us category ka word
   // CFM remark mein automatically add karo (taaki CFM mein tag dikhe, sent/received ke baad bhi rahe)
   if(bActiveCat&&CAT_REMARK_WORD[bActiveCat]){
@@ -7098,7 +7164,7 @@ async function confirmMismatch(){
   // Main date = CFM ki SAHI date (cfmDay), sub-date = overflow (jahan space hai)
   try{
     const obj={id,md:cfmDay,sd:mmSD,col:bAC,cat:bActiveCat||null,at:Date.now(),st:'placed',hidden:false};
-    bFiles[id]=obj;await idbSBn(obj);scheduleBundlePush();
+    bFiles[id]=obj;invalidateBundleIdx();await idbSBn(obj);scheduleBundlePush();
     showSC('✅ '+id+' → Date '+cfmDay+'/'+mmSD+' '+dispCol(bAC),'#16a34a');
     speak(cfmDay+' sub '+mmSD+' '+dispCol(bAC),'hi-IN');haptic('scan');
     bUpdateSP();bRenderGrid();
@@ -7109,8 +7175,8 @@ async function confirmMismatch(){
 }
 function cancelMismatch(){document.getElementById('mmModal').classList.remove('on');mmPending={id:'',cfmDay:0};showSC('❌ Scan reject: date mismatch','#dc2626');}
 async function bSetStatus(id,st){if(!bFiles[id])return;bFiles[id].st=st;await idbSBn(bFiles[id]);scheduleBundlePush();showToast(st==='missing'?'⚠ Missing: '+id:'✅ Restored: '+id,st==='missing'?'w':'');bRenderGrid();if(bSlot)bRenderSlot();bRenderSearch();}
-async function bUnhide(id){if(!bFiles[id])return;bFiles[id].hidden=false;await idbSBn(bFiles[id]);scheduleBundlePush();showToast('✅ '+id+' wapas dikhaya');bRenderGrid();bRenderSearch();}
-async function bDelFile(id){delete bFiles[id];await idbDB(id);scheduleBundlePush();showToast('Hata diya: '+id,'d');bRenderGrid();if(bSlot)bRenderSlot();bRenderSearch();}
+async function bUnhide(id){if(!bFiles[id])return;bFiles[id].hidden=false;invalidateBundleIdx();await idbSBn(bFiles[id]);scheduleBundlePush();showToast('✅ '+id+' wapas dikhaya');bRenderGrid();bRenderSearch();}
+async function bDelFile(id){delete bFiles[id];invalidateBundleIdx();await idbDB(id);scheduleBundlePush();showToast('Hata diya: '+id,'d');bRenderGrid();if(bSlot)bRenderSlot();bRenderSearch();}
 function bOpenMove(id){bMoveId=id;const f=bFiles[id];
   // NULL GUARD: agar file beech mein hat gayi (Firebase sync, doosre device se
   // remove) aur user purana button daba de, to f undefined hota tha aur
@@ -7169,6 +7235,7 @@ async function doBundleMove(){
     else{fileObj.md=bMMD;fileObj.sd=bMSD;fileObj.col=bMC;fileObj.cat=null;}
     // Aapne KHUD jagah chuni — ab auto-category system ise nahi chhedega
     delete fileObj._autoCat;
+    invalidateBundleIdx();   // jagah badli — index reset
   };
   const targetLabel=bMCat?`${CAT_LABELS[bMCat]||bMCat}-${dispCol(bMC)}`:`Date ${bMMD}${bMSD!=null?'/'+bMSD:''}-${dispCol(bMC)}`;
   if(_bulkMoveMode&&_ddSel.size>0){
@@ -7376,7 +7443,7 @@ async function fbPullSilent(){
       if(bdFiles){
         const incoming={};
         for(const id in bdFiles)incoming[id]=bdFiles[id];
-        bFiles=incoming;           // memory turant (UI foran dikhe)
+        bFiles=incoming;invalidateBundleIdx();           // memory turant (UI foran dikhe)
         _bundleLoaded=true;
         bundleN=Object.keys(incoming).length;
         await idbBulkPutBundle(incoming,true); // BULK: ek transaction (5000 files = 150ms)
@@ -8062,7 +8129,7 @@ async function pushTrace(){
     }
     if(Object.keys(bFiles).length===0&&idbAll.length>0){
       P('   ⚠️ Memory khali par IDB mein data — recover kar rahe hain...');
-      bFiles={};idbAll.forEach(b=>{bFiles[b.id]=b;});
+      bFiles={};idbAll.forEach(b=>{bFiles[b.id]=b;});invalidateBundleIdx();
       _bundleLoaded=true;
       P('   ✓ bFiles = '+Object.keys(bFiles).length);
     }
@@ -8206,7 +8273,7 @@ async function bundleTrace(){
     P('6️⃣ Memory mein daal rahe hain...');
     const incoming={};
     for(const id in dFiles)incoming[id]=dFiles[id];
-    bFiles=incoming;
+    bFiles=incoming;invalidateBundleIdx();
     _bundleLoaded=true;
     _secEmptyConfirmed=false;
     P('   ✓ bFiles = '+Object.keys(bFiles).length+' files');
@@ -8371,7 +8438,7 @@ async function fbPushBundle(force){
       const idbAll=await idbAB();
       if(idbAll.length>0){
         console.warn('fbPushBundle: bFiles khali thi par IDB mein '+idbAll.length+' files — recover kar rahe hain');
-        bFiles={};idbAll.forEach(b=>{bFiles[b.id]=b;});
+        bFiles={};idbAll.forEach(b=>{bFiles[b.id]=b;});invalidateBundleIdx();
       }
     }catch(e){console.error('fbPushBundle recover fail:',e);return false;}
     // Ab bhi khali? Genuine empty ho sakta hai — par abhi bhi na push karo agar
@@ -8804,7 +8871,7 @@ async function fbPullAll(){
         // BULK: purani files clear + nayi likho — sab EK transaction mein.
         const incoming={};
         for(const id in dFiles)incoming[id]=dFiles[id];
-        bFiles=incoming;
+        bFiles=incoming;invalidateBundleIdx();
         _bundleLoaded=true;
         if(activeTab==='bundle')bRenderGrid();
         await idbBulkPutBundle(incoming,true);
