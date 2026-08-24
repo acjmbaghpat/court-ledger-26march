@@ -2574,6 +2574,7 @@ window.onload=async()=>{
     await openDB();
     requestPersistentStorage();
     try{installModalCloseButtons();}catch(e){}
+    try{updateStaleBanner();}catch(e){}
     workDate.value=_localISO(new Date());
     await loadVersions();await loadCurV();await loadLocal();
     await loadLastCols(); // bundle ke last-used columns load karo
@@ -2583,6 +2584,13 @@ window.onload=async()=>{
     loadPendingQueue(); // offline mein jo pending tha woh load karo (app band hone pe bhi yaad)
     await autoArchiveOldData(true).catch(()=>{}); // 90+ din data archive (Firebase push SE PEHLE complete ho)
     await bInit(); // BUNDLE files IDB se load karo — Firebase connect SE PEHLE (warna empty push ho jata hai)
+    // AUTO-CATEGORY yahan chalao — bInit ke BAAD.
+    // Bug tha: loadLocal() upar chalta hai aur wahan syncAutoCategories() call hoti
+    // hai, par us waqt bundle abhi load NAHI hua hota (_bundleLoaded=false) —
+    // isliye function turant return kar jaata tha aur tag wali files (stay,
+    // committal, jail...) kabhi apni category mein aati hi nahi thi, jab tak user
+    // koi kaam na kare. Ab bundle load hone ke turant baad ek baar chalti hai.
+    try{await syncAutoCategories();}catch(e){console.error('startup autoCat:',e);}
     updateSU();updateHdrDate();syncAddCaseDateLabel();checkReminders();
     pgCacheLoad(workDate.value); // purana peshgar mismatch dikhao (Firebase connect hone tak)
     fbLoadConfig(); // ab Firebase connect karo — bFiles load ho chuka, sahi bundle push hoga
@@ -5916,6 +5924,32 @@ function bPK(k){
 // nahi the — sirf A-I aate the.
 function bPhysDate(md,sd){return (sd!==null&&sd!==undefined)?sd:md;}
 function getColsForDate(md){if(SPECIAL_DATES.includes(md))return[...COLS,...SHELF_LETTERS.map(l=>'S1'+l),...SHELF_LETTERS.map(l=>'S2'+l)];return COLS;}
+
+// ═══ COLUMN KA UCHCHARAN — bolne ke liye ═══
+// Bundle place karte waqt app "10 E" bolta hai, hi-IN voice ke saath.
+// Hindi voice Latin letters ko saaf nahi bolti — "E" aur "A" dono ek jaise
+// sunai dete the, aur galat khaane mein file rakh jaane ka khatra tha.
+// Ab har letter ka Devanagari uchcharan bhejte hain, jo saaf-saaf alag sunai
+// deta hai (A = "ए", E = "ई", I = "आई" — teeno bilkul alag).
+const COL_SPEAK={
+  A:'ए', B:'बी', C:'सी', D:'डी', E:'ई', F:'एफ', G:'जी', H:'एच', I:'आई',
+  J:'जे', K:'के', L:'एल', M:'एम', N:'एन', O:'ओ'
+};
+// Category naam bolne ke liye — emoji hata do (TTS use bolne ki koshish karta hai)
+function spellCat(cat){
+  return String(CAT_LABELS[cat]||cat||'').replace(/[^\u0900-\u097F\w\s.\-]/g,'').trim();
+}
+function spellCol(col){
+  const s=String(col||'').toUpperCase();
+  if(!s)return '';
+  // Shelf column jaise "S1A" / "S2C" → "सेफ एक, ई"
+  if(s.length===3&&(s.startsWith('S1')||s.startsWith('S2'))){
+    const shelf=s[1]==='1'?'सेफ एक':'सेफ दो';
+    return shelf+', '+(COL_SPEAK[s[2]]||s[2]);
+  }
+  return COL_SPEAK[s]||s;
+}
+
 function dispCol(col){if(col&&col.length===3&&(col.startsWith('S1')||col.startsWith('S2')))return col.slice(0,2)+'-'+col.slice(2);return col;}
 const SHELF_LETTERS=['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O'];
 const SPECIAL_DATES=[29,30,31];
@@ -6983,8 +7017,8 @@ async function bAddFile(rawId,fromScan){
     const slotLabel=bActiveCat?((CAT_LABELS[bActiveCat]||bActiveCat)+'-'+dispCol(bAC)):('Date '+bAMD+(bASD!=null?'/'+bASD:'')+'-'+dispCol(bAC));
     if(fromScan){
       showSC('✅ '+id+' → '+slotLabel+' (Free Add)','#16a34a');
-      const colLetter=dispCol(bAC);
-      const spk=bActiveCat?((CAT_LABELS[bActiveCat]||bActiveCat)+' '+colLetter):(bAMD+(bASD!=null?' sub '+bASD:'')+' '+colLetter);
+      const colLetter=spellCol(bAC);   // Devanagari uchcharan — saaf sunai de
+      const spk=bActiveCat?(spellCat(bActiveCat)+', '+colLetter):(bAMD+(bASD!=null?', सब '+bASD:'')+', '+colLetter);
       speak(spk,'hi-IN');haptic('scan');
     }else{showToast('✅ '+id+' → '+slotLabel+' (Free Add)');haptic('success');}
     bUpdateSP();bRenderGrid();return true;
@@ -7071,11 +7105,11 @@ async function bAddFile(rawId,fromScan){
   const slotLabel=bActiveCat?((CAT_LABELS[bActiveCat]||bActiveCat)+'-'+dispCol(bAC)):('Date '+bAMD+(bASD!=null?'/'+bASD:'')+'-'+dispCol(bAC));
   if(fromScan){
     showSC('✅ '+id+' → '+slotLabel,'#16a34a');
-    // Bolo: date+column (jaise "1 A", "2 D") — ya category+column
-    const colLetter=dispCol(bAC);
+    // Bolo: date+column — column ka Devanagari uchcharan taaki E/A na ghulein
+    const colLetter=spellCol(bAC);
     const spk=bActiveCat
-      ?((CAT_LABELS[bActiveCat]||bActiveCat)+' '+colLetter)
-      :(bAMD+(bASD!=null?' sub '+bASD:'')+' '+colLetter);
+      ?(spellCat(bActiveCat)+', '+colLetter)
+      :(bAMD+(bASD!=null?', सब '+bASD:'')+', '+colLetter);
     speak(spk,'hi-IN');
     haptic('scan');
   }
@@ -7198,7 +7232,7 @@ async function confirmMismatch(){
     const obj={id,md:cfmDay,sd:mmSD,col:bAC,cat:bActiveCat||null,at:Date.now(),st:'placed',hidden:false};
     bFiles[id]=obj;invalidateBundleIdx();await idbSBn(obj);scheduleBundlePush();
     showSC('✅ '+id+' → Date '+cfmDay+'/'+mmSD+' '+dispCol(bAC),'#16a34a');
-    speak(cfmDay+' sub '+mmSD+' '+dispCol(bAC),'hi-IN');haptic('scan');
+    speak(cfmDay+', सब '+mmSD+', '+spellCol(bAC),'hi-IN');haptic('scan');
     bUpdateSP();bRenderGrid();
   }finally{
     document.getElementById('mmModal').classList.remove('on');
@@ -7443,6 +7477,49 @@ async function fbInit(cfg){
   }catch(e){_fbDb=null;setSyncDot('err');fbMsg('❌ '+e.message,'s-err');}
 }
 // Secondary ke liye silent full pull — connect hote hi existing data le aao
+
+// ═══ SECONDARY STALE-DATA BANNER ═══
+// Secondary device (ghar wala phone) apna data Firebase se leta hai. Agar net
+// na mile ya pull fail ho, to wo purana data dikhata rehta hai — aur overdue
+// jaise number office wale phone se alag aane lagte hain. Ab saaf dikhta hai
+// ki data kitna purana hai.
+function lastPullInfo(){
+  try{const v=parseInt(localStorage.getItem('cm_last_pull')||'0',10);return isNaN(v)?0:v;}catch(e){return 0;}
+}
+function updateStaleBanner(){
+  try{
+    let el=document.getElementById('staleBanner');
+    const isSec=(typeof deviceRole!=='undefined'&&deviceRole==='secondary');
+    if(!isSec){ if(el)el.style.display='none'; return; }
+    const ts=lastPullInfo();
+    const hrs=ts?((Date.now()-ts)/3600000):9999;
+    if(!el){
+      el=document.createElement('div');
+      el.id='staleBanner';
+      el.style.cssText='border-radius:10px;padding:9px 13px;margin:0 0 10px;font-size:12px;line-height:1.5;font-weight:600';
+      const host=document.getElementById('tab-cfm');
+      if(host&&host.firstChild)host.insertBefore(el,host.firstChild);
+      else if(host)host.appendChild(el);
+      else return;
+    }
+    el.style.display='';
+    if(!ts){
+      el.style.cssText+=';background:#fef2f2;border:1.5px solid #fecaca;color:#b91c1c';
+      el.innerHTML='📥 <b>Secondary device</b> — abhi tak Main se data nahi aaya. Number galat ho sakte hain.';
+    }else if(hrs>12){
+      el.style.cssText+=';background:#fef2f2;border:1.5px solid #fecaca;color:#b91c1c';
+      const age=(hrs>=24)?(Math.floor(hrs/24)+' din'):(Math.round(hrs)+' ghante');
+      el.innerHTML='📥 <b>Secondary device</b> — data '+age+' purana hai. Overdue jaise number Main phone se alag ho sakte hain.';
+    }else if(hrs>3){
+      el.style.cssText+=';background:#fffbeb;border:1.5px solid #fde68a;color:#92400e';
+      el.innerHTML='📥 <b>Secondary device</b> — data '+Math.round(hrs)+' ghante purana hai.';
+    }else{
+      el.style.cssText+=';background:#f0fdf4;border:1.5px solid #bbf7d0;color:#15803d';
+      el.innerHTML='📥 <b>Secondary device</b> — data taaza hai (abhi sync hua).';
+    }
+  }catch(e){console.error('updateStaleBanner:',e);}
+}
+
 async function fbPullSilent(){
   if(!_fbDb)return;
   try{
@@ -7487,7 +7564,13 @@ async function fbPullSilent(){
     // Refresh views
     await loadVersions();await loadLocal();drawTable(getFiltered());await updateDash();
     if(activeTab==='bundle'){bRenderGrid();bUpdateST&&bUpdateST();}
+    // Aakhri KAAMYAAB pull ka waqt yaad rakho — Secondary device ka data kitna
+    // purana hai ye batane ke liye. Ghar wale (Secondary) phone par agar net na
+    // mile to wo chup-chaap PURANA data dikhata rehta tha, aur overdue ka number
+    // office wale phone se alag aa jaata tha — bina kisi ishaare ke.
+    try{localStorage.setItem('cm_last_pull',String(Date.now()));}catch(e){}
     if(cfmN>0||bundleN>0)showToast('📥 Sync: '+cfmN+' CFM dates + '+bundleN+' bundle files aa gaye');
+    try{updateStaleBanner();}catch(e){}
   }catch(e){console.error('fbPullSilent:',e);}
 }
 function fbStartListen(){
@@ -7544,6 +7627,7 @@ let _secMetaUnsub=null;
 let _secUrgentUnsub=null;
 
 function setDeviceRole(role){
+  try{setTimeout(()=>{updateStaleBanner();},50);}catch(e){}
   deviceRole=role;
   localStorage.setItem(ROLE_KEY,role);
   updateRoleUI();
