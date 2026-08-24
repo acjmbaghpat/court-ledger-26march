@@ -3861,6 +3861,38 @@ async function mergeUpcomingReceived(uploadedRows,targetDate){
       }
     });
   }
+
+  // ═══ ARCHIVE SCAN ═══
+  // 90+ din purani dates archive store mein chali jaati hain aur getAllDatesData()
+  // unhe nahi padhta. Isliye jis file ki RECEIVING purani date par thi (jaise May
+  // mein receive hui aur next-date August), us date ke archive hote hi ye file
+  // auto-merge se GAYAB ho jaati thi — agli Excel upload par list se hi nikal
+  // jaati thi, jabki wo genuinely aaj ki date ki hai.
+  // Ab archive bhi scan hota hai. Active data ko hamesha preference milti hai
+  // (wahan ki copy nayi hoti hai), archive sirf tab bharta hai jab active mein
+  // us case ka koi upcoming record mila hi nahi.
+  try{
+    const ark=await idbAARK();
+    for(const k of ark){
+      if(!/^\d{4}-\d{2}-\d{2}_\d+$/.test(k))continue;
+      const datePart=k.split('_')[0];
+      if(datePart===targetDate)continue;          // aaj ki date khud nahi
+      const rows=await idbGAR(k);
+      if(!Array.isArray(rows))continue;
+      rows.forEach(r=>{
+        if(!r||typeof r!=='object')return;   // kharab/null record — skip, baaki chalein
+        if(r.nextdate!==targetDate)return;
+        if(r.received!=='Received')return;
+        if(r._disposed)return;
+        const cn=String(r.caseno||'').trim();
+        if(!cn)return;
+        const ck=_unpKey(cn);
+        if(ck==='|')return;
+        const ex=upcoming[ck];
+        if(!ex||datePart>=ex._srcDate)upcoming[ck]={...r,_srcDate:datePart,_fromUpcoming:true,_fromArchive:true};
+      });
+    }
+  }catch(e){console.error('mergeUpcomingReceived archive scan:',e);}
   // NOTE: pehle yahan seedha return tha jab koi file "upcoming" na ho. Us wajah se
   // neeche wala TAG-HISTORY block chalta hi nahi tha — aur purane tag (jail/committal
   // waghera) us case par gayab ho jaate the. Ab hum aage badhte hain; extra-rows wala
