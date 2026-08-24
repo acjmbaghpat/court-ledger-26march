@@ -2574,7 +2574,6 @@ window.onload=async()=>{
     await openDB();
     requestPersistentStorage();
     try{installModalCloseButtons();}catch(e){}
-    try{updateStaleBanner();}catch(e){}
     workDate.value=_localISO(new Date());
     await loadVersions();await loadCurV();await loadLocal();
     await loadLastCols(); // bundle ke last-used columns load karo
@@ -2583,6 +2582,7 @@ window.onload=async()=>{
     cleanupLegacyKeys().catch(()=>{}); // purane version ki bekaar keys hatao (ek baar)
     loadPendingQueue(); // offline mein jo pending tha woh load karo (app band hone pe bhi yaad)
     await autoArchiveOldData(true).catch(()=>{}); // 90+ din data archive (Firebase push SE PEHLE complete ho)
+    try{updateStaleBanner();}catch(e){}   // deviceRole ab load ho chuka hai
     await bInit(); // BUNDLE files IDB se load karo — Firebase connect SE PEHLE (warna empty push ho jata hai)
     // AUTO-CATEGORY yahan chalao — bInit ke BAAD.
     // Bug tha: loadLocal() upar chalta hai aur wahan syncAutoCategories() call hoti
@@ -2697,8 +2697,10 @@ function showArchiveBanner(on){
     el=document.createElement('div');
     el.id='archBanner';
     el.style.cssText='background:#fffbeb;border:1.5px solid #fde68a;border-left:4px solid #d97706;border-radius:10px;padding:10px 13px;margin:0 0 12px;font-size:12px;color:#92400e;line-height:1.5;font-weight:500';
-    const host=document.querySelector('#tab-cfm .sec')||document.getElementById('tab-cfm');
-    if(host&&host.parentNode)host.parentNode.insertBefore(el,host);
+    // CFM tab ka asli id 'cfm-tab' hai (pehle yahan galti se 'tab-cfm' likha tha,
+    // isliye banner kabhi lagta hi nahi tha). Content ke sabse upar daalte hain.
+    const host=document.querySelector('#cfm-tab .cnt')||document.getElementById('cfm-tab');
+    if(host){ if(host.firstChild)host.insertBefore(el,host.firstChild); else host.appendChild(el); }
     else return;
   }
   el.style.display='';
@@ -3527,6 +3529,19 @@ function updatePgMiss(){
     }
   }
 }
+
+// Modal ka title badlo — ✕ button ko mitaye bina, aur element na mile to bhi
+// crash na ho (pehle yahan exception aane par baaki function ruk jaata tha).
+function setModalTitle(modalId,text){
+  try{
+    const t=document.querySelector('#'+modalId+' .mt');
+    if(!t)return;
+    const btn=t.querySelector?t.querySelector('.mt-x'):null;
+    t.textContent=text;
+    if(btn)t.appendChild(btn);     // close-button wapas lagao
+  }catch(e){console.error('setModalTitle:',e);}
+}
+
 function openPgMismatchModal(){
   const normal=getPgMissList();
   const reverse=getPgReverseList();
@@ -3575,15 +3590,30 @@ function openPgMismatchModal(){
       </div>`;
     });
   }
-  document.getElementById('ovList').innerHTML=h;
-  document.querySelector('#ovModal .mt').textContent='⚠️ Peshgar Mismatch';
+  // KHALI-SCREEN GUARD: agar kisi bhi wajah se h khali reh jaye (koi section
+  // render na ho), to modal bilkul blank khulta tha — user ko lagta tha app
+  // toot gayi. Ab hamesha kuch na kuch saaf dikhta hai.
+  if(!h||!h.trim()){
+    h='<div class="bempty">⚠️ Mismatch ki ginti to hai par list ban nahi payi.<br>'
+     +'<span style="font-size:11px">Peshgar data: '+(normal?normal.length:0)+' pending · '
+     +(reverse?reverse.length:0)+' critical · '+(toOffice?toOffice.length:0)+' office'
+     +'<br>Ek baar Sync karke dobara koshish karo.</span></div>';
+  }
+  const _ovl=document.getElementById('ovList');
+  if(_ovl)_ovl.innerHTML=h;
+  // TITLE — pehle yahan seedha querySelector(...).textContent tha. Agar wo element
+  // na mile to exception aata tha aur function WAHI RUK jaata tha — modal khulta
+  // tha par andar kuch dikhta hi nahi tha. Ab safe hai.
+  // Doosri baat: .mt ke andar ab ek ✕ (close) button bhi hota hai; seedha
+  // textContent set karne se wo MIT jaata tha. Isliye sirf text-node badalte hain.
+  setModalTitle('ovModal','⚠️ Peshgar Mismatch');
   _pgMissMode=true; // download button ko batao — Peshgar Miss data download karo, overdue nahi
   _pgMissData={normal:normal||[],reverse:reverse||[],toOffice:toOffice||[]};
   const subParts=[];
   if(reverse&&reverse.length)subParts.push(reverse.length+' critical');
   subParts.push(normal.length+' pending');
   if(toOffice&&toOffice.length)subParts.push(toOffice.length+' office');
-  document.querySelector('#ovModal .msub').textContent=subParts.join(' · ');
+  try{const sb=document.querySelector('#ovModal .msub');if(sb)sb.textContent=subParts.join(' · ');}catch(e){}
   document.getElementById('ovModal').classList.add('on');
 }
 
@@ -7497,7 +7527,7 @@ function updateStaleBanner(){
       el=document.createElement('div');
       el.id='staleBanner';
       el.style.cssText='border-radius:10px;padding:9px 13px;margin:0 0 10px;font-size:12px;line-height:1.5;font-weight:600';
-      const host=document.getElementById('tab-cfm');
+      const host=document.querySelector('#cfm-tab .cnt')||document.getElementById('cfm-tab');
       if(host&&host.firstChild)host.insertBefore(el,host.firstChild);
       else if(host)host.appendChild(el);
       else return;
@@ -9203,6 +9233,11 @@ async function openOverdueModal(){
 
   if(!od.length){showToast('✅ Koi overdue file nahi!');return;}
   _ovRemSel={};_ovCustomDays={};_ovData=od;_pgMissMode=false; // overdue mode — download overdue data
+  // TITLE WAPAS SAHI KARO — ye modal Peshgar-Mismatch ke saath share hota hai.
+  // Ek baar Peshgar Miss khol lene ke baad title "⚠️ Peshgar Mismatch" hi atka
+  // reh jaata tha, chahe aap Overdue kholein. Ab har baar reset hota hai.
+  setModalTitle('ovModal','⏰ Overdue Files');
+  try{const sb=document.querySelector('#ovModal .msub');if(sb)sb.textContent='7+ din Sent, Received nahi — follow-up karein';}catch(e){}
 
   const todayStr=_localISO(new Date());
   document.getElementById('ovList').innerHTML=od.map((r,i)=>{
