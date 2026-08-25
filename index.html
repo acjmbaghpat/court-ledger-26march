@@ -1276,7 +1276,11 @@ input:focus,select:focus,textarea:focus{
           </div>
         </div>
 
-        <button class="btn primary" onclick="fbPushAll()" style="margin-top:8px">☁️ Sabhi Data Push Karo</button>
+        <button class="btn primary" onclick="fbPushAll(true)" style="margin-top:8px">☁️ Sabhi Data Push Karo</button>
+        <div style="font-size:11px;color:var(--mu);margin-top:5px;line-height:1.45">
+          Ye <b>sab kuch dobara</b> bhejta hai — archive samet, kuch skip nahi hota.
+          Agar Secondary ya Peshgar par purana data dikh raha ho to yahi dabao.
+        </div>
         <button class="btn primary" id="fbPullBtn" onclick="fbPullGuarded()" style="margin-top:6px;background:linear-gradient(135deg,#0891b2,#0e7490)">⬇️ Sabhi Data Pull Karo</button>
         <button class="btn neutral" onclick="bundleDiagnose()" style="margin-top:6px;font-size:12px">🔧 Bundle Sync Diagnose</button>
         <button class="btn neutral" onclick="pushTrace()" style="margin-top:6px;font-size:12px;background:linear-gradient(135deg,#ea580c,#c2410c);color:#fff">📤 Push Trace (MAIN pe)</button>
@@ -7827,7 +7831,14 @@ function commitWithTimeout(batch,ms){
     new Promise((_,rej)=>setTimeout(()=>rej(new Error('commit timeout '+ms+'ms')),ms))
   ]);
 }
-async function fbPushAll(){
+// force=true → hash-skip BILKUL nahi, aur archived dates bhi bhejo.
+// Kyun zaroori: pehle ye function un dates ko hamesha skip kar deta tha jinka
+// hash "pehle push ho chuka" bata raha ho. Agar kisi wajah se wo hash sach se
+// alag ho gaya (jaise push fail hua par hash reh gaya, ya doosre phone ne
+// Firebase badal diya), to user HAMESHA KE LIYE PHANS jaata tha — har baar
+// "Sabhi Data Push Karo" wahi date skip karta rehta aur Secondary/Peshgar par
+// purana data hi dikhta rehta. Ab manual button hamesha force karta hai.
+async function fbPushAll(force){
   if(!_fbDb){showToast('⚠️ Firebase connect nahi hai! Pehle credentials daal kar Connect karo.','d');return;}
   // Secondary device push nahi kar sakta — sirf main device data push karta hai
   if(deviceRole==='secondary'){showToast('📥 Ye Secondary device hai — sirf receive karta hai. Push sirf Main device se hota hai.','d');return;}
@@ -7836,7 +7847,17 @@ async function fbPushAll(){
   fbProg(0,'Data ready kar rahe hain...');
   try{
     const allKeys=await idbAMK();
-    const dataKeys=allKeys.filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k));
+    let dataKeys=allKeys.filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k));
+    // ARCHIVED dates bhi bhejo (sirf force pe). 90+ din purani dates archive
+    // store mein chali jaati hain aur roz ke push mein nahi aatin — isliye
+    // Firebase par unka PURANA roop atka reh jaata tha, aur Secondary/Peshgar
+    // us purane data se overdue ginte the (Main se number alag aata tha).
+    let archKeys=[];
+    if(force){
+      try{
+        archKeys=(await idbAARK()).filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k)&&!dataKeys.includes(k));
+      }catch(e){console.error('archive keys:',e);}
+    }
     if(dataKeys.length===0){
       fbProg(-1);
       showToast('⚠️ Local mein koi CFM data nahi mila push karne ke liye!','d');
@@ -7860,14 +7881,25 @@ async function fbPushAll(){
         if(d&&Array.isArray(d)&&d.length){
           const dataStr=JSON.stringify(d);
           const hash=quickHash(dataStr);
-          if(_pushedHashes[k]===hash){skipped++;continue;} // unchanged — skip
+          if(!force&&_pushedHashes[k]===hash){skipped++;continue;} // unchanged — skip (force pe nahi)
           const sizeKB=Math.round(dataStr.length/1024);
           if(sizeKB>1000){failCount++;failedDates.push(k+' ('+sizeKB+'KB — 1MB limit se zyada)');continue;}
           toPush.push({key:k,data:d,hash:hash,size:dataStr.length});
         }
       }catch(e){failCount++;failedDates.push(k);}
     }
-    fbProg(8,'CFM: '+toPush.length+' dates push karni hain ('+skipped+' unchanged skip)...');
+    // Archive store se bhi (force pe) — wahi shape, alag store
+    for(const k of archKeys){
+      try{
+        const d=await idbGAR(k);
+        if(d&&Array.isArray(d)&&d.length){
+          const dataStr=JSON.stringify(d);
+          if(Math.round(dataStr.length/1024)>1000){failCount++;failedDates.push(k+' (1MB se zyada)');continue;}
+          toPush.push({key:k,data:d,hash:quickHash(dataStr),size:dataStr.length});
+        }
+      }catch(e){failCount++;failedDates.push(k);}
+    }
+    fbProg(8,'CFM: '+toPush.length+' dates push karni hain'+(force?' (FORCE — sab kuch)':' ('+skipped+' unchanged skip)')+(archKeys.length?' · '+archKeys.length+' archive':'')+'...');
 
     // Batches mein commit karo — COUNT (450) YA SIZE (~8MB) jo pehle aaye
     // (Firestore limits: 500 ops/batch AUR 10MiB per request — dono respect karo)
