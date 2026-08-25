@@ -8074,9 +8074,21 @@ async function flushCmPush(){
     const dates=[..._cmPendingDates];
     for(const dk of dates){
       try{
-        const d=await idbGM(dk);
+        let d=await idbGM(dk);
+        // ARCHIVE FALLBACK: agar wo date beech mein ARCHIVE ho gayi (90+ din
+        // purani), to active store se hat jaati hai aur idbGM() null deta hai.
+        // Pehle aise key na push hoti thi na queue se hatti — HAMESHA ke liye
+        // atak jaati thi. Isi se "115 pending" jaisa number badhta rehta tha
+        // jabki active dates sirf 100 thi, aur laal warning kabhi jaati hi nahi.
+        if(!d||!Array.isArray(d)){
+          try{const a=await idbGAR(dk); if(a&&Array.isArray(a))d=a;}catch(e){}
+        }
         if(d&&Array.isArray(d)){
           await _fbDb.collection('cfm').doc(dk).set(cfmToFirebase(d));
+          _cmPendingDates.delete(dk);changed=true;
+        }else{
+          // Kahin bhi nahi mili (delete ho chuki) — queue se hata do,
+          // warna ye entry hamesha ke liye "pending" dikhati rahegi.
           _cmPendingDates.delete(dk);changed=true;
         }
       }catch(e){/* agli baar try hoga */}
@@ -8973,8 +8985,12 @@ async function openHealth(){
     const bico=worst>3?'🔴':(worst>1?'🟡':'✅');
     h+='<div style="font-size:10.5px;font-weight:800;color:var(--mu);letter-spacing:.5px;margin-bottom:8px">💾 BACKUP</div>'
      +'<div style="background:'+bcol+';border:1.5px solid '+bbdr+';border-radius:10px;padding:11px 13px;margin-bottom:14px">'
-     +'<div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:4px">'+bico+' Telegram: '+_agoText(bk.telegram)+'</div>'
-     +'<div style="font-size:12px;color:var(--mu)">JSON export: '+_agoText(bk.manual)+'</div>'
+     // Har channel ka apna nishan — pehle ek hi ✅ dono par lag jaata tha,
+     // isliye "Telegram: kabhi nahi" par bhi hara tick dikhta tha.
+     +'<div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:4px">'
+       +(tgAge>7?'🔴':(tgAge>3?'🟡':'✅'))+' Telegram: '+_agoText(bk.telegram)+'</div>'
+     +'<div style="font-size:12.5px;font-weight:600;color:var(--txt)">'
+       +(mnAge>7?'🔴':(mnAge>3?'🟡':'✅'))+' JSON export: '+_agoText(bk.manual)+'</div>'
      +(worst>3?'<div style="font-size:11.5px;color:#b91c1c;font-weight:700;margin-top:6px">⚠️ Backup bahut purana hai — abhi le lo</div>':'')
      +'</div>';
 
@@ -9010,12 +9026,22 @@ async function openHealth(){
         const bs=await _fbDb.collection('bundle').doc('main').get();
         const fbB=bs.exists?await bundleFromFirebase(bs.data()):null;
         const fbBn=fbB?Object.keys(fbB).length:0;
-        const diffD=dateKeys.length-fbDates, diffB=bAll.length-fbBn;
-        const ok=Math.abs(diffB)<=Math.max(5,bAll.length*0.02);
+        // Is phone par dates DO jagah hain: active (metadata) + archive.
+        // Firebase par dono ek hi collection mein rehti hain. Pehle sirf ACTIVE
+        // se tulna hoti thi — isliye "100 vs 140" jaisa jhootha farak dikhta tha
+        // aur samajh nahi aata tha ki data kam hai ya archive ki wajah se hai.
+        const localTotalDates=dateKeys.length+ark.length;
+        const diffD=localTotalDates-fbDates, diffB=bAll.length-fbBn;
+        // "Barabar" tabhi jab DONO — dates aur bundle — mel khayein.
+        // Pehle sirf bundle dekha jaata tha, isliye dates ka bada farak hote
+        // hue bhi "sab barabar" likh deta tha.
+        const okB=Math.abs(diffB)<=Math.max(5,bAll.length*0.02);
+        const okD=Math.abs(diffD)<=2;
+        const ok=okB&&okD;
         h+='<div style="background:'+(ok?'#f0fdf4':'#fffbeb')+';border:1.5px solid '+(ok?'#bbf7d0':'#fde68a')+';border-radius:10px;padding:11px 13px;margin-bottom:14px">'
-         +'<div style="font-size:12.5px;font-weight:600;color:var(--txt)">Dates — is phone: <b>'+dateKeys.length+'</b> · Firebase: <b>'+fbDates+'</b></div>'
+         +'<div style="font-size:12.5px;font-weight:600;color:var(--txt)">Dates — is phone: <b>'+localTotalDates+'</b> <span style="color:var(--mu);font-weight:500">('+dateKeys.length+' active + '+ark.length+' archive)</span> · Firebase: <b>'+fbDates+'</b></div>'
          +'<div style="font-size:12.5px;font-weight:600;color:var(--txt);margin-top:3px">Bundle — is phone: <b>'+bAll.length+'</b> · Firebase: <b>'+fbBn+'</b></div>'
-         +(ok?'<div style="font-size:11.5px;color:#15803d;font-weight:700;margin-top:6px">✅ Dono taraf lagbhag barabar</div>'
+         +(ok?'<div style="font-size:11.5px;color:#15803d;font-weight:700;margin-top:6px">✅ Dono taraf barabar</div>'
              :'<div style="font-size:11.5px;color:#92400e;font-weight:700;margin-top:6px">🟡 Farak hai — "Sabhi Data Push Karo" se milaa lo</div>')
          +'</div>';
       }catch(e){
