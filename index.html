@@ -3184,12 +3184,59 @@ async function pgCacheSave(date){
   if(!date||!_pgData)return;
   try{await idbSM('pgcache_'+date,_pgData);}catch(e){}
 }
+
+// ═══ PESHGAR PREFETCH — saari dates ek saath ═══
+// Problem: "Peshgar Miss" card kisi date par number dikhata tha aur kisi par "—".
+// Wajah: card ka data per-date LIVE listener se aata hai. Jis date ka local
+// cache na ho, us par snapshot aane tak "—" hi dikhta rehta tha — aur agar
+// listener der kare ya na chale, to hamesha "—" hi. User ko har baar click
+// karke dekhna padta tha.
+// Ab Firebase connect hote hi SAARI peshgar dates ek baar mein le lete hain aur
+// cache kar dete hain — isliye date badalte hi number turant dikhta hai.
+// Live listener phir bhi chalta rehta hai taaki naya kaam turant aaye.
+let _pgAllCache=null;            // {date: {caseno:{...}}}
+let _pgPrefetchAt=0;
+async function pgPrefetchAll(force){
+  if(!_fbDb)return null;
+  if(!force&&_pgAllCache&&(Date.now()-_pgPrefetchAt)<5*60000)return _pgAllCache;
+  try{
+    const snap=await _fbDb.collection('peshgar').get();
+    const out={};
+    snap.docs.forEach(d=>{
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(d.id))return;
+      const rows=cfmFromFirebase(d.data());
+      if(!Array.isArray(rows))return;
+      const m={};
+      rows.forEach(r=>{const cn=String(r.caseno||'').toUpperCase().trim();if(cn)m[cn]=r;});
+      out[d.id]=m;
+    });
+    _pgAllCache=out;_pgPrefetchAt=Date.now();
+    // IDB mein bhi rakh do — agli baar app khulte hi turant dikhe
+    try{for(const dt in out)await idbSM('pgcache_'+dt,out[dt]);}catch(e){}
+    // Abhi jo date khuli hai uska number turant refresh karo
+    try{
+      const cur=(workDate&&workDate.value)||'';
+      if(cur&&_pgDataDate===cur&&out[cur]){_pgData=out[cur];_pgListenErr='';updatePgMiss();}
+      else if(cur&&_pgDataDate===cur&&!out[cur]){_pgData={};_pgListenErr='';updatePgMiss();}
+    }catch(e){}
+    console.log('pgPrefetchAll: '+Object.keys(out).length+' peshgar dates cache ho gayi');
+    return out;
+  }catch(e){console.error('pgPrefetchAll:',e);return null;}
+}
+
 function pgStartListen(){
   const date=(workDate&&workDate.value)||'';
   // Date badli — purani date ka _pgData turant hatao (warna reverse-count galat aata hai)
   _pgData=null;_pgDataDate=date;
-  // Pehle cache se is date ka data dikhao (connect hone tak)
-  pgCacheLoad(date);
+  // Pehle prefetch-cache se turant bharo (memory) — is se card kabhi khali nahi
+  // rehta. Uske baad IDB cache, phir live listener.
+  if(_pgAllCache&&date){
+    _pgData=_pgAllCache[date]||{};   // date ka doc na ho = Peshgar ne kuch nahi kiya (khali, "pata nahi" nahi)
+    _pgListenErr='';
+    updatePgMiss();
+  }else{
+    pgCacheLoad(date);
+  }
   if(!_fbDb){_pgListenErr='Firebase connected nahi';updatePgMiss();return;}
   if(_pgUnsub)_pgUnsub();
   if(!date){_pgListenErr='Koi date select nahi';return;}
@@ -3200,6 +3247,7 @@ function pgStartListen(){
       _pgData={};
       _pgRows.forEach(r=>{_pgData[String(r.caseno).toUpperCase().trim()]=r;});
       _pgListenErr='';
+      if(_pgAllCache)_pgAllCache[date]=_pgData;   // prefetch-cache bhi taaza rakho
       pgCacheSave(date); // fresh data IDB mein cache karo
     }else{
       // Firebase pe is date ka doc NAHI = Peshgar ne is date ki koi file receive nahi ki
@@ -7510,6 +7558,7 @@ async function fbInit(cfg){
       // Main ya role-unset: normal — local push
       fbStartListen();
       fbStartListenBundle();
+      pgPrefetchAll(true).catch(e=>console.warn('pgPrefetch:',e));
       pgStartListen();
       if(cData.length){await fbPush();await fbPushVersionMeta();}
       await fbPushBundle();
@@ -7579,7 +7628,7 @@ async function fbPullSilent(){
     }
     invalidateAllDatesCache();
     // Meta
-    const metaSnaps=await _fbDb.collection('cfm_meta').get();
+    const metaSnaps=await fbRetry(()=>_fbDb.collection('cfm_meta').get(),'Version info');
     for(const doc of metaSnaps.docs){
       const d=doc.data();
       if(d){if(Array.isArray(d.versions))await idbSV(doc.id,d.versions);if(d.cv!=null)await idbSM('cv_'+doc.id,d.cv);}
@@ -8994,6 +9043,31 @@ async function openHealth(){
      +(worst>3?'<div style="font-size:11.5px;color:#b91c1c;font-weight:700;margin-top:6px">⚠️ Backup bahut purana hai — abhi le lo</div>':'')
      +'</div>';
 
+    // ── 2a. FIREBASE 1MB LIMIT — sabse badi date kitni bhari hai ──
+    // Firestore ka har doc 1MB tak hi ja sakta hai. Agar kisi date ki list itni
+    // badi ho jaye, to wo date CHUP-CHAAP push hona band ho jaayegi aur doosre
+    // phone par purani reh jaayegi. Isliye pehle hi chetavni de dete hain.
+    try{
+      let maxKB=0,maxKey='';
+      for(const k of dateKeys){
+        const d=await idbGM(k);
+        if(!Array.isArray(d))continue;
+        const kb=JSON.stringify(d).length/1024;
+        if(kb>maxKB){maxKB=kb;maxKey=k;}
+      }
+      const bDoc=await bundleToFirebase(Object.fromEntries((await idbAB()).map(x=>[x.id,x])));
+      const bKB=((bDoc.filesGz||bDoc.filesJson||'').length)/1024;
+      const pct=Math.round(maxKB/1024*100), bpct=Math.round(bKB/1024*100);
+      const warn=maxKB>800||bKB>800;
+      h+='<div style="font-size:10.5px;font-weight:800;color:var(--mu);letter-spacing:.5px;margin-bottom:8px">📏 FIREBASE SIZE (1 MB limit)</div>'
+       +'<div style="background:'+(warn?'#fef2f2':'#f0fdf4')+';border:1.5px solid '+(warn?'#fecaca':'#bbf7d0')+';border-radius:10px;padding:11px 13px;margin-bottom:14px">'
+       +'<div style="font-size:12.5px;font-weight:600;color:var(--txt)">Sabse badi date: <b>'+maxKB.toFixed(0)+' KB</b> ('+pct+'%)'+(maxKey?' <span style="color:var(--mu);font-weight:500">— '+fmtD(maxKey.split("_")[0])+'</span>':'')+'</div>'
+       +'<div style="font-size:12.5px;font-weight:600;color:var(--txt);margin-top:3px">Bundle (gzip): <b>'+bKB.toFixed(0)+' KB</b> ('+bpct+'%)</div>'
+       +(warn?'<div style="font-size:11.5px;color:#b91c1c;font-weight:700;margin-top:6px">🔴 Limit ke paas — is date ka data Firebase par jaana band ho sakta hai</div>'
+             :'<div style="font-size:11.5px;color:#15803d;font-weight:700;margin-top:6px">✅ Limit se kaafi kam — koi khatra nahi</div>')
+       +'</div>';
+    }catch(e){}
+
     // ── 2b. Kya kuch push hona baaki hai? ──
     // Ye sabse zaroori signal hai: agar Main par kaam ho chuka hai par Firebase
     // par nahi gaya, to Secondary/Peshgar ko purana data milta rahega aur unke
@@ -9021,7 +9095,7 @@ async function openHealth(){
       h+='<div style="background:#f1f5f9;border-radius:10px;padding:11px 13px;margin-bottom:14px;font-size:12px;color:var(--mu)">Connect nahi hai — sirf is phone par data hai.</div>';
     }else{
       try{
-        const snap=await _fbDb.collection('cfm').get();
+        const snap=await fbRetry(()=>_fbDb.collection('cfm').get(),'CFM data');
         const fbDates=snap.docs.filter(d=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(d.id)).length;
         const bs=await _fbDb.collection('bundle').doc('main').get();
         const fbB=bs.exists?await bundleFromFirebase(bs.data()):null;
@@ -9069,6 +9143,31 @@ async function openHealth(){
   el.innerHTML=h;
 }
 
+
+// ═══ NETWORK RETRY — bina baar-baar dabaye ═══
+// Firestore ki request kabhi-kabhi network ki wajah se fail ho jaati hai
+// (mobile data, weak wifi). Pehle wo turant fail ho jaati thi aur user ko
+// khud dobara button dabana padta tha — 2-3 baar. Ab teen koshish khud
+// hoti hain, beech mein thoda ruk kar.
+async function fbRetry(fn,label,tries){
+  const n=tries||3;
+  let lastErr=null;
+  for(let i=1;i<=n;i++){
+    try{ return await fn(); }
+    catch(e){
+      lastErr=e;
+      const code=String(e&&(e.code||e.message)||'');
+      // Permission/rules wali galti dobara try karne se theek nahi hogi
+      if(/permission-denied|unauthenticated|invalid-argument/i.test(code))break;
+      if(i<n){
+        try{showToast('🔄 '+(label||'Firebase')+' fail — dobara koshish ('+(i+1)+'/'+n+')...','w');}catch(_){}
+        await new Promise(r=>setTimeout(r,600*i));   // 0.6s, 1.2s
+      }
+    }
+  }
+  throw lastErr;
+}
+
 async function fbPullAll(){
   if(!_fbDb){showToast('⚠️ Firebase connected nahi hai','w');return;}
   // Main device ka data MASTER hai — usko pull se overwrite nahi karna chahiye
@@ -9092,7 +9191,7 @@ async function fbPullAll(){
       if(rows){await idbSM(key,rows);invalidateAllDatesCache();}
     }
     // 2. Version metadata
-    const metaSnaps=await _fbDb.collection('cfm_meta').get();
+    const metaSnaps=await fbRetry(()=>_fbDb.collection('cfm_meta').get(),'Version info');
     for(const doc of metaSnaps.docs){
       const date=doc.id;const d=doc.data();
       if(d&&d.versions)await idbSV(date,d.versions);
