@@ -2682,6 +2682,13 @@ async function saveLocal(){
     invalidateOvCache(); // data badla — overdue cache fresh karo
     updateAllDatesCacheForCurrent(); // PERF: sirf current date cache update (full rebuild nahi — 90x kam IDB)
     await idbSM(dKey(),cData);
+    // VERIFY: sach mein likha gaya? Court ka data hai — "shayad save ho gaya"
+    // kaafi nahi. Padh kar count milaate hain; na mile to error fenkte hain
+    // taaki bulaane wala jhootha "✅ ho gaya" na dikhaye.
+    const _back=await idbGM(dKey());
+    if(!Array.isArray(_back)||_back.length!==cData.length){
+      throw new Error('Save verify fail: likha '+cData.length+', mila '+(Array.isArray(_back)?_back.length:'kuch nahi'));
+    }
     try{syncAutoCategories();}catch(e){}
     // Fire and forget — Firebase backup, not critical path
     // But schedule properly to avoid race conditions
@@ -2701,7 +2708,13 @@ async function saveLocal(){
       try{_cmPendingDates.add(dKey());savePendingQueue();setSyncDot('off');}catch(e){}
     }
   }
-  catch(e){console.error('saveLocal fail:',e);showToast('⚠️ Data save fail! Storage full ho sakta hai.','d');}
+  catch(e){
+    console.error('saveLocal fail:',e);
+    showToast('🔴 SAVE FAIL — ye kaam save NAHI hua! '+(e&&e.message||''),'d');
+    try{haptic('error');redFlash();}catch(_){}
+    return false;   // bulaane wale ko sach batao
+  }
+  return true;
 }
 
 // Purani (archived) date kholne par saaf batao — data dikh raha hai par abhi sync se bahar hai
@@ -5347,14 +5360,26 @@ async function manualAction(mode){
       showMS(`❌ Pehle receive karo! ${wdStr}${sdStr?' (Sent '+sdStr+')':''} mein pending hai`,"err");
       speak("Pehle receive karo");haptic('mismatch');redFlash();return;
     }
-    cData[idx].sent="Sent";cData[idx].sentdate=_localISO(new Date());cData[idx].senttime=Date.now();cData[idx].searchableText=gSrch(cData[idx]);actLog("sent");
+    const _pv={sent:cData[idx].sent,sentdate:cData[idx].sentdate,senttime:cData[idx].senttime,searchableText:cData[idx].searchableText};
+    cData[idx].sent="Sent";cData[idx].sentdate=_localISO(new Date());cData[idx].senttime=Date.now();cData[idx].searchableText=gSrch(cData[idx]);
+    // SAVE PEHLE, SUCCESS BAAD MEIN (dekho handleCFMScan ki tippani)
+    if(await saveLocal()===false){
+      Object.assign(cData[idx],_pv);
+      showMS("🔴 SAVE FAIL — dobara karo","err");speak("Save fail");haptic('error');return;
+    }
+    actLog("sent");
     showMS("✅ SENT: "+actualCN,"ok");speak("File sent");haptic('success');manualCaseInput.value="";
     await hideBundleEntry(actualCN);
   }else{
     if(rec.sent!=="Sent"){showMS("❌ Pehle SENT karo","err");speak("File not sent yet");return;}
     if(rec.received==="Received"){showMS("ℹ️ Already RECEIVED: "+actualCN,"info");speak("Already received");return;}
-    cData[idx].received="Received";cData[idx].receiveddate=_localISO(new Date());cData[idx]._pendingPrev=null;actLog("received");
-    lastRcvCase=actualCN;_ndRcvMode=true;cData[idx].searchableText=gSrch(cData[idx]);
+    const _pvR={received:cData[idx].received,receiveddate:cData[idx].receiveddate,_pendingPrev:cData[idx]._pendingPrev,searchableText:cData[idx].searchableText};
+    cData[idx].received="Received";cData[idx].receiveddate=_localISO(new Date());cData[idx]._pendingPrev=null;cData[idx].searchableText=gSrch(cData[idx]);
+    if(await saveLocal()===false){
+      Object.assign(cData[idx],_pvR);
+      showMS("🔴 SAVE FAIL — dobara karo","err");speak("Save fail");haptic('error');return;
+    }
+    actLog("received");lastRcvCase=actualCN;_ndRcvMode=true;
     showMS("✅ RECEIVED: "+actualCN,"ok");speak("File received");haptic('success');manualCaseInput.value="";
     // Search/filter clear karo TABHI taaki row visible ho highlight ke liye
     if(searchBox&&searchBox.value)searchBox.value='';
@@ -5932,13 +5957,30 @@ async function handleCFMScan(code,mode){
       showSC(`❌ Pehle receive karo!\n📅 ${wdStr}${sdStr?' (Sent: '+sdStr+')':''} mein receive pending hai`,'#dc2626');
       speak("Pehle receive karo");haptic('mismatch');redFlash();return;
     }
-    cData[idx].sent="Sent";cData[idx].sentdate=_localISO(new Date());cData[idx].senttime=Date.now();cData[idx]._qrScanned=true;cData[idx].searchableText=gSrch(cData[idx]);actLog("sent");actLog("scan");
-    // Scan se sent = QR pehle se hai — QR pending mein mat dikhao
+    const _prev={sent:cData[idx].sent,sentdate:cData[idx].sentdate,senttime:cData[idx].senttime,_qrScanned:cData[idx]._qrScanned,searchableText:cData[idx].searchableText};
+    cData[idx].sent="Sent";cData[idx].sentdate=_localISO(new Date());cData[idx].senttime=Date.now();cData[idx]._qrScanned=true;cData[idx].searchableText=gSrch(cData[idx]);
+    // SAVE PEHLE, SUCCESS BAAD MEIN. Pehle ulta tha: "✅ SENT" dikh jaata tha
+    // aur save uske baad hota tha. Beech mein page band/back ho jaye to user
+    // ko lagta tha kaam ho gaya, jabki kuch save hi nahi hua tha.
+    if(await saveLocal()===false){
+      Object.assign(cData[idx],_prev);   // memory bhi wapas — jhootha state na rahe
+      showSC('🔴 SAVE FAIL: '+actualCN+'\nDobara scan karo','#dc2626');
+      speak("Save fail");haptic('error');redFlash();return;
+    }
+    actLog("sent");actLog("scan");
     showSC('✅ SENT: '+actualCN,'#16a34a');speak("File sent");haptic('scan');await hideBundleEntry(actualCN);
   }else{
     if(cData[idx].sent!=="Sent"){showSC('❌ Pehle SENT karo: '+actualCN,'#dc2626');speak("File not sent yet");haptic('error');redFlash();return;}
     if(cData[idx].received==="Received"){showSC('ℹ️ Already Received: '+actualCN,'#d97706');speak("Already received");return;}
-    cData[idx].received="Received";cData[idx].receiveddate=_localISO(new Date());cData[idx]._pendingPrev=null;cData[idx].searchableText=gSrch(cData[idx]);lastRcvCase=actualCN;_ndRcvMode=true;
+    const _prevR={received:cData[idx].received,receiveddate:cData[idx].receiveddate,_pendingPrev:cData[idx]._pendingPrev,searchableText:cData[idx].searchableText};
+    cData[idx].received="Received";cData[idx].receiveddate=_localISO(new Date());cData[idx]._pendingPrev=null;cData[idx].searchableText=gSrch(cData[idx]);
+    // SAVE PEHLE (dekho SENT wali tippani)
+    if(await saveLocal()===false){
+      Object.assign(cData[idx],_prevR);
+      showSC('🔴 SAVE FAIL: '+actualCN+'\nDobara scan karo','#dc2626');
+      speak("Save fail");haptic('error');redFlash();return;
+    }
+    lastRcvCase=actualCN;_ndRcvMode=true;
     showSC('✅ RECEIVED: '+actualCN,'#16a34a');speak("File received");haptic('scan');
     closeScan();
     // Search/filter clear for highlight
@@ -9068,6 +9110,116 @@ function _agoText(ts){
   const d=Math.floor(h/24);
   return d+' din pehle';
 }
+
+// ═══════════════════════════════════════════════════════════════
+// DEEP VERIFY — Firebase ka data SACH MEIN wahi hai jo phone par hai?
+// Pehle Health Check sirf GINTI milaata tha (kitni dates, kitni files).
+// Ginti barabar hone ka matlab ye nahi ki ANDAR ka data bhi wahi hai —
+// ek date adhoori chadhi ho, ya purani version atki ho, to ginti phir bhi
+// mel kha jaati thi aur "sab theek" dikh jaata tha.
+// Ab har date ka RECORD-COUNT aur CONTENT-HASH milaate hain, aur jo dates
+// alag hain unke naam batate hain — taaki pata rahe ki kya push karna hai.
+// Ye sirf PADHTA hai, kuch badalta nahi.
+// ═══════════════════════════════════════════════════════════════
+async function deepVerify(onProg){
+  const out={ok:false,checked:0,same:0,diff:[],missing:[],extra:[],err:'',bundle:null,urgent:null};
+  if(!_fbDb){out.err='Firebase connect nahi hai';return out;}
+  try{
+    // 1. Local sab dates (active + archive)
+    const local={};
+    for(const k of (await idbAMK()).filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k))){
+      const d=await idbGM(k); if(Array.isArray(d)&&d.length)local[k]=d;
+    }
+    for(const k of (await idbAARK()).filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k))){
+      if(local[k])continue;
+      const d=await idbGAR(k); if(Array.isArray(d)&&d.length)local[k]=d;
+    }
+    onProg&&onProg('Firebase se data padh rahe hain...');
+    const snap=await fbRetry(()=>_fbDb.collection('cfm').get(),'CFM verify');
+    const remote={};
+    snap.docs.forEach(d=>{
+      if(!/^\d{4}-\d{2}-\d{2}_\d+$/.test(d.id))return;
+      const rows=cfmFromFirebase(d.data());
+      if(Array.isArray(rows))remote[d.id]=rows;
+    });
+
+    // 2. Date-by-date milaan — count + hash
+    const allKeys=[...new Set([...Object.keys(local),...Object.keys(remote)])].sort();
+    let i=0;
+    for(const k of allKeys){
+      i++; if(i%25===0)onProg&&onProg('Milaan '+i+'/'+allKeys.length+'...');
+      const L=local[k], R=remote[k];
+      if(L&&!R){out.missing.push(k);continue;}
+      if(!L&&R){out.extra.push(k);continue;}
+      out.checked++;
+      // Sirf wo fields jo sach mein maayne rakhte hain — at/timestamp nahi
+      const norm=rows=>JSON.stringify((rows||[]).map(r=>[
+        String(r.caseno||'').trim(),r.sent||'',r.sentdate||'',r.received||'',
+        r.receiveddate||'',r.nextdate||'',r.remark||'',r._disposed?1:0
+      ]));
+      if(L.length!==R.length){out.diff.push({key:k,why:'records: phone '+L.length+' vs firebase '+R.length});}
+      else if(quickHash(norm(L))!==quickHash(norm(R))){out.diff.push({key:k,why:'records barabar par andar ka data alag'});}
+      else out.same++;
+    }
+
+    // 3. Bundle
+    onProg&&onProg('Bundle milaan...');
+    try{
+      const bs=await fbRetry(()=>_fbDb.collection('bundle').doc('main').get(),'Bundle verify');
+      const rb=bs.exists?await bundleFromFirebase(bs.data()):{};
+      const lb={};(await idbAB()).forEach(x=>{if(x&&x.id)lb[x.id]=x;});
+      const nb=o=>quickHash(JSON.stringify(Object.keys(o).sort().map(id=>[id,o[id].md,o[id].sd,o[id].col,o[id].cat,o[id].hidden?1:0])));
+      out.bundle={local:Object.keys(lb).length,remote:Object.keys(rb).length,same:nb(lb)===nb(rb)};
+    }catch(e){out.bundle={err:e.message};}
+
+    // 4. Urgent
+    try{
+      const us=await fbRetry(()=>_fbDb.collection('urgent').doc('main').get(),'Urgent verify');
+      const rl=us.exists&&us.data()&&Array.isArray(us.data().logs)?us.data().logs.length:0;
+      const ll=(await ulGetAll()||[]).length;
+      out.urgent={local:ll,remote:rl,same:ll===rl};
+    }catch(e){out.urgent={err:e.message};}
+
+    out.ok=(out.diff.length===0&&out.missing.length===0);
+    return out;
+  }catch(e){out.err=e.message||String(e);return out;}
+}
+
+// Health Check ke andar se chalta hai — result usi modal mein
+async function runDeepVerify(){
+  const box=document.getElementById('deepVerifyBox');
+  if(!box)return;
+  box.innerHTML='<div style="font-size:12.5px;color:var(--mu);padding:8px 0">🔍 Firebase se ek-ek date milaayi ja rahi hai…</div>';
+  const r=await deepVerify(msg=>{box.innerHTML='<div style="font-size:12.5px;color:var(--mu);padding:8px 0">🔍 '+esc(msg)+'</div>';});
+  if(r.err){
+    box.innerHTML='<div style="background:#fef2f2;border:1.5px solid #fecaca;border-radius:10px;padding:11px 13px;font-size:12.5px;color:#b91c1c;font-weight:600">❌ Milaan nahi ho paya: '+esc(r.err)+'</div>';
+    return;
+  }
+  const bad=r.diff.length+r.missing.length;
+  let h='<div style="background:'+(bad?'#fef2f2':'#f0fdf4')+';border:1.5px solid '+(bad?'#fecaca':'#bbf7d0')+';border-radius:10px;padding:11px 13px">';
+  h+='<div style="font-size:13px;font-weight:800;color:'+(bad?'#b91c1c':'#15803d')+'">'
+    +(bad?'🔴 '+bad+' date(s) mein farak hai':'✅ Har date ka data bilkul barabar')+'</div>';
+  h+='<div style="font-size:12px;color:var(--mu);margin-top:4px">'+r.same+'/'+r.checked+' dates poori tarah match';
+  if(r.bundle)h+=' · Bundle: '+(r.bundle.err?'❌ '+esc(r.bundle.err):(r.bundle.same?'✅ same':'🔴 alag ('+r.bundle.local+' vs '+r.bundle.remote+')'));
+  if(r.urgent)h+=' · Urgent: '+(r.urgent.err?'❌':(r.urgent.same?'✅ same':'🔴 '+r.urgent.local+' vs '+r.urgent.remote));
+  h+='</div>';
+  if(r.missing.length){
+    h+='<div style="font-size:12px;color:#b91c1c;font-weight:700;margin-top:7px">📤 Firebase par hai hi nahi ('+r.missing.length+'):</div>'
+      +'<div style="font-size:11.5px;color:#b91c1c;line-height:1.6">'+r.missing.slice(0,8).map(k=>esc(fmtD(k.split('_')[0]))).join(', ')+(r.missing.length>8?' …+'+(r.missing.length-8):'')+'</div>';
+  }
+  if(r.diff.length){
+    h+='<div style="font-size:12px;color:#b91c1c;font-weight:700;margin-top:7px">⚠️ Data alag hai ('+r.diff.length+'):</div>';
+    r.diff.slice(0,6).forEach(d=>{h+='<div style="font-size:11.5px;color:#b91c1c;line-height:1.5">· '+esc(fmtD(d.key.split('_')[0]))+' — '+esc(d.why)+'</div>';});
+    if(r.diff.length>6)h+='<div style="font-size:11.5px;color:#b91c1c">…aur '+(r.diff.length-6)+'</div>';
+  }
+  if(r.extra.length){
+    h+='<div style="font-size:11.5px;color:#92400e;margin-top:6px">ℹ️ Firebase par '+r.extra.length+' aisi date(s) hain jo is phone par nahi (doosre device se aayi hongi)</div>';
+  }
+  if(bad)h+='<div style="font-size:11.5px;color:#b91c1c;font-weight:700;margin-top:7px">→ Firebase → "Sabhi Data Push Karo" dabao, phir dobara jaanch karo</div>';
+  h+='</div>';
+  box.innerHTML=h;
+}
+
 async function openHealth(){
   document.getElementById('healthModal').classList.add('on');
   const el=document.getElementById('healthBody');
@@ -9167,6 +9319,15 @@ async function openHealth(){
         h+='<div style="background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:10px;padding:9px 13px;margin-bottom:14px;font-size:12.5px;font-weight:600;color:#15803d">✅ Sab kuch Firebase par ja chuka hai — kuch pending nahi</div>';
       }
     }catch(e){}
+
+    // ── 2c. Deep verify button ──
+    h+='<div style="font-size:10.5px;font-weight:800;color:var(--mu);letter-spacing:.5px;margin-bottom:8px">🔍 GEHRI JAANCH</div>'
+     +'<div style="background:var(--bg);border:1.5px solid var(--bdr);border-radius:10px;padding:11px 13px;margin-bottom:14px">'
+     +'<div style="font-size:11.5px;color:var(--mu);line-height:1.45;margin-bottom:8px">Ginti barabar hone ka matlab ye nahi ki andar ka data bhi wahi hai. '
+     +'Ye har date ka data Firebase se ek-ek karke milaata hai aur batata hai kaunsi date alag hai.</div>'
+     +'<button class="btn" onclick="runDeepVerify()" style="margin-top:0;background:linear-gradient(135deg,#0891b2,#155e75);color:#fff">🔍 Har Date Milaao</button>'
+     +'<div id="deepVerifyBox" style="margin-top:9px"></div>'
+     +'</div>';
 
     // ── 3. Firebase se milaan ──
     h+='<div style="font-size:10.5px;font-weight:800;color:var(--mu);letter-spacing:.5px;margin-bottom:8px">☁️ FIREBASE</div>';
