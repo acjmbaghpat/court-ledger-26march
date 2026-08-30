@@ -7893,6 +7893,17 @@ function fbProg(pct,label){
 
 // Push ALL data with PERCENTAGE progress
 // Batch commit with timeout — network hang pe permanent stall na ho (reject → retry chale)
+// Kisi bhi promise par timeout lagao. Zaroori kyun: Firestore ka .set() network
+// atak jaane par NA resolve hota hai NA reject — bas latka rehta hai. Isi wajah se
+// "Sabhi Data Push Karo" 96% (Bundle + Urgent wale step) par hamesha ke liye ruk
+// jaata tha, aur user ko lagta tha app hang ho gayi.
+function withTimeout(p,ms,label){
+  return Promise.race([
+    p,
+    new Promise((_,rej)=>setTimeout(()=>rej(new Error((label||'Operation')+' timeout '+Math.round(ms/1000)+'s')),ms))
+  ]);
+}
+function bAllCount(){try{return Object.keys(bFiles||{}).length;}catch(e){return 0;}}
 function commitWithTimeout(batch,ms){
   return Promise.race([
     batch.commit(),
@@ -7969,10 +7980,15 @@ async function fbPushAll(force){
     }
     fbProg(8,'CFM: '+toPush.length+' dates push karni hain'+(force?' (FORCE — sab kuch)':' ('+skipped+' unchanged skip)')+(archKeys.length?' · '+archKeys.length+' archive':'')+'...');
 
-    // Batches mein commit karo — COUNT (450) YA SIZE (~8MB) jo pehle aaye
-    // (Firestore limits: 500 ops/batch AUR 10MiB per request — dono respect karo)
-    const BATCH_SIZE=450;
-    const BATCH_BYTES=8*1024*1024; // 8MB safety (10MiB hard limit)
+    // Batches mein commit karo — COUNT ya SIZE, jo pehle aaye.
+    // Firestore ki hard limit 500 ops / 10MiB hai, par asli dikkat NETWORK hai:
+    // pehle ek batch 8MB tak ka ban jaata tha aur uska timeout sirf 20 second
+    // tha. Mobile data par 8MB 20s mein nahi jaata — batch timeout hota, teeno
+    // retry bhi fail hote, aur poora push fail dikhta tha.
+    // Ab batch chhote (1.5MB) hain aur timeout size ke hisaab se badhta hai,
+    // isliye dheeme network par bhi push poora hota hai (bas thoda time lega).
+    const BATCH_SIZE=120;
+    const BATCH_BYTES=1.5*1024*1024;
     const chunks=[];
     let cur=[],curBytes=0;
     for(const item of toPush){
@@ -7991,7 +8007,10 @@ async function fbPushAll(force){
           chunk.forEach(item=>{
             batch.set(_fbDb.collection('cfm').doc(item.key),cfmToFirebase(item.data));
           });
-          await commitWithTimeout(batch,20000); // 20s timeout — hang pe retry
+          // Timeout batch ke size ke hisaab se: 20s base + 20s per MB.
+          // Dheemi mobile line par bhi poora hone ka mauka mile.
+          const chunkMB=chunk.reduce((s,x)=>s+(x.size||0),0)/1048576;
+          await commitWithTimeout(batch,Math.round(20000+chunkMB*20000)); // hang pe retry
           committed=true;
         }catch(e){lastErr=e;await new Promise(r=>setTimeout(r,500*(attempt+1)));}
       }
@@ -8030,10 +8049,38 @@ async function fbPushAll(force){
     }catch(e){console.error('meta:',e);}
 
     // Bundle + Urgent (95-100%)
-    fbProg(96,'Bundle + Urgent push...');
-    // force=true — ye user ka apna explicit full-push hai, drop-guard override
-    try{await fbPushBundle(true);}catch(e){console.error('bundle:',e);}
-    try{await fbPushUrgent();}catch(e){console.error('urgent:',e);}
+    fbProg(96,'Bundle push...');
+    // force=true — ye user ka apna explicit full-push hai, drop-guard override.
+    // Har ek par TIMEOUT + ek retry, warna network atakne par 96% par hamesha
+    // ke liye ruk jaata tha (dekho withTimeout ki tippani).
+    let bundleOk=false,urgentOk=false;
+    // Bundle push kai network round-trip karta hai. Uske dauraan progress-bar
+    // 96% par KHADA rehta tha — user ko lagta tha app atak gayi (jabki chal
+    // rahi hoti thi). Ab har second ginti dikhti hai, isliye saaf pata chalta
+    // hai ki kaam ho raha hai.
+    for(let a=1;a<=2&&!bundleOk;a++){
+      const t0=Date.now();
+      const tick=setInterval(()=>{
+        const s=Math.round((Date.now()-t0)/1000);
+        try{fbProg(96,'Bundle push... '+s+'s'+(a>1?' (dobara koshish)':'')+' — '+bAllCount()+' files');}catch(e){}
+      },1000);
+      try{ await withTimeout(fbPushBundle(true),45000,'Bundle push'); bundleOk=true; }
+      catch(e){
+        console.error('bundle push try'+a+':',e);
+        if(a<2){await new Promise(r=>setTimeout(r,1200));}
+        else{failCount++;failedDates.push('Bundle ('+(e&&e.message||'fail')+')');_cmPendingBundle=true;savePendingQueue();}
+      }
+      finally{ clearInterval(tick); }
+    }
+    fbProg(98,'Urgent log push...');
+    for(let a=1;a<=2&&!urgentOk;a++){
+      try{ await withTimeout(fbPushUrgent(),25000,'Urgent push'); urgentOk=true; }
+      catch(e){
+        console.error('urgent push try'+a+':',e);
+        if(a<2){await new Promise(r=>setTimeout(r,1000));}
+        else{failCount++;failedDates.push('Urgent log');_cmPendingUrgent=true;savePendingQueue();}
+      }
+    }
     fbProg(100,'Complete!');
     setTimeout(()=>fbProg(-1),1500);
     savePushedHashes(); // changed-date hashes save karo (agli baar skip)
