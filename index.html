@@ -3680,7 +3680,14 @@ function openPgMismatchModal(){
   document.getElementById('ovModal').classList.add('on');
 }
 
+// NOTE: ye fire-and-forget call hoti hai (updateDash() bina await/catch ke).
+// Pehle iske andar koi try/catch nahi tha — agar koi element missing ho ya
+// overdue-count wala await fail ho jaye, to UNHANDLED REJECTION aati aur
+// bulaane wale ka baaki kaam (jaise toast/scan-flow) beech mein ruk sakta tha.
+// Ab poora body surakshit hai; dashboard ka number na banna kabhi bhi
+// asli kaam (save/scan) ko nahi rokna chahiye.
 async function updateDash(){
+ try{
   // Single pass — 5 alag filter ki jagah ek loop
   let t=cData.length,sn=0,rc=0,ps=0,pr=0;
   for(const x of cData){
@@ -3699,6 +3706,7 @@ async function updateDash(){
   const oc=document.getElementById("overdueCount");if(oc)oc.innerText=odCount;
   const ovCard=document.getElementById("ovCard");
   if(ovCard){ovCard.style.borderColor=odCount>0?'rgba(220,38,38,.3)':'rgba(221,229,244,.6)';ovCard.style.background=odCount>0?'#fef2f2':'var(--sur)';}
+ }catch(e){console.error('updateDash:',e);}
 }
 function setFilter(f){
   aFilter=f;
@@ -7101,7 +7109,11 @@ async function bAddFile(rawId,fromScan){
       const exLoc=ex.cat?(CAT_LABELS[ex.cat]||ex.cat)+' — '+dispCol(ex.col):'Date '+ex.md+(ex.sd!=null?'/'+ex.sd:'')+' — Col '+dispCol(ex.col);
       const msg=`⚠ "${id}" pehle se bundle mein hai\n📍 ${exLoc}`;
       if(fromScan){showSC(msg,'#dc2626');haptic('mismatch');redFlash();}else{showToast(msg,'d');}
-      speak("File pehle se bundle mein hai");haptic('error');return false;
+      // Jagah bhi bolo — scan karte waqt phone dekhe bina pata chal jaye ki
+    // file asal mein kahan padi hai.
+    const exSpk=ex.cat?spellCat(ex.cat)+', '+spellCol(ex.col)
+                      :(ex.md+(ex.sd!=null?', सब '+ex.sd:'')+', '+spellCol(ex.col));
+    speak('Pehle se bundle mein hai. '+exSpk,'hi-IN');haptic('error');return false;
     }
     const obj={id,md:bActiveCat?0:bAMD,sd:bActiveCat?null:bASD,col:bAC,cat:bActiveCat||null,at:Date.now(),st:'placed',hidden:false,_freeAdd:true};actLog('bundleAdd');
     bFiles[id]=obj;invalidateBundleIdx();await idbSBn(obj);scheduleBundlePush();
@@ -7156,7 +7168,10 @@ async function bAddFile(rawId,fromScan){
     const sentStr=cfmRec&&cfmRec.sentdate?(' | Last Sent: '+fmtD(cfmRec.sentdate)):'';
     const msg=`⚠ "${id}" pehle se bundle mein hai\n📍 ${exLoc}${sentStr}${nextDateStr}`;
     if(fromScan){showSC(msg,'#dc2626');haptic('mismatch');redFlash();}else{showToast(msg,'d');}
-    speak("File pehle se bundle mein hai");haptic('error');return false;
+    // Jagah bhi bolo (dekho upar wali tippani) — dono jagah same vyavhaar.
+    const exSpk2=ex.cat?spellCat(ex.cat)+', '+spellCol(ex.col)
+                       :(ex.md+(ex.sd!=null?', सब '+ex.sd:'')+', '+spellCol(ex.col));
+    speak('Pehle se bundle mein hai. '+exSpk2,'hi-IN');haptic('error');return false;
   }
   // DATE VALIDATION — MAIN DATE hamesha CFM ki fixed date (din) se match honi chahiye
   // Sub-date sirf PHYSICAL placement hai (jab main date ki almari full ho) — uska CFM se match nahi
@@ -7176,10 +7191,14 @@ async function bAddFile(rawId,fromScan){
         scanCool=true;
         if(contMode){scanActive=false;if(scanStream){scanStream.getTracks().forEach(t=>t.stop());scanStream=null;}document.getElementById('scan-vid').srcObject=null;hideQRBox();document.getElementById('scan-ov').classList.remove('on');}
         openMismatchModal(id,cfmDay);haptic('mismatch');redFlash();
+        // Laal screen ke saath SAHI DATE bhi bolo. Pehle yahan koi awaaz nahi
+        // thi — sirf laal flash aur modal. Scan karte waqt phone dekhe bina
+        // pata hi nahi chalta tha ki file kis date par jaani chahiye.
+        speak('Galat date. Sahi date '+cfmDay,'hi-IN');
       }else{
         const ndStr=cfmRec&&cfmRec.nextdate?fmtD(cfmRec.nextdate):'';
         showToast('⚠️ "'+id+'" ki CFM date '+cfmDay+' hai (aap main date '+bAMD+' pe daal rahe ho). Sahi main date: '+cfmDay+(ndStr?' ('+ndStr+')':''),'d');
-        speak("Galat date");haptic('mismatch');
+        speak('Galat date. Sahi date '+cfmDay,'hi-IN');haptic('mismatch');
       }
       return false;
     }
