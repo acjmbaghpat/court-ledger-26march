@@ -7581,7 +7581,11 @@ async function fbInit(cfg){
       pgStartListen();
       if(cData.length){await fbPush();await fbPushVersionMeta();}
       await fbPushBundle();
-      await fbPushUrgent();
+      // fbPushUrgent ab error aage bhejta hai (jaan-boojh kar). Yahan use pakad
+      // lo — urgent-log push fail hone se poora Firebase CONNECT fail nahi hona
+      // chahiye. Fail hua to queue mein daal do, baad mein apne aap ho jayega.
+      try{await fbPushUrgent();_cmPendingUrgent=false;savePendingQueue();}
+      catch(e){console.warn('urgent push (connect):',e);_cmPendingUrgent=true;savePendingQueue();}
       // Offline mein jo pending tha (app band hone se pehle) usse turant flush karo
       if(navigator.onLine&&(_cmPendingDates.size||_cmPendingBundle||_cmPendingUrgent)){
         setTimeout(()=>flushCmPush(),600);
@@ -8072,6 +8076,11 @@ async function fbPushAll(force){
       }
       finally{ clearInterval(tick); }
     }
+    // SAFAL hone par pending-flag SAAF karo. Pehle sirf fail par true set hota
+    // tha, saaf kabhi nahi — isliye ek purana flag (jaise offline mein kaam
+    // karte waqt laga hua) poore safal push ke baad bhi "abhi Firebase par
+    // nahi gaya" dikhata rehta tha.
+    if(bundleOk){_cmPendingBundle=false;savePendingQueue();}
     fbProg(98,'Urgent log push...');
     for(let a=1;a<=2&&!urgentOk;a++){
       try{ await withTimeout(fbPushUrgent(),25000,'Urgent push'); urgentOk=true; }
@@ -8081,6 +8090,7 @@ async function fbPushAll(force){
         else{failCount++;failedDates.push('Urgent log');_cmPendingUrgent=true;savePendingQueue();}
       }
     }
+    if(urgentOk){_cmPendingUrgent=false;savePendingQueue();}
     fbProg(100,'Complete!');
     setTimeout(()=>fbProg(-1),1500);
     savePushedHashes(); // changed-date hashes save karo (agli baar skip)
@@ -8249,7 +8259,7 @@ function flushBeforeHide(){
     }
     // Bundle ka debounce pending ho to turant push
     if(_bPushTimer){clearTimeout(_bPushTimer);fbPushBundle();}
-    if(_urgPushTimer){clearTimeout(_urgPushTimer);fbPushUrgent();}
+    if(_urgPushTimer){clearTimeout(_urgPushTimer);fbPushUrgent().catch(e=>{_cmPendingUrgent=true;try{savePendingQueue();}catch(_){}});}
   }catch(e){}
 }
 window.addEventListener('pagehide',flushBeforeHide);
@@ -8865,12 +8875,15 @@ async function fbPushBundle(force){
 let _urgPushTimer;
 function scheduleUrgentPush(){clearTimeout(_urgPushTimer);_urgPushTimer=setTimeout(async()=>{if(deviceRole==='secondary')return;if(!_fbDb||!navigator.onLine){_cmPendingUrgent=true;savePendingQueue();return;}try{await fbPushUrgent();_cmPendingUrgent=false;savePendingQueue();}catch(e){_cmPendingUrgent=true;savePendingQueue();}},1500);}
 async function fbPushUrgent(){
-  if(!_fbDb)return;
-  if(deviceRole==='secondary')return; // secondary push nahi karta
-  try{
-    const logs=await ulGetAll();
-    await _fbDb.collection('urgent').doc('main').set({logs,at:Date.now()});
-  }catch(e){console.error('fbPushUrgent:',e);}
+  if(!_fbDb)return false;
+  if(deviceRole==='secondary')return false; // secondary push nahi karta
+  // PEHLE yahan catch error ko NIGAL jaata tha aur function chup-chaap
+  // resolve ho jaata tha. Natija: bulaane wale ko hamesha "safal" lagta tha,
+  // retry kabhi nahi hoti thi, aur pending-flag saaf nahi hota tha.
+  // Ab error aage jaata hai taaki retry aur queue theek se kaam karein.
+  const logs=await ulGetAll();
+  await _fbDb.collection('urgent').doc('main').set({logs:logs||[],at:Date.now()});
+  return true;
 }
 
 // Pull EVERYTHING from Firebase
