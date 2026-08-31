@@ -2158,6 +2158,23 @@ const DATES=Array.from({length:31},(_,i)=>i+1);
 // jaise khali partyname pe "👤 null"). Backtick escape ki zaroorat nahi — hum attributes
 // hamesha double-quotes mein daalte hain, aur JS-template injection ka koi path nahi hai.
 function esc(s){if(s==null)return '';return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
+// ═══ escJs — inline onclick="fn('...')" ke andar surakshit ═══
+// Yahan DO layer hote hain: pehle browser HTML-attribute ko DECODE karta hai,
+// phir andar ki JS chalata hai. esc() sirf HTML ke liye hai — wo ' ko &#39;
+// banata hai, par browser use wapas ' bana deta hai aur JS-string TOOT jaati
+// hai. Natija: apostrophe wale case-number par button kaam hi nahi karta
+// (aur soch-samajh kar banaya gaya text code ban sakta hai).
+// Sahi tarika: PEHLE JS-escape, PHIR HTML-escape — tabhi dono layer safe.
+function escJs(s){
+  return esc(String(s==null?'':s)
+    .replace(/\\/g,'\\\\')
+    .replace(/'/g,"\\'")
+    .replace(/"/g,'\\"')
+    .replace(/\n/g,'\\n')
+    .replace(/\r/g,'\\r'));
+}
+
 let toastT;
 function showToast(msg,type){
   const t=document.getElementById('toast');
@@ -2652,9 +2669,9 @@ async function loadVersions(){
 async function saveCurV(){await idbSM('cv_'+workDate.value,upV);}
 async function loadCurV(){
   const v=await idbGM('cv_'+workDate.value);
-  const saved=parseInt(v)||1;
+  const saved=parseInt(v,10)||1;
   // Check if saved version actually exists in versionSelect
-  const opts=Array.from(versionSelect.options).map(o=>parseInt(o.value));
+  const opts=Array.from(versionSelect.options).map(o=>parseInt(o.value,10));
   if(opts.includes(saved)){
     upV=saved;
   } else if(opts.length){
@@ -2783,7 +2800,7 @@ workDate.addEventListener("change",async()=>{
   await loadVersions();await loadCurV();await loadLocal();fbStartListen();
   pgStartListen();
 });
-versionSelect.addEventListener("change",async()=>{upV=parseInt(versionSelect.value);await saveCurV();await loadLocal();fbStartListen();});
+versionSelect.addEventListener("change",async()=>{upV=parseInt(versionSelect.value,10);await saveCurV();await loadLocal();fbStartListen();});
 
 // ════ OVERDUE HELPERS ════
 // Aaj ki date hai ya back date?
@@ -4729,7 +4746,7 @@ function statusOnInput(val){
     return cn.includes(q)||nums.includes(q.replace(/[^0-9]/g,''));
   }).slice(0,8);
   if(!matches.length){dd.style.display='none';return;}
-  dd.innerHTML=matches.map(r=>`<div onclick="statusSelectCase('${esc(r.caseno)}')"
+  dd.innerHTML=matches.map(r=>`<div onclick="statusSelectCase('${escJs(r.caseno)}')"
     style="padding:10px 13px;cursor:pointer;border-bottom:1px solid var(--bdr);font-size:13px;font-weight:600"
     onmousedown="event.preventDefault()">
     ${esc(r.caseno)}<span style="font-size:11px;color:var(--mu);margin-left:6px">${esc(r.partyname||'')}</span>
@@ -4790,7 +4807,7 @@ function qrSwitch(tab){
 }
 
 function qrMakeCard(caseno){
-  const mm=parseInt(document.getElementById('qrSizeMM')?.value||35);
+  const mm=parseInt(document.getElementById('qrSizeMM')?.value||35,10);
   const px=Math.round(mm*3.78);
   const eccKey=document.getElementById('qrECC')?.value||'M';
   const card=document.createElement('div');
@@ -4984,7 +5001,7 @@ async function addCaseManually(){
   if(cData.find(r=>String(r.caseno).toUpperCase()===cn)){
     showAcMsg('⚠️ Ye Case No pehle se hai: '+cn,'err');return false;
   }
-  const srno=cData.length?String(cData.reduce((m,r)=>Math.max(m,parseInt(r.srno)||0),0)+1):String(1);
+  const srno=cData.length?String(cData.reduce((m,r)=>Math.max(m,parseInt(r.srno,10)||0),0)+1):String(1);
   const newRow={
     srno,
     caseno:cn,
@@ -6879,7 +6896,7 @@ function bRenderGrid(){
   if(_subdateView){bRenderSubdateView();return;} // sub-date view ON hai to wahi dikhao
   const gc=document.getElementById('bgc');
   const wdVal=document.getElementById('workDate')?.value||_localISO(new Date());
-  const todayDay=parseInt(wdVal.split('-')[2]||new Date().getDate());
+  const todayDay=parseInt(wdVal.split('-')[2]||new Date().getDate(),10);
 
   // ════ SINGLE PASS — bFiles ko ek baar group karo (fast) ════
   // Repeated Object.values().filter() ki jagah ek hi baar sab build
@@ -7047,7 +7064,7 @@ function bRenderSubdateView(){
       h+=`<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--sur2);border-radius:8px;margin-bottom:5px;flex-wrap:wrap">`;
       h+=`<span style="background:#0891b2;color:#fff;font-size:12px;font-weight:800;padding:3px 10px;border-radius:20px">Sub-date ${sd} → ${dispCol(col)} col</span>`;
       h+=`<span style="font-size:12px;color:var(--txt);font-weight:600">${arr.length} file:</span>`;
-      h+=arr.map(f=>`<span class="rmfb" style="display:inline-block;width:auto;padding:3px 9px;font-size:11px;cursor:pointer;background:#fff;border:1px solid var(--bdr);border-radius:6px" onclick="bOpenMove('${esc(f.id).replace(/'/g,"\\\\'")}')">${esc(f.id)}</span>`).join(' ');
+      h+=arr.map(f=>`<span class="rmfb" style="display:inline-block;width:auto;padding:3px 9px;font-size:11px;cursor:pointer;background:#fff;border:1px solid var(--bdr);border-radius:6px" onclick="bOpenMove('${escJs(f.id)}')">${esc(f.id)}</span>`).join(' ');
       h+=`</div>`;
     });
     h+=`</div>`;
@@ -7440,7 +7457,19 @@ function bRenderMoveForm(){
   }
   bBDG('bm-mdg',bMMD,d=>{bMMD=d;bBuildMoveCR();bRenderMoveForm();});bBuildMoveCR();
   const sec=document.getElementById('bm-sds');
-  if(bMSD!==null){if(!document.getElementById('bm-sdg')){sec.innerHTML='<div class="dgrid" id="bm-sdg"></div>';document.getElementById('bm-sdc').style.display='inline-block';}bBDG('bm-sdg',bMSD,d=>{bMSD=d;bRenderMoveForm();});}
+  // Pehle yahan "agar bm-sdg pehle se na ho" wala guard tha. Wo kaam to karta
+  // tha, par naazuk था: bmEnableSD() bhi wahi id banata hai, aur kisi din dono
+  // ek saath chal gaye to ek hi id ke DO element ban jaate — getElementById
+  // sirf pehle ko dekhta aur doosra chup-chaap bekaar ho jaata.
+  // Ab hum container ke ANDAR dhoondte hain aur na mile to hi banate hain,
+  // isliye duplicate ban hi nahi sakta.
+  if(bMSD!==null){
+    if(sec&&!sec.querySelector('#bm-sdg')){
+      sec.innerHTML='<div class="dgrid" id="bm-sdg"></div>';
+      const c2=document.getElementById('bm-sdc');if(c2)c2.style.display='inline-block';
+    }
+    bBDG('bm-sdg',bMSD,d=>{bMSD=d;bRenderMoveForm();});
+  }
   else{sec.innerHTML='<button class="sdadd" onclick="bmEnableSD()">+ Sub-Date add karo</button>';document.getElementById('bm-sdc').style.display='none';}
   bUpdateMP();
 }
@@ -9490,7 +9519,7 @@ async function fbPullAll(){
       const [latestDate,latestV]=latestKey.split('_');
       // WorkDate aur version set karo
       if(workDate&&latestDate)workDate.value=latestDate;
-      upV=parseInt(latestV)||1;
+      upV=parseInt(latestV,10)||1;
     }
 
     await loadVersions();await loadCurV();await loadLocal();
@@ -9736,7 +9765,7 @@ function selR(i,days){
 }
 function selRCustom(i,val){
   const cn=_ovData[i]?_ovData[i].caseno:null;if(!cn)return;
-  const d=parseInt(val);
+  const d=parseInt(val,10);
   if(isNaN(d))return;
   if(d===0){
     _ovRemSel[cn]=0; // 0 = cancel reminder
@@ -10147,7 +10176,7 @@ async function runBundleCheck(){
     // CFM se next date nikalo
     const cfmRec=cData.find(r=>caseMatch(r.caseno,f.id));
     if(!cfmRec||!cfmRec.nextdate)return;
-    const cfmDay=parseInt(cfmRec.nextdate.split('-')[2]);
+    const cfmDay=parseInt(cfmRec.nextdate.split('-')[2],10);
     if(cfmDay!==f.md){
       wrongDate.push({f,cfmRec,cfmDay});
     }
