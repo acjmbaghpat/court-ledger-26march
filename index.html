@@ -8062,7 +8062,12 @@ async function fbPushAll(force){
     // retry bhi fail hote, aur poora push fail dikhta tha.
     // Ab batch chhote (1.5MB) hain aur timeout size ke hisaab se badhta hai,
     // isliye dheeme network par bhi push poora hota hai (bas thoda time lega).
-    const BATCH_SIZE=120;
+    // Pehle 120 dates/1.5MB tha — 152 dates ke saath ye 10-15 chhote batches
+    // bana raha tha, aur har batch ek alag Firestore round-trip hai. Court ki
+    // Hindi-heavy files ke saath bhi ek batch 400 dates tak fit ho jaata hai
+    // (dekho size-limit neeche), isliye COUNT badha diya — round-trips kam,
+    // push tez. SIZE-limit wahi rakha hai taaki koi batch bhaari na ho.
+    const BATCH_SIZE=400;
     const BATCH_BYTES=1.5*1024*1024;
     const chunks=[];
     let cur=[],curBytes=0;
@@ -8073,31 +8078,40 @@ async function fbPushAll(force){
       cur.push(item);curBytes+=item.size;
     }
     if(cur.length)chunks.push(cur);
+    // Pehle har batch 3-baar retry karta tha, aur har koshish ka timeout size ke
+    // hisaab se 20-40s. Ek kamzor/tootte network par ye 3× ho jaata tha —
+    // 15 chhote batch × 3 retry × ~40s = kabhi khatam na hone wala push, aur
+    // progress-bar sirf "%" dikhata tha, kaunsi date atki hai wo nahi.
+    // Ab: sirf EK koshish (Firestore khud transient errors retry karta hai),
+    // progress mein DATE ka naam dikhta hai, aur jo fail ho wo turant chhoot
+    // kar agli date par badhte hain — antt mein saari fail hui dates saaf
+    // list mein dikhengi, poora push kabhi ruk-ta nahi.
     let pushedIdx=0;
+    const t0all=Date.now();
     for(const chunk of chunks){
+      const chunkMB=chunk.reduce((s,x)=>s+(x.size||0),0)/1048576;
+      const firstDate=fmtD(chunk[0].key.split('_')[0]);
+      const elapsedS=Math.round((Date.now()-t0all)/1000);
+      fbProg(5+Math.round((pushedIdx/Math.max(toPush.length,1))*80),
+        'CFM: '+firstDate+' bhej rahe hain... ('+(pushedIdx+skipped)+'/'+total+', '+elapsedS+'s)');
       let committed=false,lastErr=null;
-      for(let attempt=0;attempt<3&&!committed;attempt++){
-        try{
-          const batch=_fbDb.batch();
-          chunk.forEach(item=>{
-            batch.set(_fbDb.collection('cfm').doc(item.key),cfmToFirebase(item.data));
-          });
-          // Timeout batch ke size ke hisaab se: 20s base + 20s per MB.
-          // Dheemi mobile line par bhi poora hone ka mauka mile.
-          const chunkMB=chunk.reduce((s,x)=>s+(x.size||0),0)/1048576;
-          await commitWithTimeout(batch,Math.round(20000+chunkMB*20000)); // hang pe retry
-          committed=true;
-        }catch(e){lastErr=e;await new Promise(r=>setTimeout(r,500*(attempt+1)));}
-      }
+      try{
+        const batch=_fbDb.batch();
+        chunk.forEach(item=>{
+          batch.set(_fbDb.collection('cfm').doc(item.key),cfmToFirebase(item.data));
+        });
+        await commitWithTimeout(batch,Math.round(15000+chunkMB*15000));
+        committed=true;
+      }catch(e){lastErr=e;}
       if(committed){
         chunk.forEach(item=>{_pushedHashes[item.key]=item.hash;cfmCount++;recordCount+=item.data.length;});
       }else{
-        chunk.forEach(item=>{failCount++;failedDates.push(item.key);_cmPendingDates.add(item.key);});
-        console.error('Batch commit fail',lastErr);
+        chunk.forEach(item=>{failCount++;failedDates.push(fmtD(item.key.split('_')[0]));_cmPendingDates.add(item.key);});
+        console.error('Batch commit fail ('+firstDate+'):',lastErr);
       }
       pushedIdx+=chunk.length;
       const pct=5+Math.round((pushedIdx/Math.max(toPush.length,1))*80); // 5-85% for CFM
-      fbProg(pct,'CFM push: '+(pushedIdx+skipped)+'/'+total+' ('+skipped+' skip)');
+      fbProg(pct,'CFM push: '+(pushedIdx+skipped)+'/'+total+' ('+failCount+' fail, '+skipped+' skip)');
     }
     savePushedHashes(); // hashes persist — reload ke baad bhi unchanged dates skip hongi
     done=total;
