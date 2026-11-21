@@ -1302,7 +1302,7 @@ input:focus,select:focus,textarea:focus{
         </div>
         <button class="btn solid-purple" onclick="exportBackup()" style="margin-top:0">⬇️ Export Backup</button>
         <button class="btn outline-purple" onclick="document.getElementById('restoreFile').click()" style="margin-top:8px">⬆️ Restore Backup</button>
-        <input type="file" id="restoreFile" accept=".json" style="display:none" onchange="importBackup(event)">
+        <input type="file" id="restoreFile" accept=".json,.gz,application/json,application/gzip,application/x-gzip" style="display:none" onchange="importBackup(event)">
         <div id="backupStatus" class="smsg" style="margin-top:8px"></div>
 
         <div class="dsec-title" style="margin-top:18px">📤 Auto-Backup (Telegram)</div>
@@ -2166,6 +2166,20 @@ function esc(s){if(s==null)return '';return String(s).replace(/[&<>"']/g,c=>({'&
 // hai. Natija: apostrophe wale case-number par button kaam hi nahi karta
 // (aur soch-samajh kar banaya gaya text code ban sakta hai).
 // Sahi tarika: PEHLE JS-escape, PHIR HTML-escape — tabhi dono layer safe.
+
+// ═══ SECONDARY = SIRF DEKHNE KE LIYE ═══
+// Secondary device Firebase se data LETA hai, bhejta nahi. Pehle yahan SENT/
+// RECEIVE/bundle-add jaise kaam ho jaate the, "✅" bhi dikh jaata tha, aur
+// phone mein save bhi ho jaata tha — par wo kabhi Firebase nahi jaata tha aur
+// agle auto-pull mein CHUP-CHAAP MIT jaata tha. Kaam karne wale ko lagta tha
+// ho gaya. Ab Secondary par kaam shuru hi nahi hota, saaf bata deta hai.
+function secondaryBlock(fromScan){
+  if(typeof deviceRole==='undefined'||deviceRole!=='secondary')return false;
+  const msg='🔒 Ye SECONDARY device hai — yahan kiya kaam save/sync nahi hota (agle sync pe mit jaata). Ye kaam MAIN phone par karo.';
+  try{ if(fromScan&&typeof showSC==='function')showSC(msg,'#dc2626'); else showToast(msg,'d'); }catch(e){}
+  try{ speak('Secondary device. Main phone par karo','hi-IN'); haptic('error'); }catch(e){}
+  return true;
+}
 function escJs(s){
   return esc(String(s==null?'':s)
     .replace(/\\/g,'\\\\')
@@ -3230,7 +3244,7 @@ async function pgPrefetchAll(force){
   if(!_fbDb)return null;
   if(!force&&_pgAllCache&&(Date.now()-_pgPrefetchAt)<5*60000)return _pgAllCache;
   try{
-    const snap=await _fbDb.collection('peshgar').get();
+    const snap=await withTimeout(_fbDb.collection('peshgar').get(),20000,'Peshgar data');
     const out={};
     snap.docs.forEach(d=>{
       if(!/^\d{4}-\d{2}-\d{2}$/.test(d.id))return;
@@ -3315,7 +3329,7 @@ async function pgAuditScan(){
   // 1) Peshgar ka SAARA data (har date)
   let pgByDate={};
   try{
-    const snap=await _fbDb.collection('peshgar').get();
+    const snap=await withTimeout(_fbDb.collection('peshgar').get(),20000,'Peshgar audit');
     snap.docs.forEach(doc=>{
       const date=doc.id;
       if(!/^\d{4}-\d{2}-\d{2}$/.test(date))return;
@@ -3791,7 +3805,7 @@ async function addCategoryWordToRemark(caseNo,word){
           invalidateAllDatesCache();
           // Firebase pe bhi push karo us date ko (warna secondary device ko tag nahi dikhta)
           if(_fbDb&&navigator.onLine&&deviceRole!=='secondary'){
-            try{await _fbDb.collection('cfm').doc(k).set(cfmToFirebase(arr));}catch(e){_cmPendingDates&&_cmPendingDates.add(k);savePendingQueue&&savePendingQueue();}
+            try{await withTimeout(_fbDb.collection('cfm').doc(k).set(cfmToFirebase(arr)),15000,'Category push');}catch(e){_cmPendingDates&&_cmPendingDates.add(k);savePendingQueue&&savePendingQueue();}
           }else if(deviceRole!=='secondary'){
             _cmPendingDates&&_cmPendingDates.add(k);savePendingQueue&&savePendingQueue();
           }
@@ -4142,7 +4156,7 @@ async function mergeUpcomingReceived(uploadedRows,targetDate){
   return{merged:[...uploadedRows,...extra],addedCount:extra.length};
 }
 
-async function uploadExcel(){
+async function uploadExcel(){if(secondaryBlock()){return;}
   if(typeof XLSX==='undefined'){showToast('❌ Excel library load nahi hui — page reload karo','d');return;}
   const file=excelFile.files[0];
   if(!file){showToast('⚠️ File select karo','w');return;}
@@ -4959,7 +4973,7 @@ function syncAddCaseDateLabel(){
   const lbl=document.getElementById('addcase-dateLabel');
   if(lbl)lbl.textContent=fmtD(workDate.value)||'—';
 }
-async function addCaseThenSend(){
+async function addCaseThenSend(){if(secondaryBlock()){return;}
   // Caseno pehle save karo — addCaseManually form clear kar deta hai
   const cn=(document.getElementById('ac-caseno').value||'').trim().toUpperCase();
   if(!cn){showAcMsg('⚠️ Case No zaroori hai','err');return;}
@@ -4985,7 +4999,7 @@ async function addCaseThenSend(){
   showToast('✅ '+cData[idx].caseno+' add aur SENT ho gaya!');
   haptic('success');
 }
-async function addCaseManually(){
+async function addCaseManually(){if(secondaryBlock()){return;}
   const cn=(document.getElementById('ac-caseno').value||'').trim().toUpperCase();
   if(!cn){showAcMsg('⚠️ Case No zaroori hai','err');return false;}
   if(cn.length<2){showAcMsg('⚠️ Case No bahut chhota hai','err');return false;}
@@ -5209,7 +5223,7 @@ async function updateNextDate(cn,val){
   if(val){speakNextDate(val);showToast('📅 Next date: '+fmtD(val));}
   else showToast('📅 Next date clear ho gaya','w');
 }
-async function updateRemark(cn,val){
+async function updateRemark(cn,val){if(secondaryBlock()){return;}
   clearTimeout(rTimers[cn]);
   // Live tag update — turant (debounce ke bina), focus disturb kiye bina
   updateRowRemarkTags(cn,val);
@@ -5304,7 +5318,7 @@ function cleanUndoRemark(remark){
   const parts=String(remark).split(' | ').map(p=>p.trim()).filter(p=>p&&!statusTags.test(p));
   return parts.join(' | ');
 }
-async function confirmUndo(){
+async function confirmUndo(){if(secondaryBlock()){return;}
   const pwd=document.getElementById('cd-pwd').value;
   if(pwd!=='27031994'){document.getElementById('cd-pwd-err').style.display='block';document.getElementById('cd-pwd').value='';document.getElementById('cd-pwd').focus();return;}
   const idx=cData.findIndex(r=>caseMatch(r.caseno,_cdCN));if(idx===-1){closeCaseDetail();return;}
@@ -5356,7 +5370,7 @@ document.addEventListener("click",e=>{
   if(ctdd&&ctinp&&!ctinp.contains(e.target)&&!ctdd.contains(e.target)){ctdd.style.display='none';_ctIdx=-1;}
 });
 
-async function manualAction(mode){
+async function manualAction(mode){if(secondaryBlock()){return;}
   const raw=manualCaseInput.value.trim();
   const cn=raw.toUpperCase();
   if(!cn){showMS("⚠️ Case No enter karo","err");return;}
@@ -5446,7 +5460,7 @@ function openNDModal(cn){resetJO();const rec=cData.find(r=>caseMatch(r.caseno,cn
   document.getElementById("ndModal").classList.add("on");}
 function closeNDModal(){resetJO();document.getElementById("ndModal").classList.remove("on");lastRcvCase=null;_ndRcvMode=false;}
 document.getElementById("ndModal").addEventListener("click",function(e){if(e.target===this&&!_ndRcvMode)closeNDModal();}); // received mode mein bahar-click se band nahi (date choose zaroori)
-async function saveNextDate(){
+async function saveNextDate(){if(secondaryBlock()){return;}
   try{actLog("nextdate");}catch(e){}
   if(!lastRcvCase)return;
   const d=document.getElementById("ndInput").value;
@@ -5659,13 +5673,17 @@ async function buildBackupData(){
   const allB=await idbAB();
   // Archive store bhi backup mein (90+ din purana data — taaki export mein na chhute)
   const ark=await idbAARK(),ad={};for(const k of ark){const v=await idbGAR(k);if(v!==null)ad[k]=v;}
-  return {exportedAt:new Date().toISOString(),appVersion:"3.0",versionsStore:vd,metadataStore:md,bundlesStore:allB,archiveStore:ad};
+  // URGENT LOG bhi backup mein — pehle ye backup mein tha hi nahi. Phone kharab
+  // ho jaaye to urgent movement ka poora record (kaunsi file kab kiske paas
+  // gayi) sirf Firebase ke bharose tha.
+  let ul=[];try{ul=await ulGetAll();}catch(e){}
+  return {exportedAt:new Date().toISOString(),appVersion:"3.0",versionsStore:vd,metadataStore:md,bundlesStore:allB,archiveStore:ad,urgentStore:ul};
 }
 async function exportBackup(){
   const stEl=document.getElementById("backupStatus");
   try{
     const bk=await buildBackupData();
-    const blob=new Blob([JSON.stringify(bk,null,2)],{type:"application/json"});
+    const blob=new Blob([JSON.stringify(bk)],{type:"application/json"});
     const url=URL.createObjectURL(blob),a=document.createElement("a");
     a.href=url;a.download="CourtBundleBackup_"+new Date().toISOString().split("T")[0]+".json";
     document.body.appendChild(a);a.click();markBackupDone('manual');document.body.removeChild(a);URL.revokeObjectURL(url);
@@ -5715,9 +5733,23 @@ async function tgSendBackup(silent){
   if(!navigator.onLine){if(!silent)showToast('📡 Net nahi — net aane pe bheji jayegi','w');return false;}
   try{
     const bk=await buildBackupData();
-    const jsonStr=JSON.stringify(bk,null,2);
-    const blob=new Blob([jsonStr],{type:'application/json'});
-    const fname='CourtBackup_'+_todayStr()+'.json';
+    const jsonStr=JSON.stringify(bk);
+    // GZIP: JSON ~10 guna chhota ho jaata hai (16MB → ~1.5MB) — kamzor signal par
+    // upload 30 sec mein pura ho paata hai. Restore .json aur .json.gz dono leta hai.
+    // Purane WebView mein CompressionStream na ho to seedha .json bhejte hain.
+    let blob=new Blob([jsonStr],{type:'application/json'});
+    let fname='CourtBackup_'+_todayStr()+'.json';
+    try{
+      if(typeof CompressionStream==='function'){
+        const gz=await new Response(blob.stream().pipeThrough(new CompressionStream('gzip'))).blob();
+        // Sanity: gzip header sahi ho aur khol ke wahi JSON mile — tabhi gz bhejo
+        const head=new Uint8Array(await gz.slice(0,2).arrayBuffer());
+        if(head[0]===0x1f&&head[1]===0x8b&&gz.size>0){
+          const back=await new Response(gz.stream().pipeThrough(new DecompressionStream('gzip'))).text();
+          if(back.length===jsonStr.length){blob=new Blob([gz],{type:'application/gzip'});fname+='.gz';}
+        }
+      }
+    }catch(e){console.warn('backup gzip skip, plain json bhej rahe:',e&&e.message);}
     // Telegram sendDocument API
     const fd=new FormData();
     fd.append('chat_id',cfg.chatId);
@@ -5766,7 +5798,7 @@ async function checkDailyBackup(){
     if(lastDl!==today){
       try{
         const bk=await buildBackupData();
-        const blob=new Blob([JSON.stringify(bk,null,2)],{type:'application/json'});
+        const blob=new Blob([JSON.stringify(bk)],{type:'application/json'});
         const url=URL.createObjectURL(blob),a=document.createElement('a');
         a.href=url;a.download='CourtBackup_'+today+'.json';
         document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
@@ -5799,11 +5831,21 @@ async function checkDailyBackup(){
   }
 }
 
-async function importBackup(event){
+async function importBackup(event){if(secondaryBlock()){try{event.target.value="";}catch(e){}return;}
   const stEl=document.getElementById("backupStatus");
   const file=event.target.files[0];if(!file)return;
   try{
-    const text=await file.text();const bk=JSON.parse(text);
+    // .json ya .json.gz (Telegram wala) — gzip ho to pehle kholo (magic bytes 1f 8b)
+    let text;
+    let head=[0,0];
+    try{head=new Uint8Array(await file.slice(0,2).arrayBuffer());}catch(e){}
+    if(head[0]===0x1f&&head[1]===0x8b){
+      if(typeof DecompressionStream!=='function'){stEl.textContent="❌ Ye phone .gz file nahi khol sakta — computer par unzip karke .json chuno";stEl.className="smsg s-err";try{event.target.value="";}catch(e){}return;}
+      text=await new Response(file.stream().pipeThrough(new DecompressionStream('gzip'))).text();
+    }else text=await file.text();
+    let bk;
+    try{bk=JSON.parse(text);}catch(e){stEl.textContent="❌ File kharab hai / backup nahi hai (JSON padh nahi paaye)";stEl.className="smsg s-err";try{event.target.value="";}catch(_){}return;}
+    if(!bk||typeof bk!=='object'){stEl.textContent="❌ Invalid backup file";stEl.className="smsg s-err";return;}
     if(!bk.versionsStore&&!bk.metadataStore){stEl.textContent="❌ Invalid backup file";stEl.className="smsg s-err";return;}
 
     // ═══ PREVIEW + CONFIRM ═══
@@ -5855,7 +5897,25 @@ async function importBackup(event){
     }
     await loadVersions();await loadCurV();await loadLocal();
     if(bk.bundlesStore){const allB=await idbAB();bFiles={};allB.forEach(b=>bFiles[b.id]=b);invalidateBundleIdx();}
-    stEl.textContent="✅ Restore ho gaya!";stEl.className="smsg s-ok";showToast('✅ Backup restore ho gaya!');
+    // Urgent log wapas (duplicate apne aap chhoot jaate hain — ulAdd dedup karta hai)
+    if(Array.isArray(bk.urgentStore)){
+      for(const e of bk.urgentStore){try{const x={...e};delete x.id;await ulAdd(x);}catch(err){}}
+    }
+    // RESTORE KE BAAD FIREBASE: pehle restore sirf phone mein likhta tha — queue
+    // mein kuch nahi daalta tha. Isliye Secondary/Peshgar purana data dekhte
+    // rehte the aur Health Check phir bhi "sab Firebase par hai" kehta tha.
+    // Ab restore hui har date, bundle aur urgent-log push ke liye queue mein.
+    let _qd=0;
+    try{
+      const ks=[...Object.keys(bk.metadataStore||{}),...Object.keys(bk.archiveStore||{})].filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k));
+      ks.forEach(k=>{_cmPendingDates.add(k);delete _pushedHashes[k];});_qd=ks.length;
+      if(bk.bundlesStore)_cmPendingBundle=true;
+      if(Array.isArray(bk.urgentStore)&&bk.urgentStore.length)_cmPendingUrgent=true;
+      savePendingQueue();savePushedHashes();
+      if(_fbDb&&navigator.onLine&&deviceRole!=='secondary'){setTimeout(()=>{try{flushCmPush();}catch(e){}},800);}
+    }catch(e){console.error('restore queue:',e);}
+    stEl.textContent="✅ Restore ho gaya! "+_qd+" date(s) Firebase par bhejne ke liye queue mein";stEl.className="smsg s-ok";
+    showToast('✅ Backup restore ho gaya — '+_qd+' date(s) Firebase par ja rahi hain (net hone par)');
     clearTimeout(stEl._t);stEl._t=setTimeout(()=>stEl.className="smsg",4000);
   }catch(err){stEl.textContent="❌ Restore fail: "+err;stEl.className="smsg s-err";}
   event.target.value="";
@@ -5960,7 +6020,7 @@ async function handleScanResult(dec){
   }
 }
 function startCFMScan(mode){openScan(mode==='SENT'?'cfm_sent':'cfm_rcv',mode==='SENT'?'📤 Scanning for SENT...':'📥 Scanning for RECEIVED...',false);}
-async function handleCFMScan(code,mode){
+async function handleCFMScan(code,mode){if(secondaryBlock(true)){return;}
   const idx=findCaseIdx(code.trim());
   if(idx===-1){showSC('❌ Not Found: '+code,'#dc2626');speak("File not found");haptic('error');redFlash();return;}
   const actualCN=cData[idx].caseno; // always use stored caseno, not raw scanned string
@@ -6472,7 +6532,7 @@ function auDownload(){
     showToast('✅ Report download ho gayi');
   }catch(e){showToast('❌ Excel banane mein dikkat: '+e.message,'d');}
 }
-async function auMarkMissing(){
+async function auMarkMissing(){if(secondaryBlock()){return;}
   const {missing}=auCompute();
   if(!missing.length){showToast('⚠️ Koi missing file nahi','w');return;}
   if(!confirm('🔴 '+missing.length+' file(s) ko MISSING mark karein?\n\nSlot: '+auSlotLabel(_auSlot)+'\n\n'
@@ -7150,7 +7210,7 @@ function bUpdateSP(){
   else eb.style.display='none';
 }
 function bUpdateST(){const el=document.getElementById('scan-ml');if(el&&(scanCtx==='bundle'||scanCtx==='bundlefree'))el.textContent=(scanCtx==='bundlefree'?'🆓 Free ':'📷 ')+`Bundle → Date ${bAMD}${bASD!=null?'/'+bASD:''} ${dispCol(bAC)}`;}
-async function bAddFile(rawId,fromScan){
+async function bAddFile(rawId,fromScan){if(secondaryBlock(!!fromScan)){return false;}
   // NULL/UNDEFINED GUARD: scanner ya koi caller kabhi null/undefined de de to
   // rawId.trim() par crash ho jaata tha. Ab chup-chaap false return.
   const id=String(rawId==null?'':rawId).trim().toUpperCase();if(!id)return false;
@@ -7412,8 +7472,8 @@ async function confirmMismatch(){
 }
 function cancelMismatch(){document.getElementById('mmModal').classList.remove('on');mmPending={id:'',cfmDay:0};showSC('❌ Scan reject: date mismatch','#dc2626');}
 async function bSetStatus(id,st){if(!bFiles[id])return;bFiles[id].st=st;await idbSBn(bFiles[id]);scheduleBundlePush();showToast(st==='missing'?'⚠ Missing: '+id:'✅ Restored: '+id,st==='missing'?'w':'');bRenderGrid();if(bSlot)bRenderSlot();bRenderSearch();}
-async function bUnhide(id){if(!bFiles[id])return;bFiles[id].hidden=false;invalidateBundleIdx();await idbSBn(bFiles[id]);scheduleBundlePush();showToast('✅ '+id+' wapas dikhaya');bRenderGrid();bRenderSearch();}
-async function bDelFile(id){delete bFiles[id];invalidateBundleIdx();await idbDB(id);scheduleBundlePush();showToast('Hata diya: '+id,'d');bRenderGrid();if(bSlot)bRenderSlot();bRenderSearch();}
+async function bUnhide(id){if(secondaryBlock()){return;}if(!bFiles[id])return;bFiles[id].hidden=false;invalidateBundleIdx();await idbSBn(bFiles[id]);scheduleBundlePush();showToast('✅ '+id+' wapas dikhaya');bRenderGrid();bRenderSearch();}
+async function bDelFile(id){if(secondaryBlock()){return;}delete bFiles[id];invalidateBundleIdx();await idbDB(id);scheduleBundlePush();showToast('Hata diya: '+id,'d');bRenderGrid();if(bSlot)bRenderSlot();bRenderSearch();}
 function bOpenMove(id){bMoveId=id;const f=bFiles[id];
   // NULL GUARD: agar file beech mein hat gayi (Firebase sync, doosre device se
   // remove) aur user purana button daba de, to f undefined hota tha aur
@@ -7476,7 +7536,7 @@ function bRenderMoveForm(){
 function bmEnableSD(){bMSD=1;document.getElementById('bm-sds').innerHTML='<div class="dgrid" id="bm-sdg"></div>';document.getElementById('bm-sdc').style.display='inline-block';bBDG('bm-sdg',bMSD,d=>{bMSD=d;bRenderMoveForm();});bUpdateMP();}
 function bmClearSD(){bMSD=null;document.getElementById('bm-sds').innerHTML='<button class="sdadd" onclick="bmEnableSD()">+ Sub-Date add karo</button>';document.getElementById('bm-sdc').style.display='none';bUpdateMP();}
 function bUpdateMP(){document.getElementById('bm-prev').textContent=bMCat?`${CAT_LABELS[bMCat]||bMCat} — ${dispCol(bMC)}`:`Date ${bMMD}${bMSD!=null?'/'+bMSD:''} — ${dispCol(bMC)}`;}
-async function doBundleMove(){
+async function doBundleMove(){if(secondaryBlock()){return;}
   try{actLog("bundleMove");}catch(e){}
   // Category mode: md=0, sd=null, cat set. Date mode: cat=null.
   const applyTarget=(fileObj)=>{
@@ -7568,7 +7628,7 @@ function selectAllInSlot(){
   else{ids.forEach(id=>_ddSel.add(id));}
   updateBulkBar();bRenderSlot();
 }
-async function bulkMoveSelected(){if(!_ddSel.size)return;_bulkMoveMode=true;const first=[..._ddSel][0];const f=bFiles[first];if(f){bMMD=f.md;bMSD=f.sd!=null?f.sd:null;bMC=f.col;bMCat=f.cat||null;}document.getElementById('bm-fid').textContent=_ddSel.size+' files selected';bmApplyMode(bMCat?'cat':'date');bRenderMoveForm();document.getElementById('bmModal').classList.add('on');}
+async function bulkMoveSelected(){if(secondaryBlock()){return;}if(!_ddSel.size)return;_bulkMoveMode=true;const first=[..._ddSel][0];const f=bFiles[first];if(f){bMMD=f.md;bMSD=f.sd!=null?f.sd:null;bMC=f.col;bMCat=f.cat||null;}document.getElementById('bm-fid').textContent=_ddSel.size+' files selected';bmApplyMode(bMCat?'cat':'date');bRenderMoveForm();document.getElementById('bmModal').classList.add('on');}
 function onFileDragStart(e,el){const rawId=_decId(el.dataset.fileid||'');if(_ddSelMode&&_ddSel.size>0&&_ddSel.has(rawId)){_ddDragIds=[..._ddSel];}else{_ddDragIds=[rawId];}e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',JSON.stringify(_ddDragIds));setTimeout(()=>{_ddDragIds.forEach(fid=>{const card=document.querySelector(`.bfc[data-fileid="${esc(fid)}"]`);if(card)card.classList.add('dragging');});},0);}
 function onFileDragEnd(e){document.querySelectorAll('.bfc.dragging').forEach(el=>el.classList.remove('dragging'));}
 function onSlotDragOver(e,btn){e.preventDefault();e.dataTransfer.dropEffect='move';btn.classList.add('drop-over');}
@@ -7712,7 +7772,7 @@ async function fbPullSilent(){
   if(!_fbDb)return;
   try{
     // CFM saari dates
-    const cfmSnaps=await _fbDb.collection('cfm').get();
+    const cfmSnaps=await withTimeout(_fbDb.collection('cfm').get(),25000,'CFM pull');
     let cfmN=0;
     for(const doc of cfmSnaps.docs){
       const k=doc.id;if(!/^\d{4}-\d{2}-\d{2}_\d+$/.test(k))continue;
@@ -7732,7 +7792,7 @@ async function fbPullSilent(){
     // Pehle seedha bFiles=bd.files karke await-loop chalta tha — agar us beech bInit()
     // chal jaata (user Bundle tab kholta), to wo bFiles={} kar deta aur loop khali object
     // pe chalta → Secondary pe 0 bundle files aati thi.
-    const bSnap=await _fbDb.collection('bundle').doc('main').get();
+    const bSnap=await withTimeout(_fbDb.collection('bundle').doc('main').get(),12000,'Bundle pull');
     let bundleN=0;
     if(bSnap.exists){
       const bd=bSnap.data();
@@ -7747,7 +7807,7 @@ async function fbPullSilent(){
       }
     }
     // URGENT
-    const uSnap=await _fbDb.collection('urgent').doc('main').get();
+    const uSnap=await withTimeout(_fbDb.collection('urgent').doc('main').get(),12000,'Urgent pull');
     if(uSnap.exists){const ud=uSnap.data();if(ud&&Array.isArray(ud.logs)){for(const log of ud.logs){try{await ulAdd(log);}catch(e){}}}}
     // Refresh views
     await loadVersions();await loadLocal();drawTable(getFiltered());await updateDash();
@@ -8147,17 +8207,25 @@ async function fbPushAll(force){
     // 96% par KHADA rehta tha — user ko lagta tha app atak gayi (jabki chal
     // rahi hoti thi). Ab har second ginti dikhti hai, isliye saaf pata chalta
     // hai ki kaam ho raha hai.
-    for(let a=1;a<=2&&!bundleOk;a++){
+    // fbPushBundle() KHUD ke andar pehle se 2 safety-read (10s har ek) + 1
+    // write (18s) hoti hai — matlab ek koshish mein hi ~38s ka apna resilience
+    // hai. Pehle YE poora bahar se 2× retry hota tha (~84s tak), jo bundle ke
+    // liye akela hi push ko dhai minute tak khinch sakta tha. Ab sirf 1
+    // koshish — andar ki timeouts hi kaafi hain, aur fail ho to seedha
+    // queue mein (agli push/flush ise le legi).
+    {
       const t0=Date.now();
       const tick=setInterval(()=>{
         const s=Math.round((Date.now()-t0)/1000);
-        try{fbProg(96,'Bundle push... '+s+'s'+(a>1?' (dobara koshish)':'')+' — '+bAllCount()+' files');}catch(e){}
+        try{fbProg(96,'Bundle push... '+s+'s — '+bAllCount()+' files');}catch(e){}
       },1000);
-      try{ await withTimeout(fbPushBundle(true),45000,'Bundle push'); bundleOk=true; }
+      try{
+        const ok=await withTimeout(fbPushBundle(true),55000,'Bundle push');
+        if(ok)bundleOk=true; else throw new Error('Bundle write fail/timeout (andar se false aaya)');
+      }
       catch(e){
-        console.error('bundle push try'+a+':',e);
-        if(a<2){await new Promise(r=>setTimeout(r,1200));}
-        else{failCount++;failedDates.push('Bundle ('+(e&&e.message||'fail')+')');_cmPendingBundle=true;savePendingQueue();}
+        console.error('bundle push:',e);
+        failCount++;failedDates.push('Bundle ('+(e&&e.message||'fail')+')');_cmPendingBundle=true;savePendingQueue();
       }
       finally{ clearInterval(tick); }
     }
@@ -8167,13 +8235,13 @@ async function fbPushAll(force){
     // nahi gaya" dikhata rehta tha.
     if(bundleOk){_cmPendingBundle=false;savePendingQueue();}
     fbProg(98,'Urgent log push...');
-    for(let a=1;a<=2&&!urgentOk;a++){
-      try{ await withTimeout(fbPushUrgent(),25000,'Urgent push'); urgentOk=true; }
-      catch(e){
-        console.error('urgent push try'+a+':',e);
-        if(a<2){await new Promise(r=>setTimeout(r,1000));}
-        else{failCount++;failedDates.push('Urgent log');_cmPendingUrgent=true;savePendingQueue();}
-      }
+    // fbPushUrgent() khud ke andar bhi 15s timeout hai — bahar 2× retry
+    // matlab 50s tak. Sirf 1 koshish, fail ho to queue mein (dekho upar
+    // wali tippani, bundle wale hisse mein).
+    try{ await withTimeout(fbPushUrgent(),18000,'Urgent push'); urgentOk=true; }
+    catch(e){
+      console.error('urgent push:',e);
+      failCount++;failedDates.push('Urgent log');_cmPendingUrgent=true;savePendingQueue();
     }
     if(urgentOk){_cmPendingUrgent=false;savePendingQueue();}
     fbProg(100,'Complete!');
@@ -8239,15 +8307,23 @@ async function fbPush(){
   }
   // Main device hi push kare (secondary nahi)
   if(deviceRole==='secondary')return;
+  // QUEUE PEHLE, PUSH BAAD MEIN. Pehle date sirf push FAIL hone par queue mein
+  // jaati thi. Kamzor signal mein push na fail hota tha na safal — bas latka
+  // rehta tha — to date queue mein jaati hi nahi thi. Us beech app band ho
+  // jaaye to wo kaam Firebase tak kabhi nahi pahunchta. Ab pehle queue (jo
+  // phone mein bachi rehti hai), aur sirf SAFAL push ke baad hi hatate hain.
+  const k=dKey();
+  const snap=JSON.stringify(cData);
+  _cmPendingDates.add(k);savePendingQueue();
   try{
     setSyncDot('busy');
-    await _fbDb.collection('cfm').doc(dKey()).set(cfmToFirebase(cData));
-    _cmPendingDates.delete(dKey());savePendingQueue();
-    _pushedHashes[dKey()]=quickHash(JSON.stringify(cData));savePushedHashes(); // hash update
+    await withTimeout(_fbDb.collection('cfm').doc(k).set(cfmToFirebase(JSON.parse(snap))),20000,'CFM push');
+    // Push ke dauraan naya kaam hua ho (cData badla) to date queue mein hi rahe
+    if(dKey()!==k||JSON.stringify(cData)===snap){_cmPendingDates.delete(k);savePendingQueue();}
+    _pushedHashes[k]=quickHash(snap);savePushedHashes(); // hash = jo SACH MEIN gaya
     setSyncDot('ok');
   }catch(e){
-    _cmPendingDates.add(dKey());savePendingQueue(); // fail — queue mein rakho
-    setSyncDot('err');
+    setSyncDot('err');   // date queue mein pehle se hai
   }
 }
 
@@ -8258,7 +8334,7 @@ async function fbPushVersionMeta(){
   try{
     const vs=await idbGV(workDate.value);
     const cv=await idbGM('cv_'+workDate.value);
-    await _fbDb.collection('cfm_meta').doc(workDate.value).set({versions:vs||[],cv:cv||1,at:Date.now()});
+    await withTimeout(_fbDb.collection('cfm_meta').doc(workDate.value).set({versions:vs||[],cv:cv||1,at:Date.now()}),12000,'Version meta');
   }catch(e){}
 }
 
@@ -8269,6 +8345,7 @@ function scheduleBundlePush(){
   _bPushTimer=setTimeout(async()=>{
     if(deviceRole==='secondary')return; // secondary push nahi karta
     if(!_fbDb||!navigator.onLine){_cmPendingBundle=true;savePendingQueue();setSyncDot('off');return;}
+    _cmPendingBundle=true;savePendingQueue();   // queue pehle (dekho fbPush ki tippani)
     const ok=await fbPushBundle();
     if(ok)_cmPendingBundle=false;else _cmPendingBundle=true;
     savePendingQueue();
@@ -8276,13 +8353,32 @@ function scheduleBundlePush(){
 }
 
 // ════ FLUSH — queued changes ko push karo (net aane pe ya periodic) ════
+// Ek waqt mein ek hi flush. Pehle lock nahi tha — har trigger (online event,
+// retry timer) naya flush shuru kar deta tha, aur atke hue flush ek ke upar ek
+// jama hote jaate the (same date kai baar likhne ki koshish).
+let _flushBusy=false;
 async function flushCmPush(){
   if(!_fbDb||!navigator.onLine||deviceRole==='secondary')return;
+  if(_flushBusy)return;
+  _flushBusy=true;
+  try{ return await _flushCmPushInner(); }
+  finally{ _flushBusy=false; }
+}
+async function _flushCmPushInner(){
   let changed=false;
   // Pending CFM dates push karo
   if(_cmPendingDates.size){
     const dates=[..._cmPendingDates];
+    // Ye background flush hai — har baar chalta hai (retry-timer/net-online).
+    // Agar bahut sari dates pending ho (jaise poora din offline reh kar 30+
+    // dates jama ho gayi) aur network kharaab ho, to ek-ek karke sabka 15s
+    // timeout jhelna is single call ko bahut lamba bana deta — agli flush
+    // shuru hone se pehle hi ye chalta reh sakta tha. Ek run mein zyada se
+    // zyada 40 second — baaki dates queue mein reh jaati hain, agli flush
+    // (jo har kuch second mein khud-b-khud chalti hai) unhe le legi.
+    const flushT0=Date.now();
     for(const dk of dates){
+      if(Date.now()-flushT0>40000)break;   // agli flush baaki ko le legi
       try{
         let d=await idbGM(dk);
         // ARCHIVE FALLBACK: agar wo date beech mein ARCHIVE ho gayi (90+ din
@@ -8294,8 +8390,15 @@ async function flushCmPush(){
           try{const a=await idbGAR(dk); if(a&&Array.isArray(a))d=a;}catch(e){}
         }
         if(d&&Array.isArray(d)){
-          await _fbDb.collection('cfm').doc(dk).set(cfmToFirebase(d));
+          // Ye background flush hai — koi progress-bar nahi dikhta, isliye
+          // agar write khud latak jaaye to user ko pata bhi nahi chalta ki
+          // sync atka hua hai. Timeout se ek-do date fail ho jaaye to bhi
+          // agli baar (retry-timer se) apne aap try ho jaati hai.
+          await withTimeout(_fbDb.collection('cfm').doc(dk).set(cfmToFirebase(d)),15000,'Queue flush');
           _cmPendingDates.delete(dk);changed=true;
+          // Jo bheja uska hash yaad rakho — Health Check isi se jaanchta hai ki
+          // phone ka data aur Firebase ka data ek hi hai ya nahi.
+          try{_pushedHashes[dk]=quickHash(JSON.stringify(d));savePushedHashes();}catch(e){}
         }else{
           // Kahin bhi nahi mili (delete ho chuki) — queue se hata do,
           // warna ye entry hamesha ke liye "pending" dikhati rahegi.
@@ -8572,7 +8675,7 @@ async function pushTrace(){
     P('7️⃣ Firebase pe LIKH rahe hain...');
     _bundleLoaded=true; // force
     try{
-      await _fbDb.collection('bundle').doc('main').set(payload);
+      await withTimeout(_fbDb.collection('bundle').doc('main').set(payload),18000,'Bundle write (trace)');
       P('   ✓ write ho gaya (koi error nahi)');
     }catch(e){
       P('   🔴 WRITE FAIL: '+e.message);
@@ -8586,7 +8689,7 @@ async function pushTrace(){
     P('8️⃣ Verify — wapas padh rahe hain...');
     await new Promise(r=>setTimeout(r,800)); // Firestore ko settle hone do
     try{
-      const snap=await _fbDb.collection('bundle').doc('main').get();
+      const snap=await withTimeout(_fbDb.collection('bundle').doc('main').get(),12000,'Bundle verify (trace)');
       if(!snap.exists){
         P('   🔴 Doc exist hi nahi karta write ke baad!');
         P('\n🔴 Bahut ajeeb — Firebase write accept karke bhi save nahi kar raha.');
@@ -8642,7 +8745,7 @@ async function bundleTrace(){
     P('3️⃣ bundle/main doc padh rahe hain...');
     let snap;
     try{
-      snap=await _fbDb.collection('bundle').doc('main').get();
+      snap=await withTimeout(_fbDb.collection('bundle').doc('main').get(),12000,'Bundle trace');
     }catch(e){
       P('   🔴 READ FAIL: '+e.message);
       P('\n🔴 RUKA: Firebase se padh nahi paa rahe.');
@@ -8767,7 +8870,7 @@ async function bundleDiagnose(){
       L.push('☁️ Firebase: connected');
       // 4. Firebase pe bundle doc
       try{
-        const snap=await _fbDb.collection('bundle').doc('main').get();
+        const snap=await withTimeout(_fbDb.collection('bundle').doc('main').get(),12000,'Bundle diagnose');
         if(!snap.exists){L.push('🔴 Firebase pe bundle/main doc NAHI hai');problem=problem||'nodoc';}
         else{
           const d=snap.data();
@@ -8856,7 +8959,10 @@ async function fbPushBundle(force){
     // Firebase pe pehle se files hain (accidental wipe se bachao).
     if(Object.keys(bFiles).length===0){
       try{
-        const snap=await _fbDb.collection('bundle').doc('main').get();
+        // Ye read agar network-drop mein khud atak jaaye to poora push kabhi
+        // shuru hi nahi hota tha — isliye ab isko bhi timeout mein wrap karte
+        // hain (dekho withTimeout ki tippani — commitWithTimeout wale point).
+        const snap=await withTimeout(_fbDb.collection('bundle').doc('main').get(),12000,'Bundle safety-check');
         if(snap.exists){
           const d=snap.data();
           const _fbf=await bundleFromFirebase(d);const fbCount=_fbf?Object.keys(_fbf).length:0;
@@ -8866,7 +8972,7 @@ async function fbPushBundle(force){
             return false;
           }
         }
-      }catch(e){/* read fail — aage badho */}
+      }catch(e){/* read fail (ya timeout) — aage badho, ruko mat */}
     }
   }
   // LARGE-DROP GUARD: khali-push wala guard sirf 0 files pe lagta tha. Par agar local
@@ -8878,7 +8984,7 @@ async function fbPushBundle(force){
     const localCnt=Object.keys(bFiles).length;
     if(localCnt>0){
       try{
-        const snap=await _fbDb.collection('bundle').doc('main').get();
+        const snap=await withTimeout(_fbDb.collection('bundle').doc('main').get(),12000,'Bundle drop-check');
         if(snap.exists){
           const _fbf=await bundleFromFirebase(snap.data());
           const fbCount=_fbf?Object.keys(_fbf).length:0;
@@ -8889,7 +8995,7 @@ async function fbPushBundle(force){
             return false;
           }
         }
-      }catch(e){/* read fail — aage badho */}
+      }catch(e){/* read fail (ya timeout) — aage badho */}
     }
   }
   try{
@@ -8897,6 +9003,8 @@ async function fbPushBundle(force){
     // (taaki bundle doc chhota rahe, par recent activity Secondary ko bhi dikhe)
     const now=Date.now();const ninetyDays=90*86400000;
     let purged=false;
+    // NOTE: yahan neeche ka size-check GET call (jo pehle bina-force pe chalta
+    // tha) ab andar hi timeout leke hai — dekho withTimeout ka istemaal neeche.
     Object.keys(bFiles).forEach(id=>{
       const f=bFiles[id];
       if(f.hidden&&f.at&&(now-f.at)>ninetyDays){
@@ -8934,31 +9042,28 @@ async function fbPushBundle(force){
         showToast('⚠️ Bundle '+vSize+'KB — 1MB limit se zyada. Bohot saari current files hain, kuch SENT mark karo.','d');
         return false;
       }
-      // Retry visible-only
-      let pushed=false,lastErr=null;
-      for(let attempt=0;attempt<3&&!pushed;attempt++){
-        try{await _fbDb.collection('bundle').doc('main').set(vPayload);pushed=true;}
-        catch(e){lastErr=e;await new Promise(r=>setTimeout(r,400*(attempt+1)));}
-      }
-      if(!pushed){console.error('fbPushBundle failed:',lastErr);return false;}
-      return true;
-    }
-    // Retry up to 3 times (visible + recent hidden)
-    let pushed=false,lastErr=null;
-    for(let attempt=0;attempt<3&&!pushed;attempt++){
+      // 🔴 ASLI BUG YAHAN THA: .set() ka koi timeout hi nahi tha. Agar Firestore
+      // write khud kabhi resolve/reject na ho (network-drop mein bahut aam),
+      // to 3× retry ka matlab 3× INFINITE WAIT — bahar se fbPushAll ka 45s
+      // dikhta tha, par andar wo kabhi khatam hi nahi hota tha jab tak
+      // Promise.race wala bahar ka timeout use maar na de. Ab andar hi
+      // timeout hai (18s), aur SIRF 1 koshish — retry ki zaroorat nahi,
+      // kyunki fail hone par _cmPendingBundle queue mein kaam bacha leta hai.
       try{
-        await _fbDb.collection('bundle').doc('main').set(payload);
-        pushed=true;
-      }catch(e){lastErr=e;await new Promise(r=>setTimeout(r,400*(attempt+1)));}
+        await withTimeout(_fbDb.collection('bundle').doc('main').set(vPayload),18000,'Bundle write');
+        return true;
+      }catch(e){console.error('fbPushBundle (visible-only) failed:',e);return false;}
     }
-    if(!pushed){console.error('fbPushBundle failed after retries:',lastErr);return false;}
-    return true;
+    try{
+      await withTimeout(_fbDb.collection('bundle').doc('main').set(payload),18000,'Bundle write');
+      return true;
+    }catch(e){console.error('fbPushBundle failed:',e);return false;}
   }catch(e){console.error('fbPushBundle:',e);return false;}
 }
 
 // Urgent logs push (debounced)
 let _urgPushTimer;
-function scheduleUrgentPush(){clearTimeout(_urgPushTimer);_urgPushTimer=setTimeout(async()=>{if(deviceRole==='secondary')return;if(!_fbDb||!navigator.onLine){_cmPendingUrgent=true;savePendingQueue();return;}try{await fbPushUrgent();_cmPendingUrgent=false;savePendingQueue();}catch(e){_cmPendingUrgent=true;savePendingQueue();}},1500);}
+function scheduleUrgentPush(){clearTimeout(_urgPushTimer);_urgPushTimer=setTimeout(async()=>{if(deviceRole==='secondary')return;if(!_fbDb||!navigator.onLine){_cmPendingUrgent=true;savePendingQueue();return;}_cmPendingUrgent=true;savePendingQueue();try{await fbPushUrgent();_cmPendingUrgent=false;savePendingQueue();}catch(e){_cmPendingUrgent=true;savePendingQueue();}},1500);}
 async function fbPushUrgent(){
   if(!_fbDb)return false;
   if(deviceRole==='secondary')return false; // secondary push nahi karta
@@ -8967,7 +9072,10 @@ async function fbPushUrgent(){
   // retry kabhi nahi hoti thi, aur pending-flag saaf nahi hota tha.
   // Ab error aage jaata hai taaki retry aur queue theek se kaam karein.
   const logs=await ulGetAll();
-  await _fbDb.collection('urgent').doc('main').set({logs:logs||[],at:Date.now()});
+  // Isi jagah bare .set() 98% par hamesha-ke-liye latka de raha tha jab koi
+  // outer-timeout na ho (jaise flushCmPush() ya pushTrace() seedha ye call
+  // karte hain, fbPushAll ke wale 25s guard se bahar). Ab andar hi timeout.
+  await withTimeout(_fbDb.collection('urgent').doc('main').set({logs:logs||[],at:Date.now()}),15000,'Urgent write');
   return true;
 }
 
@@ -9057,7 +9165,7 @@ async function overdueDiff(){
 
   // 2) Firebase se — Peshgar jaisa (har date ka latest version)
   let docs;
-  try{ docs=await _fbDb.collection('cfm').get(); }
+  try{ docs=await withTimeout(_fbDb.collection('cfm').get(),20000,'Overdue farak'); }
   catch(e){ P('❌ Firebase read fail: '+e.message); return; }
   const latestVer={},byDate={};
   docs.docs.forEach(d=>{
@@ -9164,6 +9272,12 @@ function _agoText(ts){
 // alag hain unke naam batate hain — taaki pata rahe ki kya push karna hai.
 // Ye sirf PADHTA hai, kuch badalta nahi.
 // ═══════════════════════════════════════════════════════════════
+// deepVerify DIAGNOSTIC hai (user "Har Date Milaao" dabaata hai) — is mein
+// fbRetry() teen alag baar chalti hai (CFM/Bundle/Urgent), aur agar har ek
+// apni poori 3-try × 15s chain chalaye to worst-case 135+ second ho jaata
+// tha, aur Health-Check modal poori tarah atka dikhta. Diagnostic mein retry
+// ki zaroorat nahi — fail ho to user khud button dobara dabaa lega. Isliye
+// har ek ko 1 hi koshish aur chhota timeout diya hai.
 async function deepVerify(onProg){
   const out={ok:false,checked:0,same:0,diff:[],missing:[],extra:[],err:'',bundle:null,urgent:null};
   if(!_fbDb){out.err='Firebase connect nahi hai';return out;}
@@ -9178,7 +9292,7 @@ async function deepVerify(onProg){
       const d=await idbGAR(k); if(Array.isArray(d)&&d.length)local[k]=d;
     }
     onProg&&onProg('Firebase se data padh rahe hain...');
-    const snap=await fbRetry(()=>_fbDb.collection('cfm').get(),'CFM verify');
+    const snap=await fbRetry(()=>_fbDb.collection('cfm').get(),'CFM verify',1,12000);
     const remote={};
     snap.docs.forEach(d=>{
       if(!/^\d{4}-\d{2}-\d{2}_\d+$/.test(d.id))return;
@@ -9202,13 +9316,19 @@ async function deepVerify(onProg){
       ]));
       if(L.length!==R.length){out.diff.push({key:k,why:'records: phone '+L.length+' vs firebase '+R.length});}
       else if(quickHash(norm(L))!==quickHash(norm(R))){out.diff.push({key:k,why:'records barabar par andar ka data alag'});}
-      else out.same++;
+      else{
+        out.same++;
+        // Firebase se pakka milaa → ab is date ka push-record ban gaya (sirf jab
+        // queue mein nahi; queue wali date ka faisla flush karega).
+        if(_pushedHashes[k]===undefined&&!_cmPendingDates.has(k))_pushedHashes[k]=quickHash(JSON.stringify(L));
+      }
     }
+    try{savePushedHashes();}catch(e){}
 
     // 3. Bundle
     onProg&&onProg('Bundle milaan...');
     try{
-      const bs=await fbRetry(()=>_fbDb.collection('bundle').doc('main').get(),'Bundle verify');
+      const bs=await fbRetry(()=>_fbDb.collection('bundle').doc('main').get(),'Bundle verify',1,10000);
       const rb=bs.exists?await bundleFromFirebase(bs.data()):{};
       const lb={};(await idbAB()).forEach(x=>{if(x&&x.id)lb[x.id]=x;});
       const nb=o=>quickHash(JSON.stringify(Object.keys(o).sort().map(id=>[id,o[id].md,o[id].sd,o[id].col,o[id].cat,o[id].hidden?1:0])));
@@ -9217,7 +9337,7 @@ async function deepVerify(onProg){
 
     // 4. Urgent
     try{
-      const us=await fbRetry(()=>_fbDb.collection('urgent').doc('main').get(),'Urgent verify');
+      const us=await fbRetry(()=>_fbDb.collection('urgent').doc('main').get(),'Urgent verify',1,10000);
       const rl=us.exists&&us.data()&&Array.isArray(us.data().logs)?us.data().logs.length:0;
       const ll=(await ulGetAll()||[]).length;
       out.urgent={local:ll,remote:rl,same:ll===rl};
@@ -9273,9 +9393,11 @@ async function openHealth(){
     const mk=await idbAMK();
     const dateKeys=mk.filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k));
     let cfmRows=0;const seenCase=new Set();const dupes=[];const blanks=[];
+    const _hData=new Map(); // ek baar padha data 2b (push-check) mein dobara use hoga
     for(const k of dateKeys){
       const d=await idbGM(k);
       if(!Array.isArray(d))continue;
+      _hData.set(k,d);
       cfmRows+=d.length;
       const local=new Set();
       d.forEach(r=>{
@@ -9343,25 +9465,45 @@ async function openHealth(){
     }catch(e){}
 
     // ── 2b. Kya kuch push hona baaki hai? ──
-    // Ye sabse zaroori signal hai: agar Main par kaam ho chuka hai par Firebase
-    // par nahi gaya, to Secondary/Peshgar ko purana data milta rahega aur unke
-    // number (overdue waghera) Main se alag aayenge — bina kisi wajah ke.
+    // PEHLE ye sirf QUEUE dekhta tha. Par kai raaston se data Firebase tak
+    // nahi pahunchta aur queue mein bhi nahi hota (backup restore, kamzor
+    // signal mein app band, Secondary par kiya kaam) — tab bhi yahan
+    // "✅ sab Firebase par hai" dikh jaata tha. Ab har date ka DATA-HASH us hash
+    // se milaate hain jo aakhri safal push mein gaya tha. Ye phone par hi hota
+    // hai, net nahi chahiye.
     try{
-      const pend=(_cmPendingDates&&_cmPendingDates.size)||0;
-      const pendB=!!_cmPendingBundle, pendU=!!_cmPendingUrgent;
-      if(pend||pendB||pendU){
-        const parts=[];
-        if(pend)parts.push(pend+' date(s)');
-        if(pendB)parts.push('bundle');
-        if(pendU)parts.push('urgent');
-        h+='<div style="background:#fef2f2;border:1.5px solid #fecaca;border-radius:10px;padding:11px 13px;margin-bottom:14px">'
-         +'<div style="font-size:13px;font-weight:800;color:#b91c1c">🔴 '+parts.join(' + ')+' abhi Firebase par nahi gaya</div>'
-         +'<div style="font-size:11.5px;color:#b91c1c;margin-top:4px">Jab tak ye push nahi hota, doosre phone (Secondary/Peshgar) par purana data hi dikhega. '
-         +'Net on karke Firebase → "Sabhi Data Push Karo" dabao.</div></div>';
+      if(deviceRole==='secondary'){
+        h+='<div style="background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:10px;padding:9px 13px;margin-bottom:14px;font-size:12.5px;font-weight:600;color:#1d4ed8">📥 Ye SECONDARY device hai — yahan se Firebase par kuch nahi jaata, sirf Main se aata hai.</div>';
       }else{
-        h+='<div style="background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:10px;padding:9px 13px;margin-bottom:14px;font-size:12.5px;font-weight:600;color:#15803d">✅ Sab kuch Firebase par ja chuka hai — kuch pending nahi</div>';
+        const dirty=new Set(_cmPendingDates||[]);
+        // Hash hai par data badal gaya → pakka pending (red).
+        // Hash hi nahi (purana data jo hash-system se pehle push hua, ya Firebase se
+        // pull hua) → pata nahi; red nahi, alag se batao.
+        let untracked=0;
+        const chk=async(k,getter)=>{const d=await getter(k);if(!Array.isArray(d)||!d.length||dirty.has(k))return;const ph=_pushedHashes[k];if(ph===undefined){untracked++;return;}if(ph!==quickHash(JSON.stringify(d)))dirty.add(k);};
+        for(const k of dateKeys)await chk(k,async kk=>_hData.has(kk)?_hData.get(kk):await idbGM(kk));
+        for(const k of ark)await chk(k,idbGAR);
+        const pend=dirty.size;
+        const pendB=!!_cmPendingBundle, pendU=!!_cmPendingUrgent;
+        if(pend||pendB||pendU){
+          const parts=[];
+          if(pend)parts.push(pend+' date(s)');
+          if(pendB)parts.push('bundle');
+          if(pendU)parts.push('urgent');
+          const sample=[...dirty].sort().slice(0,6).map(k=>fmtD(k.split('_')[0])).join(', ');
+          h+='<div style="background:#fef2f2;border:1.5px solid #fecaca;border-radius:10px;padding:11px 13px;margin-bottom:14px">'
+           +'<div style="font-size:13px;font-weight:800;color:#b91c1c">🔴 '+parts.join(' + ')+' abhi Firebase par pakka nahi pahuncha</div>'
+           +(pend?'<div style="font-size:11.5px;color:#b91c1c;margin-top:3px">'+esc(sample)+(pend>6?' …+'+(pend-6):'')+'</div>':'')
+           +'<div style="font-size:11.5px;color:#b91c1c;margin-top:4px">Jab tak ye push nahi hota, doosre phone (Secondary/Peshgar) par purana data hi dikhega. '
+           +'Net on karke Firebase → "Sabhi Data Push Karo" dabao.</div></div>';
+        }else{
+          h+='<div style="background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:10px;padding:9px 13px;margin-bottom:14px;font-size:12.5px;font-weight:600;color:#15803d">✅ Har date ka data wahi hai jo aakhri baar Firebase par gaya — kuch pending nahi</div>';
+        }
+        if(untracked){
+          h+='<div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:10px;padding:9px 13px;margin-bottom:14px;font-size:12px;font-weight:600;color:#92400e">ℹ️ '+untracked+' date(s) ka push-record is phone par nahi hai (purana ya Firebase se aaya data). Pakka karne ke liye neeche "Har Date Milaao" dabao.</div>';
+        }
       }
-    }catch(e){}
+    }catch(e){console.error('health pending:',e);}
 
     // ── 2c. Deep verify button ──
     h+='<div style="font-size:10.5px;font-weight:800;color:var(--mu);letter-spacing:.5px;margin-bottom:8px">🔍 GEHRI JAANCH</div>'
@@ -9378,9 +9520,13 @@ async function openHealth(){
       h+='<div style="background:#f1f5f9;border-radius:10px;padding:11px 13px;margin-bottom:14px;font-size:12px;color:var(--mu)">Connect nahi hai — sirf is phone par data hai.</div>';
     }else{
       try{
-        const snap=await fbRetry(()=>_fbDb.collection('cfm').get(),'CFM data');
+        // Health Check sirf DEKHNE ke liye hai, kuch save nahi karta — isliye
+        // yahan lambi retry-chain (3×15s) ki zaroorat nahi. Ek hi koshish,
+        // chhota timeout — network kharaab ho to jaldi "pata nahi chala" bata
+        // do, poora modal ghanto na atkao.
+        const snap=await withTimeout(_fbDb.collection('cfm').get(),10000,'Health CFM-check');
         const fbDates=snap.docs.filter(d=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(d.id)).length;
-        const bs=await _fbDb.collection('bundle').doc('main').get();
+        const bs=await withTimeout(_fbDb.collection('bundle').doc('main').get(),10000,'Health bundle-check');
         const fbB=bs.exists?await bundleFromFirebase(bs.data()):null;
         const fbBn=fbB?Object.keys(fbB).length:0;
         // Is phone par dates DO jagah hain: active (metadata) + archive.
@@ -9432,11 +9578,18 @@ async function openHealth(){
 // (mobile data, weak wifi). Pehle wo turant fail ho jaati thi aur user ko
 // khud dobara button dabana padta tha — 2-3 baar. Ab teen koshish khud
 // hoti hain, beech mein thoda ruk kar.
-async function fbRetry(fn,label,tries){
+async function fbRetry(fn,label,tries,perTryMs){
+  // 🔴 ASLI BUG: pehle 'fn()' ko seedha await kiya jaata tha. Agar andar ka
+  // Firestore call khud kabhi resolve/reject na ho (network-drop mein bahut
+  // aam), to poori koshish HAMESHA ke liye latak jaati thi — retry-loop
+  // dusri koshish tak kabhi pahunchta hi nahi tha. Isi wajah se Health Check
+  // (jo cfm.get() ke liye fbRetry use karta hai) khud atak jaata tha.
+  // Ab har koshish apna khud ka timeout leke chalti hai.
   const n=tries||3;
+  const perMs=perTryMs||15000;
   let lastErr=null;
   for(let i=1;i<=n;i++){
-    try{ return await fn(); }
+    try{ return await withTimeout(fn(),perMs,label); }
     catch(e){
       lastErr=e;
       const code=String(e&&(e.code||e.message)||'');
@@ -9465,7 +9618,7 @@ async function fbPullAll(){
   const _backup_bFiles=JSON.parse(JSON.stringify(bFiles));
   try{
     // 1. CFM data — sabhi dates+versions
-    const cfmSnaps=await _fbDb.collection('cfm').get();
+    const cfmSnaps=await withTimeout(_fbDb.collection('cfm').get(),25000,'CFM pull');
     for(const doc of cfmSnaps.docs){
       const key=doc.id;
       if(!/^\d{4}-\d{2}-\d{2}_\d+$/.test(key))continue;
@@ -9481,7 +9634,7 @@ async function fbPullAll(){
       if(d&&d.cv)await idbSM('cv_'+date,d.cv);
     }
     // 3. Bundle data
-    const bundleSnap=await _fbDb.collection('bundle').doc('main').get();
+    const bundleSnap=await withTimeout(_fbDb.collection('bundle').doc('main').get(),15000,'Pull bundle');
     if(bundleSnap.exists){
       const d=bundleSnap.data();
       const dFiles=await bundleFromFirebase(d); // naya JSON-string ya purana map
@@ -9496,7 +9649,7 @@ async function fbPullAll(){
       }
     }
     // 4. Urgent logs
-    const urgSnap=await _fbDb.collection('urgent').doc('main').get();
+    const urgSnap=await withTimeout(_fbDb.collection('urgent').doc('main').get(),15000,'Pull urgent');
     if(urgSnap.exists){
       const d=urgSnap.data();
       if(d&&d.logs&&Array.isArray(d.logs)){
@@ -9799,7 +9952,7 @@ function selRCustom(i,val){
   }
 }
 
-async function ovSave(i){
+async function ovSave(i){if(secondaryBlock()){return;}
   const r=_ovData[i];if(!r)return;
   const cn=r.caseno;
   const remark=(document.getElementById('ovr-'+i)||{}).value||'';
@@ -9841,7 +9994,7 @@ async function ovSave(i){
   if(el){el.style.opacity='0.45';el.style.pointerEvents='none';}
 }
 
-async function ovDispose(i){
+async function ovDispose(i){if(secondaryBlock()){return;}
   const r=_ovData[i];if(!r)return;
   const cn=r.caseno;
   const remark=(document.getElementById('ovr-'+i)||{}).value||'';
@@ -9891,7 +10044,7 @@ function openDisposeConfirm(cn){
   document.getElementById('disposeModal').classList.add('on');
 }
 
-async function confirmDisposeYes(){
+async function confirmDisposeYes(){if(secondaryBlock()){return;}
   try{actLog("dispose");}catch(e){}
   const cn=_disposePendingCN;if(!cn)return;
   const dispDate=document.getElementById('disp-date').value||_localISO(new Date());
@@ -10011,7 +10164,7 @@ function acScan(){
   openScan('addcase_scan','➕ Case No scan karo',false);
 }
 
-async function urgAction(mode){
+async function urgAction(mode){if(secondaryBlock()){return;}
   try{actLog("urgent");}catch(e){}
   const cn=(document.getElementById('urg-cn').value||'').trim().toUpperCase();
   if(!cn){showUrgMsg('⚠️ Case No daalo','err');haptic('error');return;}
@@ -10371,8 +10524,10 @@ async function checkTodayFiles(){
 
 
 // ════ DISPOSE CONFIRM (confirmDisposeNo was here - re-adding) ════
-function confirmDisposeNo(){
+async function confirmDisposeNo(){
   const cn=_disposePendingCN;
+  _disposePendingCN=null;
+  document.getElementById('disposeModal').classList.remove('on');
   if(cn){
     const idx=cData.findIndex(r=>caseMatch(r.caseno,cn));
     if(idx!==-1){
@@ -10381,11 +10536,10 @@ function confirmDisposeNo(){
       const cleaned=parts.filter(p=>!/^(dispose|disposed|nipt|nipta|खारिज)$/i.test(p));
       cData[idx].remark=cleaned.join(' | ');
       cData[idx].searchableText=gSrch(cData[idx]);
-      saveLocal();drawTable(getFiltered());
+      const ok=await saveLocal();drawTable(getFiltered());
+      if(!ok){try{showToast('❌ SAVE FAIL — remark phone mein save nahi hua, dobara karo','d');}catch(e){}}
     }
   }
-  _disposePendingCN=null;
-  document.getElementById('disposeModal').classList.remove('on');
 }
 
 
