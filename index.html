@@ -202,6 +202,15 @@ textarea{resize:vertical}
 
 /* ═══════════════ DROPDOWN ═══════════════ */
 .dwrap{position:relative}
+#caseSgBox{position:fixed;z-index:10050;background:#fff;border:1.5px solid rgba(26,86,219,.3);border-radius:12px;overflow-y:auto;box-shadow:0 10px 30px rgba(13,27,62,.18);display:none;-webkit-overflow-scrolling:touch}
+#caseSgBox .sg-i{padding:10px 13px;border-bottom:1px solid var(--bdr);cursor:pointer;min-height:44px}
+#caseSgBox .sg-i:last-child{border-bottom:none}
+#caseSgBox .sg-i.act,#caseSgBox .sg-i:active{background:#eef2ff}
+#caseSgBox .sg-cn{font-weight:700;color:var(--blue);font-size:14px}
+#caseSgBox .sg-pt{color:var(--mu);font-size:12px;margin-top:2px;font-weight:500}
+#caseSgBox .sg-tag{font-size:9.5px;font-weight:700;color:var(--mu);background:#f1f5f9;border-radius:20px;padding:1px 7px;margin-left:4px;vertical-align:middle}
+#caseSgBox .sg-today{color:#15803d;background:#dcfce7}
+
 #caseDD{position:absolute;top:calc(100% + 6px);left:0;right:0;background:#fff;border:1.5px solid rgba(26,86,219,.3);border-radius:var(--r12);max-height:220px;overflow-y:auto;z-index:500;box-shadow:var(--sh3);display:none}
 .di{padding:11px 14px;font-size:13px;cursor:pointer;border-bottom:1px solid var(--bdr)}
 .di:last-child{border-bottom:none}
@@ -357,6 +366,7 @@ td input:focus{background:#fff;border-color:var(--blue)}
 .bfc.miss{border-color:var(--red);background:#fef2f2}
 .bfch{display:flex;justify-content:space-between;align-items:center}
 .bfid{color:var(--navy);font-weight:700;font-size:15px}
+.bfname-row{font-size:12.5px;color:var(--txt);font-weight:600;margin:3px 0 2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mbadge{color:var(--red);font-size:11px;background:rgba(220,38,38,.1);padding:2px 8px;border-radius:20px;font-weight:700}
 .bloc{color:var(--mu);font-size:12px;margin-top:4px;font-weight:500}
 .bact{display:flex;gap:7px;margin-top:9px;flex-wrap:wrap}
@@ -1443,7 +1453,6 @@ input:focus,select:focus,textarea:focus{
     <div class="dwrap">
       <input type="text" id="manualCaseInput" placeholder="Case No likhein ya dropdown se chunein..."
         autocomplete="off"
-        oninput="onManualInput()" onkeydown="onManualKeyDown(event)"
         onpaste="setTimeout(()=>{manualCaseInput.value=manualCaseInput.value.replace(/[\n\r\t]+/g,' ').trim();onManualInput();},0)">
       <div id="caseDD"></div>
     </div>
@@ -1553,10 +1562,10 @@ input:focus,select:focus,textarea:focus{
     <div class="sec">
       <div class="sec-hd">
         <div class="ico teal">🔍</div>
-        <div><div class="lbl">File Dhundo</div><div class="sub">Number type karo — location show hogi</div></div>
+        <div><div class="lbl">File Dhundo</div><div class="sub">Number ya naam type karo — location show hogi</div></div>
       </div>
       <div class="bswrap"><span class="bsico">🔎</span>
-        <input type="text" id="b-si" placeholder="File number type karo..." oninput="bSearchDebounced()">
+        <input type="text" id="b-si" placeholder="File number ya party naam type karo..." oninput="bSearchDebounced()">
       </div>
       <div style="margin-top:14px" id="b-sr"></div>
     </div>
@@ -5344,21 +5353,11 @@ document.getElementById('caseDetailModal').addEventListener('click',function(e){
 // ════ MANUAL ENTRY ════
 function showMS(msg,type){const el=document.getElementById("manualStatus");el.textContent=msg;el.className="smsg s-"+type;clearTimeout(el._t);if(type==="ok")el._t=setTimeout(()=>el.className="smsg",3000);}
 function onManualInput(){
-  const v=manualCaseInput.value.trim().toLowerCase();dropIdx=-1;
-  if(!v||!cData.length){closeDD();return;}
-  const m=cData.filter(r=>String(r.caseno).toLowerCase().includes(v)||String(r.partyname).toLowerCase().includes(v)).slice(0,20);
-  if(!m.length){closeDD();return;}
-  const dd=document.getElementById("caseDD");
-  dd.innerHTML=m.map(r=>{const cn=String(r.caseno).replace(/"/g,'&quot;'),cj=String(r.caseno).replace(/\\/g,'\\\\').replace(/'/g,"\\'");return`<div class="di" data-caseno="${cn}" onmousedown="selDD('${cj}')"><div class="di-cn">${esc(r.caseno)}</div><div class="di-pt">${esc(r.partyname||"")}${r.section?" | "+esc(r.section):""}</div></div>`;}).join("");
-  dd.style.display="block";
+  // Ab common suggestion engine (aaj ki list + saari dates + archive) — attachCaseSuggest
+  closeDD();
+  try{const inp=document.getElementById('manualCaseInput');if(inp&&inp._sg)sgUpdate(inp,inp._sg);}catch(e){}
 }
-function onManualKeyDown(e){
-  const dd=document.getElementById("caseDD"),items=dd.querySelectorAll(".di");if(!items.length)return;
-  if(e.key==="ArrowDown"){e.preventDefault();dropIdx=Math.min(dropIdx+1,items.length-1);updDDHL(items);}
-  else if(e.key==="ArrowUp"){e.preventDefault();dropIdx=Math.max(dropIdx-1,0);updDDHL(items);}
-  else if(e.key==="Enter"){e.preventDefault();if(dropIdx>=0&&items[dropIdx])selDD(items[dropIdx].dataset.caseno);}
-  else if(e.key==="Escape")closeDD();
-}
+function onManualKeyDown(e){ /* arrow/enter ab document-capture handler (caseSuggest) sambhalta hai */ }
 function updDDHL(items){items.forEach((el,i)=>{el.classList.toggle("act",i===dropIdx);if(i===dropIdx)el.scrollIntoView({block:"nearest"});});}
 function selDD(cn){manualCaseInput.value=cn;closeDD();document.getElementById("manualStatus").className="smsg";}
 function closeDD(){document.getElementById("caseDD").style.display="none";dropIdx=-1;}
@@ -6496,13 +6495,13 @@ function auRender(){
   if(untracked.length){
     h+='<div style="font-size:11.5px;font-weight:800;color:#92400e;margin:12px 0 6px">🟡 TRACKER MEIN HAI HI NAHI ('+untracked.length+')</div>';
     untracked.forEach(v=>{
-      h+='<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 11px;margin-bottom:5px;font-size:13px;font-weight:700;color:var(--navy)">'+esc(v.id)+'</div>';
+      h+='<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 11px;margin-bottom:5px;font-size:13px;font-weight:700;color:var(--navy)">'+esc(v.id)+(bName(v.id)?' <span style="font-weight:500;color:var(--mu);font-size:12px">· '+esc(bName(v.id))+'</span>':'')+'</div>';
     });
   }
   if(missing.length){
     h+='<div style="font-size:11.5px;font-weight:800;color:#7c3aed;margin:12px 0 6px">🟣 IS SLOT MEIN HONI THI, PAR MILI NAHI ('+missing.length+')</div>';
     missing.slice(0,60).forEach(f=>{
-      h+='<div style="background:var(--sur);border:1px solid var(--bdr);border-left:3px solid #7c3aed;border-radius:8px;padding:8px 11px;margin-bottom:5px;font-size:13px;font-weight:700;color:var(--navy)">'+esc(f.id)+'</div>';
+      h+='<div style="background:var(--sur);border:1px solid var(--bdr);border-left:3px solid #7c3aed;border-radius:8px;padding:8px 11px;margin-bottom:5px;font-size:13px;font-weight:700;color:var(--navy)">'+esc(f.id)+(bName(f.id)?' <span style="font-weight:500;color:var(--mu);font-size:12px">· '+esc(bName(f.id))+'</span>':'')+'</div>';
     });
     if(missing.length>60)h+='<div style="font-size:11px;color:var(--mu);padding:4px">…aur '+(missing.length-60)+'</div>';
   }
@@ -7072,7 +7071,7 @@ function bRenderGrid(){
       +`${isSpecial?'<div style="font-size:10px;color:var(--teal);font-weight:600">🗄 A–I + Safe S1/S2</div>':''}</div></div>`
       +`<span style="color:var(--mu);font-size:18px">›</span></div>`
       +`<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:9px">${pillsHTML}</div>`
-      +`${bRM&&tot>0?allInDate.map(f=>`<div style="margin-top:4px"><button class="rmfb" data-fileid="${esc(f.id)}" onclick="bOpenMove(_decId(this.dataset.fileid))" style="display:inline-block;width:auto;margin-right:4px">⇄ ${esc(f.id)} (${dispCol(f.col)})</button></div>`).join(''):''}` 
+      +`${bRM&&tot>0?allInDate.map(f=>`<div style="margin-top:4px"><button class="rmfb" data-fileid="${esc(f.id)}" onclick="bOpenMove(_decId(this.dataset.fileid))" style="display:inline-block;width:auto;margin-right:4px">⇄ ${esc(f.id)}${bName(f.id)?' · '+esc(bName(f.id)):''} (${dispCol(f.col)})</button></div>`).join(''):''}` 
       +`</div>`;
   });
   gc.innerHTML=h;
@@ -7124,7 +7123,7 @@ function bRenderSubdateView(){
       h+=`<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--sur2);border-radius:8px;margin-bottom:5px;flex-wrap:wrap">`;
       h+=`<span style="background:#0891b2;color:#fff;font-size:12px;font-weight:800;padding:3px 10px;border-radius:20px">Sub-date ${sd} → ${dispCol(col)} col</span>`;
       h+=`<span style="font-size:12px;color:var(--txt);font-weight:600">${arr.length} file:</span>`;
-      h+=arr.map(f=>`<span class="rmfb" style="display:inline-block;width:auto;padding:3px 9px;font-size:11px;cursor:pointer;background:#fff;border:1px solid var(--bdr);border-radius:6px" onclick="bOpenMove('${escJs(f.id)}')">${esc(f.id)}</span>`).join(' ');
+      h+=arr.map(f=>`<span class="rmfb" style="display:inline-block;width:auto;padding:3px 9px;font-size:11px;cursor:pointer;background:#fff;border:1px solid var(--bdr);border-radius:6px" onclick="bOpenMove('${escJs(f.id)}')">${esc(f.id)}${bName(f.id)?' <span style=\'color:var(--mu);font-weight:500\'>· '+esc(bName(f.id))+'</span>':''}</span>`).join(' ');
       h+=`</div>`;
     });
     h+=`</div>`;
@@ -7206,7 +7205,7 @@ function bUpdateSP(){
   document.getElementById('b-sp-t').textContent=slotLabel;
   document.getElementById('b-sp-c').textContent=`(${ex.length} files)`;
   const eb=document.getElementById('b-exbox'),et=document.getElementById('b-extags');
-  if(ex.length){eb.style.display='block';et.innerHTML=ex.map(f=>`<span class="etag${f.st==='missing'?' miss':''}">${esc(f.id)}${f.st==='missing'?' ⚠':''}</span>`).join('');}
+  if(ex.length){eb.style.display='block';et.innerHTML=ex.map(f=>`<span class="etag${f.st==='missing'?' miss':''}">${esc(f.id)}${bName(f.id)?' <span style="opacity:.7;font-weight:500">· '+esc(bName(f.id))+'</span>':''}${f.st==='missing'?' ⚠':''}</span>`).join('');}
   else eb.style.display='none';
 }
 function bUpdateST(){const el=document.getElementById('scan-ml');if(el&&(scanCtx==='bundle'||scanCtx==='bundlefree'))el.textContent=(scanCtx==='bundlefree'?'🆓 Free ':'📷 ')+`Bundle → Date ${bAMD}${bASD!=null?'/'+bASD:''} ${dispCol(bAC)}`;}
@@ -7563,6 +7562,173 @@ async function doBundleMove(){if(secondaryBlock()){return;}
   closeBMModal();bRenderGrid();if(bSlot){bSlot=null;swBV('grid');}bRenderSearch();
 }
 let _bSearchT=null;
+// ═══ CASE-NO SUGGESTION DROPDOWN (har manual input ke liye ek hi engine) ═══
+// Aaj ki list + saari dates + archive se. "1234/24" = "1234/2024", naam se bhi.
+// Body mein fixed — kisi modal/section mein kat ta nahi; neeche jagah na ho
+// (mobile keyboard) to input ke UPAR khulta hai.
+let _sgIdx=null;
+function _sgTok(s){return String(s||'').toLowerCase().match(/[a-z]+|\d+/g)||[];}
+function caseSuggest(q,limit){
+  q=String(q||'').trim();if(!q)return [];
+  const ql=q.toLowerCase(),qn=ql.replace(/[^a-z0-9]/g,''),qt=_sgTok(q);
+  if(!qn)return [];
+  // Index abhi bana nahi → aaj ki list se turant, aur index banne do
+  let idx=_sgIdx;
+  if(!idx||_bNamesSrc!==_allDatesCache||_bNamesCD!==cData||_bNamesCDL!==(cData?cData.length:0)){
+    bNamesRefresh();
+    if(!idx)idx=(cData||[]).map(r=>{const cn=String(r.caseno||'').trim();return {cn,pn:String(r.partyname||''),sec:String(r.section||''),n:cn.toLowerCase().replace(/[^a-z0-9]/g,''),t:_sgTok(cn),p:String(r.partyname||'').toLowerCase(),src:'today'};}).filter(x=>x.cn);
+  }
+  const tokOk=(rt,t)=>rt.some(x=>x===t||x.startsWith(t)||(/^\d{2}$/.test(t)&&/^(19|20)\d{2}$/.test(x)&&x.endsWith(t)));
+  const out=[];
+  for(const r of idx){
+    let s=-1;
+    if(r.n===qn)s=100;
+    else if(r.n.startsWith(qn))s=80;
+    else if(qt.length&&qt.every(t=>tokOk(r.t,t)))s=60;
+    else if(qn.length>=2&&r.n.includes(qn))s=40;
+    else if(ql.length>=2&&r.p&&r.p.includes(ql))s=30;
+    if(s<0)continue;
+    if(r.src==='today')s+=50;
+    out.push([s,r]);
+  }
+  // Barabar score: aaj ki list apne order mein, phir nayi date pehle, archive aakhir mein
+  const rk=s=>s==='today'?'9':s==='archive'?'0':'5'+s;
+  out.sort((a,b)=>b[0]-a[0]||(rk(a[1].src)===rk(b[1].src)?0:(rk(a[1].src)<rk(b[1].src)?1:-1)));
+  return out.slice(0,limit||15).map(x=>x[1]);
+}
+let _sgBox=null,_sgInp=null,_sgItems=[],_sgHi=-1,_sgCfg=null;
+function _sgEnsureBox(){
+  if(_sgBox)return _sgBox;
+  _sgBox=document.createElement('div');_sgBox.id='caseSgBox';
+  _sgBox.addEventListener('mousedown',e=>e.preventDefault()); // input ka focus na chhoote
+  document.body.appendChild(_sgBox);return _sgBox;
+}
+function _sgToken(inp,cfg){const v=inp.value;if(!cfg.multi)return v;const i=Math.max(v.lastIndexOf(','),v.lastIndexOf('\n'));return v.slice(i+1);}
+function _sgPlace(){
+  if(!_sgBox||!_sgInp)return;
+  const r=_sgInp.getBoundingClientRect();
+  const vh=(window.visualViewport&&window.visualViewport.height)||window.innerHeight;
+  const below=vh-r.bottom-8,above=r.top-8;
+  const up=below<180&&above>below;
+  const maxH=Math.max(120,Math.min(260,(up?above:below)-6));
+  _sgBox.style.left=Math.max(6,r.left)+'px';
+  _sgBox.style.width=Math.max(220,r.width)+'px';
+  _sgBox.style.maxHeight=maxH+'px';
+  if(up){_sgBox.style.top='';_sgBox.style.bottom=(window.innerHeight-r.top+4)+'px';}
+  else{_sgBox.style.bottom='';_sgBox.style.top=(r.bottom+4)+'px';}
+}
+function sgClose(){if(_sgBox)_sgBox.style.display='none';_sgItems=[];_sgHi=-1;}
+function sgUpdate(inp,cfg){
+  _sgInp=inp;_sgCfg=cfg;
+  const tok=_sgToken(inp,cfg).trim();
+  if(!tok){sgClose();return;}
+  _sgItems=caseSuggest(tok,15);_sgHi=-1;
+  if(!_sgItems.length){sgClose();return;}
+  const box=_sgEnsureBox();
+  box.innerHTML=_sgItems.map((r,i)=>{
+    const tag=r.src==='today'?'<span class="sg-tag sg-today">Aaj ki list</span>':r.src==='archive'?'<span class="sg-tag">Archive</span>':'<span class="sg-tag">'+esc(fmtD(r.src))+'</span>';
+    return '<div class="sg-i" data-i="'+i+'"><div class="sg-cn">'+esc(r.cn)+' '+tag+'</div>'
+      +((r.pn||r.sec)?'<div class="sg-pt">'+esc(r.pn||'')+(r.sec?(r.pn?' · ':'')+esc(r.sec):'')+'</div>':'')+'</div>';
+  }).join('');
+  box.querySelectorAll('.sg-i').forEach(el=>el.addEventListener('click',()=>sgPick(parseInt(el.dataset.i,10))));
+  box.style.display='block';_sgPlace();
+}
+function sgPick(i){
+  const r=_sgItems[i],inp=_sgInp,cfg=_sgCfg||{};if(!r||!inp)return;
+  if(cfg.multi){const v=inp.value;const k=Math.max(v.lastIndexOf(','),v.lastIndexOf('\n'));inp.value=(k>=0?v.slice(0,k+1)+' ':'')+r.cn;}
+  else inp.value=r.cn;
+  sgClose();
+  try{inp.focus();}catch(e){}
+  try{if(cfg.onPick)cfg.onPick(r);}catch(e){}
+}
+function attachCaseSuggest(id,cfg){
+  const inp=document.getElementById(id);if(!inp||inp._sg)return;
+  cfg=cfg||{};inp._sg=cfg;inp.setAttribute('autocomplete','off');
+  let t=null;
+  inp.addEventListener('input',()=>{clearTimeout(t);t=setTimeout(()=>sgUpdate(inp,cfg),90);});
+  inp.addEventListener('focus',()=>{if(_sgToken(inp,cfg).trim())sgUpdate(inp,cfg);});
+  inp.addEventListener('blur',()=>setTimeout(()=>{if(_sgInp===inp&&document.activeElement!==inp)sgClose();},250));
+}
+// Arrow/Enter/Esc — document CAPTURE mein, taaki input ke apne Enter (Add) se pehle chale.
+// Enter tabhi suggestion chunta hai jab arrow se koi highlight kiya ho; warna jo
+// likha hai wahi (purana bartaav).
+document.addEventListener('keydown',e=>{
+  if(!_sgInp||e.target!==_sgInp||!_sgBox||_sgBox.style.display!=='block'||!_sgItems.length)return;
+  const hl=()=>_sgBox.querySelectorAll('.sg-i').forEach((el,i)=>{el.classList.toggle('act',i===_sgHi);if(i===_sgHi)el.scrollIntoView({block:'nearest'});});
+  if(e.key==='ArrowDown'){e.preventDefault();e.stopImmediatePropagation();_sgHi=Math.min(_sgHi+1,_sgItems.length-1);hl();}
+  else if(e.key==='ArrowUp'){e.preventDefault();e.stopImmediatePropagation();_sgHi=Math.max(_sgHi-1,0);hl();}
+  else if(e.key==='Enter'&&_sgHi>=0){e.preventDefault();e.stopImmediatePropagation();sgPick(_sgHi);}
+  else if(e.key==='Escape'){e.stopImmediatePropagation();sgClose();}
+  else if(e.key==='Enter'){sgClose();}
+},true);
+window.addEventListener('resize',()=>{if(_sgBox&&_sgBox.style.display==='block')_sgPlace();});
+window.addEventListener('scroll',()=>{if(_sgBox&&_sgBox.style.display==='block')_sgPlace();},true);
+try{if(window.visualViewport)window.visualViewport.addEventListener('resize',()=>{if(_sgBox&&_sgBox.style.display==='block')_sgPlace();});}catch(e){}
+function initCaseSuggest(){
+  attachCaseSuggest('manualCaseInput',{onPick:()=>{try{document.getElementById('manualStatus').className='smsg';}catch(e){}}});
+  attachCaseSuggest('b-mi',{multi:true});
+  attachCaseSuggest('b-fmi',{multi:true});
+  attachCaseSuggest('urg-cn',{});
+}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',initCaseSuggest);else setTimeout(initCaseSuggest,0);
+
+// ═══ BUNDLE — PARTY NAME LOOKUP ═══
+// Bundle file mein sirf case no hota hai. Naam CFM data (aaj ki list + saari
+// dates + archive-index) se canonical key par milate hain. Map ek baar banta hai
+// aur tabhi dobara banta hai jab CFM cache badle — render hamesha sync aur tez.
+let _bNames=null,_bNamesSrc=null,_bNamesBusy=false,_bNamesCD=null,_bNamesCDL=-1;
+function bName(id){
+  try{
+    const ck=_unpKey(String(id||'').trim());
+    if(ck==='|')return '';
+    // Aaj ki list sabse taaza — pehle wahin dekho (chhoti list, tez)
+    if(_bNames&&_bNames[ck])return _bNames[ck];
+    if(!_bNames||_bNamesSrc!==_allDatesCache||_bNamesCD!==cData||_bNamesCDL!==(cData?cData.length:0))bNamesRefresh();
+    return (_bNames&&_bNames[ck])||'';
+  }catch(e){return '';}
+}
+let _bNamesAt=0,_bNamesPend=null;
+function bNamesRefresh(){
+  if(_bNamesBusy||_bNamesPend)return;
+  // Throttle: scan ke beech har file par poora index mat banao — max har 5 sec mein ek baar
+  // (pehli baar turant). Beech mein purana index chalta rehta hai.
+  const wait=_bNames?Math.max(0,5000-(Date.now()-_bNamesAt)):0;
+  _bNamesPend=setTimeout(()=>{_bNamesPend=null;_bNamesRun();},wait);
+}
+function _bNamesRun(){
+  if(_bNamesBusy)return;
+  _bNamesBusy=true;_bNamesAt=Date.now();
+  setTimeout(async()=>{
+    try{
+      const m={};
+      _bNamesCD=cData;_bNamesCDL=cData?cData.length:0;
+      const put=(cn,pn)=>{pn=String(pn||'').trim();if(!pn)return;const ck=_unpKey(String(cn||'').trim());if(ck!=='|'&&!m[ck])m[ck]=pn;};
+      try{(cData||[]).forEach(r=>put(r.caseno,r.partyname));}catch(e){}
+      const all=await getAllDatesData();
+      // latest date pehle — naya naam jeete
+      Object.keys(all).sort().reverse().forEach(k=>{const a=all[k];if(Array.isArray(a))a.forEach(r=>put(r.caseno,r.partyname));});
+      try{const ai=await loadArchIdx();for(const ck in ai){const e=ai[ck];if(e&&e.partyname&&!m[ck])m[ck]=String(e.partyname).trim();}}catch(e){}
+      // Suggestion index (case-no dropdown): har case ek baar, sabse naya record
+      const sg=[],seen=new Set();
+      const addSg=(r,src)=>{const cn=String(r.caseno||'').trim();if(!cn)return;const ck=_unpKey(cn);if(ck==='|'||seen.has(ck))return;seen.add(ck);
+        sg.push({cn,pn:String(r.partyname||'').trim()||m[ck]||'',sec:String(r.section||'').trim(),n:cn.toLowerCase().replace(/[^a-z0-9]/g,''),t:_sgTok(cn),p:String(r.partyname||m[ck]||'').toLowerCase(),src});};
+      try{(cData||[]).forEach(r=>addSg(r,'today'));}catch(e){}
+      Object.keys(all).sort().reverse().forEach(k=>{const a=all[k];if(Array.isArray(a))a.forEach(r=>addSg(r,k.split('_')[0]));});
+      try{const ai=await loadArchIdx();for(const ck in ai){const e=ai[ck];if(e&&e.caseno)addSg(e,'archive');}}catch(e){}
+      _sgIdx=sg;
+      const had=_bNames?Object.keys(_bNames).length:-1;
+      _bNames=m;_bNamesSrc=_allDatesCache;
+      // Naam aa gaye → khuli bundle screens dobara bana do
+      if(had!==Object.keys(m).length){
+        try{if(document.getElementById('b-si'))bRenderSearch();}catch(e){}
+        try{if(bSlot)bRenderSlot();}catch(e){}
+        try{bUpdateSP();}catch(e){}
+      }
+    }catch(e){console.warn('bNamesRefresh:',e);}
+    finally{_bNamesBusy=false;}
+  },0);
+}
+
 function bSearchDebounced(){
   // Har keystroke pe poore bFiles filter+render mat karo (5000+ files pe 1-2s lag)
   // 160ms rukо, phir render — typing smooth rehti hai
@@ -7579,7 +7745,7 @@ function bRenderSearch(){
   // advance-sent file, jo A/B/C/D har column mein alag copy ki tarah dikhti thi jab tak
   // ki wo sach mein alag-alag columns mein add hi na hui ho. Ab sent files search mein
   // nahi aatin, chahe unka caseno match kare.
-  if(q){const r=allV.filter(f=>!f.hidden&&f.id.toLowerCase().includes(q));res.innerHTML=r.length?r.map(f=>bFCHTML(f,true)).join(''):'<div class="nores">❌ "'+esc(q)+'" nahi mili (agar SENT ho chuki hai to yahan nahi dikhegi)</div>';return;}
+  if(q){const r=allV.filter(f=>!f.hidden&&(f.id.toLowerCase().includes(q)||(q.length>=2&&bName(f.id).toLowerCase().includes(q))));res.innerHTML=r.length?r.map(f=>bFCHTML(f,true)).join(''):'<div class="nores">❌ "'+esc(q)+'" nahi mili (agar SENT ho chuki hai to yahan nahi dikhegi)</div>';return;}
   if(miss.length){res.innerHTML='<div style="color:var(--red);font-weight:700;margin-bottom:10px">⚠ Missing Files ('+miss.length+')</div>'+miss.map(f=>bFCHTML(f,true)).join('');return;}
   res.innerHTML=tot?'<div style="color:var(--green);font-size:13px;text-align:center;margin-top:30px;font-weight:600">✅ Koi missing nahi</div>':'<div class="bempty">Koi file add nahi ki abhi.</div>';
 }
@@ -7597,6 +7763,7 @@ function bFCHTML(f,showLoc,inSlot=false){
         ${f.st==='missing'?'<span class="mbadge">⚠ MISSING</span>':''}
       </div>
     </div>
+    ${bName(rawId)?`<div class="bfname-row">👤 ${esc(bName(rawId))}</div>`:''}
     ${showLoc?`<div class="bloc">📍 Date ${f.md}${f.sd!=null?'/'+f.sd:''} — Col <strong>${dispCol(f.col)}</strong>${isHidden?' <em style="color:var(--green);font-size:11px">(SENT)</em>':''}</div>`:''}
     <div class="bact">
       ${isHidden?`<button class="smb" style="background:#eef2ff;color:var(--blue);border:1px solid rgba(26,86,219,.25)" data-fileid="${id}" onclick="bUnhide(_decId(this.dataset.fileid))">👁 Wapas Dikhao</button>`:f.st!=='missing'?`<button class="smb" style="background:rgba(217,119,6,.1);color:var(--amber);border:1px solid rgba(217,119,6,.25)" data-fileid="${id}" onclick="bSetStatus(_decId(this.dataset.fileid),'missing')">Missing</button>`:`<button class="smb" style="background:rgba(22,163,74,.1);color:var(--green);border:1px solid rgba(22,163,74,.25)" data-fileid="${id}" onclick="bSetStatus(_decId(this.dataset.fileid),'placed')">Wapas Mili</button>`}
@@ -9956,6 +10123,9 @@ async function ovSave(i){if(secondaryBlock()){return;}
   const r=_ovData[i];if(!r)return;
   const cn=r.caseno;
   const remark=(document.getElementById('ovr-'+i)||{}).value||'';
+  // Remark mein sirf "dispose"/"disposed" likh ke Save dabaya → wahi kaam jo 🗂 Dispose karta hai
+  // (pehle ye sirf remark mein "dispose" shabd save kar deta tha, file overdue mein rehti thi)
+  if(/^(dispose|disposed|nipt|nipta|खारिज)$/i.test(remark.trim())){return ovDispose(i);}
   const days=_ovRemSel[cn]??null;
 
   // Save to the actual IDB key where this record lives
@@ -9994,40 +10164,95 @@ async function ovSave(i){if(secondaryBlock()){return;}
   if(el){el.style.opacity='0.45';el.style.pointerEvents='none';}
 }
 
+// ═══ DISPOSE — HAR JAGAH (overdue se, ya back-date jaaye bina) ═══
+// Overdue sirf case ke SABSE NAYE record ka dispose maanta hai (revoke support).
+// Pehle overdue se dispose karne par mark sirf PURANI pending date wale record par
+// lagta tha — file agar baad ki kisi date par bhi thi, to wo overdue mein bani rehti
+// thi. Archive wali file ka dispose save hi nahi hota tha, aur dusri dates Firebase
+// queue mein nahi jaati thi. Ab:
+//   1) sabse nayi date ka record + jis date se overdue hai (srcKey) — dono par mark
+//   2) archive mein ho to archive record + archive-index par bhi
+//   3) har badli date Firebase queue mein (Main se sync)
+// Return: {ok, keys} — ok=false matlab kahin save fail hua (jhootha ✅ nahi).
+async function disposeCaseEverywhere(cn,opt){
+  opt=opt||{};
+  const ck=_unpKey(cn);
+  if(!cn||ck==='|')return {ok:false,keys:[]};
+  const dispDate=opt.dispDate||_localISO(new Date());
+  const tag='Disposed ('+fmtD(dispDate)+')';
+  const userRem=String(opt.remark||'').trim();
+  const isDispWord=s=>/^(dispose|disposed|nipt|nipta|खारिज)$/i.test(String(s||'').trim());
+  const mark=r=>{
+    r._disposed=true;r._disposeDate=dispDate;delete r._reminder;
+    let rem=String(r.remark||'').trim();
+    if(userRem&&!isDispWord(userRem)&&!rem.includes(userRem))rem=(rem?rem+' | ':'')+userRem;
+    if(!rem.includes('Disposed'))rem=(rem?rem+' | ':'')+tag;
+    r.remark=rem;r.searchableText=gSrch(r);
+  };
+  const re=/^\d{4}-\d{2}-\d{2}_\d+$/;
+  const cmpK=(a,b)=>{const[da,va]=a.split('_'),[db,vb]=b.split('_');return da!==db?(da<db?-1:1):((parseInt(va,10)||0)-(parseInt(vb,10)||0));};
+  const curK=dKey();
+  let ok=true;const changed=[];
+  // ── 1. Active store: sabse nayi key jismein case hai ──
+  let latest=null;
+  try{
+    const all=await getAllDatesData();
+    for(const k in all){
+      if(!re.test(k)||!Array.isArray(all[k]))continue;
+      if(all[k].some(r=>_unpKey(String(r.caseno||'').trim())===ck)&&(!latest||cmpK(k,latest)>0))latest=k;
+    }
+  }catch(e){console.error('dispose latest:',e);}
+  const targets=[...new Set([latest,opt.srcKey].filter(k=>k&&re.test(k)))];
+  for(const k of targets){
+    try{
+      if(k===curK){
+        const i=cData.findIndex(r=>_unpKey(String(r.caseno||'').trim())===ck);
+        if(i!==-1){mark(cData[i]);if(!(await saveLocal()))ok=false;else changed.push(k);continue;}
+      }
+      let arr=await idbGM(k),inArch=false;
+      if(!Array.isArray(arr)){arr=await idbGAR(k);inArch=true;}
+      if(!Array.isArray(arr))continue;
+      const i=arr.findIndex(r=>_unpKey(String(r.caseno||'').trim())===ck);
+      if(i===-1)continue;
+      mark(arr[i]);
+      if(inArch)await idbSAR(k,arr);else await idbSM(k,arr);
+      // Verify — sach mein likha gaya?
+      const back=inArch?await idbGAR(k):await idbGM(k);
+      const bi=Array.isArray(back)?back.findIndex(r=>_unpKey(String(r.caseno||'').trim())===ck):-1;
+      if(bi===-1||!back[bi]._disposed){ok=false;continue;}
+      changed.push(k);
+    }catch(e){console.error('dispose save '+k+':',e);ok=false;}
+  }
+  // ── 2. Archive-index (90+ din purani files yahin se overdue mein aati hain) ──
+  try{
+    const ai=await loadArchIdx();
+    if(ai&&ai[ck]){ai[ck].disposed=true;await saveArchIdx();changed.push('archive-index');}
+  }catch(e){console.error('dispose archIdx:',e);ok=false;}
+  // ── 3. Firebase queue + cache saaf ──
+  try{
+    const qk=changed.filter(k=>re.test(k)&&k!==curK); // curK ko saveLocal khud queue/push karta hai
+    if(qk.length){
+      qk.forEach(k=>{_cmPendingDates.add(k);delete _pushedHashes[k];});
+      savePendingQueue();savePushedHashes();
+      if(_fbDb&&navigator.onLine&&deviceRole!=='secondary')setTimeout(()=>flushCmPush().catch(()=>{}),500);
+    }
+  }catch(e){console.error('dispose queue:',e);}
+  try{invalidateAllDatesCache();_ovCache=null;}catch(e){}
+  if(!changed.length)ok=false;
+  return {ok,keys:changed};
+}
+
 async function ovDispose(i){if(secondaryBlock()){return;}
   const r=_ovData[i];if(!r)return;
   const cn=r.caseno;
   const remark=(document.getElementById('ovr-'+i)||{}).value||'';
   if(!confirm(`"${cn}" ko Disposed mark karein? Ye file overdue list se permanently hatt jaayegi.`))return;
-
-  // Fix: _srcKey se sahi IDB key mein update karo
-  const srcKey=r._srcKey; // e.g. "2026-03-01_1"
-  if(srcKey){
-    // Us key ka poora data lo, caseno match karo, _disposed set karo, wapas save karo
-    const keyData=await idbGM(srcKey);
-    if(keyData&&Array.isArray(keyData)){
-      const idx=keyData.findIndex(x=>String(x.caseno).toUpperCase()===String(cn).toUpperCase());
-      if(idx!==-1){
-        keyData[idx]._disposed=true;
-        if(remark)keyData[idx].remark=(keyData[idx].remark?keyData[idx].remark+' | ':'')+remark;
-        delete keyData[idx]._reminder;
-        keyData[idx].searchableText=gSrch(keyData[idx]);
-        await idbSM(srcKey,keyData);invalidateAllDatesCache();
-      }
-    }
-  }
-
-  // Current cData mein bhi update karo agar same date hai
-  const idx=cData.findIndex(x=>String(x.caseno).toUpperCase()===String(cn).toUpperCase());
-  if(idx!==-1){
-    cData[idx]._disposed=true;
-    if(remark)cData[idx].remark=(cData[idx].remark?cData[idx].remark+' | ':'')+remark;
-    delete cData[idx]._reminder;
-    cData[idx].searchableText=gSrch(cData[idx]);
-    await saveLocal();
-  }
-
+  const res=await disposeCaseEverywhere(cn,{remark,srcKey:r._srcKey});
   drawTable(getFiltered());await updateDash();
+  if(!res.ok){
+    showToast('❌ SAVE FAIL — '+cn+' dispose pakka save nahi hua, dobara karo','d');haptic('error');
+    return;
+  }
   showToast('🗂 Disposed: '+cn,'w');haptic('warn');
   const el=document.getElementById('ovi-'+i);
   if(el){el.style.opacity='0.35';el.style.pointerEvents='none';}
@@ -10048,24 +10273,15 @@ async function confirmDisposeYes(){if(secondaryBlock()){return;}
   try{actLog("dispose");}catch(e){}
   const cn=_disposePendingCN;if(!cn)return;
   const dispDate=document.getElementById('disp-date').value||_localISO(new Date());
-  const idx=cData.findIndex(r=>caseMatch(r.caseno,cn));
-  if(idx!==-1){
-    cData[idx]._disposed=true;
-    cData[idx]._disposeDate=dispDate;
-    // Remark mein dispose date bhi add karo
-    const existing=(cData[idx].remark||'').trim();
-    const tag='Disposed ('+fmtD(dispDate)+')';
-    if(!existing.includes('Disposed'))
-      cData[idx].remark=(existing?(existing+' | '):'')+tag;
-    delete cData[idx]._reminder;
-    cData[idx].searchableText=gSrch(cData[idx]);
-    await saveLocal();
-    drawTable(getFiltered());await updateDash();
-    showToast('🗂 Disposed: '+cn,'w');
-    haptic('warn');
-  }
   _disposePendingCN=null;
   document.getElementById('disposeModal').classList.remove('on');
+  // Is date ke record + agar file baad ki kisi date par bhi hai to wahan bhi
+  // (warna back-date par dispose karne se overdue mein bani rehti thi)
+  const res=await disposeCaseEverywhere(cn,{dispDate,srcKey:dKey()});
+  drawTable(getFiltered());await updateDash();
+  if(!res.ok){showToast('❌ SAVE FAIL — '+cn+' dispose pakka save nahi hua, dobara karo','d');haptic('error');return;}
+  showToast('🗂 Disposed: '+cn,'w');
+  haptic('warn');
 }
 
 // ════ URGENT SCAN / ENTRY ════
