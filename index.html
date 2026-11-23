@@ -202,6 +202,13 @@ textarea{resize:vertical}
 
 /* ═══════════════ DROPDOWN ═══════════════ */
 .dwrap{position:relative}
+#tlModal{z-index:905!important} /* Health/Overdue ke upar khule */
+table.cis-t{width:100%!important;min-width:0!important;border-collapse:collapse!important;table-layout:auto!important;font-size:11.5px!important;background:none!important;box-shadow:none!important}
+table.cis-t th,table.cis-t td{padding:5px 6px!important;font-size:11.5px!important;text-align:left!important;border-bottom:1px solid var(--bdr)!important;text-transform:none!important;letter-spacing:0!important;background:none!important;position:static!important;height:auto!important;line-height:1.35!important;vertical-align:top}
+table.cis-t th{font-weight:700!important;color:var(--mu)!important;white-space:nowrap;border-bottom:1.5px solid var(--bdr)!important}
+table.cis-t td.cn{font-weight:700!important;color:var(--navy)!important;white-space:nowrap}
+table.cis-t td.dt{white-space:nowrap}
+
 #caseSgBox{position:fixed;z-index:10050;background:#fff;border:1.5px solid rgba(26,86,219,.3);border-radius:12px;overflow-y:auto;box-shadow:0 10px 30px rgba(13,27,62,.18);display:none;-webkit-overflow-scrolling:touch}
 #caseSgBox .sg-i{padding:10px 13px;border-bottom:1px solid var(--bdr);cursor:pointer;min-height:44px}
 #caseSgBox .sg-i:last-child{border-bottom:none}
@@ -273,6 +280,8 @@ td input:focus{background:#fff;border-color:var(--blue)}
 .drawer-hd-title{font-size:15px;font-weight:800;color:#fff;letter-spacing:-.2px}
 .drawer-close{width:32px;height:32px;border-radius:8px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.15);color:#fff;font-size:16px;display:flex;align-items:center;justify-content:center;cursor:pointer}
 /* Drawer tab nav */
+.dtgrp{flex-shrink:0;align-self:stretch;display:flex;align-items:center;padding:0 4px 0 10px;margin-left:4px;border-left:1px solid rgba(255,255,255,.18);color:rgba(255,255,255,.38);font-size:9px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;writing-mode:vertical-rl;transform:rotate(180deg)}
+.dtgrp.first{border-left:none;margin-left:0;padding-left:4px}
 .dtabs{display:flex;overflow-x:auto;scrollbar-width:none;gap:2px;padding-bottom:0}
 .dtabs::-webkit-scrollbar{display:none}
 .dtab{flex-shrink:0;padding:9px 12px;background:none;border:none;color:rgba(255,255,255,.5);font-size:12px;font-weight:600;border-bottom:2.5px solid transparent;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;transition:all .15s;white-space:nowrap;font-family:inherit}
@@ -1010,17 +1019,21 @@ input:focus,select:focus,textarea:focus{
       <button class="drawer-close" onclick="closeDrawer()">✕</button>
     </div>
     <div class="dtabs" id="dtabBar">
+      <span class="dtgrp first">Roz</span>
       <button class="dtab on" data-dp="dp-version" onclick="switchDP(this)"><span class="dice">📋</span>Version</button>
       <button class="dtab" data-dp="dp-addcase" onclick="switchDP(this)"><span class="dice">➕</span>Add Case</button>
       <button class="dtab" data-dp="dp-upload"  onclick="switchDP(this)"><span class="dice">📤</span>Upload</button>
       <button class="dtab" data-dp="dp-translate" onclick="switchDP(this)"><span class="dice">🔤</span>Translate</button>
       <button class="dtab" data-dp="dp-qr" onclick="switchDP(this)"><span class="dice">🔲</span>QR Codes</button>
+      <span class="dtgrp">Jaanch</span>
       <button class="dtab" data-dp="dp-unplaced" onclick="switchDP(this)"><span class="dice">📦</span>Bundle Check</button>
-      <button class="dtab" data-dp="dp-export"  onclick="switchDP(this)"><span class="dice">📥</span>Export</button>
-      <button class="dtab" data-dp="dp-sync"    onclick="switchDP(this)"><span class="dice">🔥</span>Firebase</button>
-      <button class="dtab" data-dp="dp-backup"  onclick="switchDP(this)"><span class="dice">🗄</span>Backup</button>
-      <button class="dtab" data-dp="dp-mywork"  onclick="switchDP(this)"><span class="dice">📈</span>Mera Kaam</button>
+      <button class="dtab" data-dp="dp-cis" onclick="switchDP(this)"><span class="dice">🔎</span>CIS Milaan</button>
       <button class="dtab" data-dp="dp-peshgar" onclick="switchDP(this)"><span class="dice">⚠️</span>Peshgar</button>
+      <button class="dtab" data-dp="dp-mywork"  onclick="switchDP(this)"><span class="dice">📈</span>Mera Kaam</button>
+      <span class="dtgrp">Data</span>
+      <button class="dtab" data-dp="dp-backup"  onclick="switchDP(this)"><span class="dice">🗄</span>Backup</button>
+      <button class="dtab" data-dp="dp-sync"    onclick="switchDP(this)"><span class="dice">🔥</span>Firebase</button>
+      <button class="dtab" data-dp="dp-export"  onclick="switchDP(this)"><span class="dice">📥</span>Export</button>
     </div>
   </div>
 
@@ -1300,6 +1313,24 @@ input:focus,select:focus,textarea:focus{
       </div>
     </div>
 
+    <!-- Panel: CIS Milaan (sirf jaanch — kuch save/sync nahi hota) -->
+    <div class="dpanel" id="dp-cis">
+      <div class="dsec">
+        <div class="dsec-title">🔎 CIS Pendency Milaan</div>
+        <p style="font-size:12px;color:var(--mu);margin-bottom:8px;font-weight:500;line-height:1.5">
+          CIS ki poori pendency ki Excel do — columns: <b>Sr No | Case No | Next Date</b>.
+          App har case ko CFM aur Bundle Tracker se milaa ke farak batayega.
+        </p>
+        <div style="background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:10px;padding:8px 11px;font-size:11.5px;color:#1d4ed8;font-weight:600;line-height:1.5;margin-bottom:10px">
+          🔒 Sirf jaanch: ye list na phone mein save hoti hai, na Firebase par, na backup mein.
+          CFM / Bundle ka data sirf padha jaata hai — kuch nahi badalta. App band karte hi list hat jaati hai.
+        </div>
+        <input type="file" id="cisFile" accept=".xlsx,.xls,.csv" style="width:100%;font-size:12px;margin-bottom:8px">
+        <button class="btn" id="cisRunBtn" onclick="cisRun()" style="margin-top:0;background:linear-gradient(135deg,#0891b2,#0e7490);color:#fff">🔎 Milaan Karo</button>
+        <div id="cisStatus" class="smsg" style="margin-top:8px"></div>
+        <div id="cisResult"></div>
+      </div>
+    </div>
     <!-- Panel: Backup -->
     <div class="dpanel" id="dp-backup">
       <div class="dsec">
@@ -1460,6 +1491,7 @@ input:focus,select:focus,textarea:focus{
       <button class="btn amber" onclick="manualAction('SENT')" style="margin-top:8px">📤 Mark SENT</button>
       <button class="btn success" onclick="manualAction('RECEIVED')" style="margin-top:8px">📥 Mark RECEIVED</button>
     </div>
+    <button class="btn neutral" onclick="openTimeline(document.getElementById('manualCaseInput').value)" style="margin-top:8px;padding:9px;font-size:12.5px">🕘 Is file ki kahani dekho</button>
     <div id="manualStatus" class="smsg"></div>
   </div>
 
@@ -1873,14 +1905,22 @@ input:focus,select:focus,textarea:focus{
 </div>
 
 <!-- OVERDUE MODAL -->
+<div class="modal" id="tlModal">
+  <div class="msh" style="max-height:92vh;overflow-y:auto">
+    <div class="mt">🕘 File ki Kahani</div>
+    <div class="msub" id="tlSub">Har date par is file ke saath kya hua</div>
+    <div id="tlBody"></div>
+    <button class="btn neutral" onclick="document.getElementById('tlModal').classList.remove('on')" style="margin-top:12px">✕ Band</button>
+  </div>
+</div>
 <div class="modal" id="healthModal">
   <div class="msh" style="max-height:92vh;overflow-y:auto">
     <div class="mt">🩺 Data Health Check</div>
     <div class="msub">Aapka data theek hai ya nahi — ek nazar mein</div>
     <div id="healthBody"></div>
     <div style="display:flex;gap:8px;margin-top:12px">
-      <button class="btn success" onclick="exportBackup()" style="flex:1;margin-top:0;font-size:12px">💾 Abhi Backup Lo</button>
-      <button class="btn neutral" onclick="document.getElementById('healthModal').classList.remove('on')" style="margin-top:0;font-size:12px">✕ Band</button>
+      <button class="btn success" onclick="exportBackup()" style="flex:1 1 0;min-width:0;width:auto;margin-top:0;font-size:12.5px;white-space:nowrap">💾 Abhi Backup Lo</button>
+      <button class="btn neutral" onclick="document.getElementById('healthModal').classList.remove('on')" style="flex:1 1 0;min-width:0;width:auto;margin-top:0;font-size:12.5px;white-space:nowrap">✕ Band</button>
     </div>
   </div>
 </div>
@@ -1970,6 +2010,91 @@ input:focus,select:focus,textarea:focus{
 </div>
 
 <script>
+/* ══════════════════════════════════════════════════════════════════
+   APP KA NAKSHA (index) — 77 hisse, isi kram mein neeche.
+   Kisi hisse par jaane ke liye uska naam search karo ("// ═══ NAAM").
+   Niyam: date ka data hamesha writeDate()/saveLocal() se likho — seedha
+   idbSM nahi (warna Firebase queue chhoot jaati hai).
+   ──────────────────────────────────────────────────────────────────
+    1. GLOBAL ERROR SAFETY NET
+    2. DOM REFS
+    3. DRAWER
+    4. INDEXEDDB
+    5. PERSISTENT STORAGE — data ko browser eviction se bachao
+    6. DATA LIKHNE KA EK DARWAZA — writeDate()
+    7. DO TAB EK SAATH — sirf EK tab/window data likh sakta hai
+    8. SHARED HELPERS
+    9. escJs — inline onclick="fn('...')" ke andar surakshit
+   10. SECONDARY = SIRF DEKHNE KE LIYE
+   11. CFM STATE
+   12. DARK / LIGHT THEME
+   13. CASE TYPES
+   14. FLEXIBLE CASE MATCHING
+   15. SHARED ALL-DATES CACHE — speed boost
+   16. INIT
+   17. OVERDUE HELPERS
+   18. BUNDLE CHECK — Received par bundle mein place nahi
+   19. ARCHIVE PENDING INDEX
+   20. DISPOSE — LIFECYCLE-AWARE
+   21. PESHGAR MISMATCH (CFM sent par Peshgar received nahi)
+   22. PESHGAR PREFETCH — saari dates ek saath
+   23. EXCEL UPLOAD
+   24. Upload ke baad: pichli date se pending-receive / overdue files flag karo
+   25. UPCOMING-DATE AUTO-MERGE
+   26. STALE AUTO-MERGE CLEANUP
+   27. TRANSLATE & PROCESS MODULE
+   28. END TRANSLATE MODULE
+   29. STATUS MODAL
+   30. END STATUS MODAL
+   31. QR CODE MODULE
+   32. END QR MODULE
+   33. MANUAL CASE ADD (from drawer)
+   34. TABLE
+   35. BUNDLE LOCATION BADGE
+   36. NEXT DATE BADLI → BUNDLE MEIN FILE PURANE KHAANE MEIN TO NAHI?
+   37. CASE DETAIL + UNDO
+   38. MANUAL ENTRY
+   39. NEXT DATE MODAL
+   40. DOWNLOAD
+   41. DELETE OLD / BACKUP
+   42. AUTO-ARCHIVE — 90+ din purana data active store se archive mein move
+   43. QR SCANNER
+   44. BUNDLE AUTO-HIDE
+   45. BUNDLE STATE + COLUMNS
+   46. COLUMN KA UCHCHARAN — bolne ke liye
+   47. UNIVERSAL CHECK — bina slot chune, kisi bhi file ka milaan
+   48. OVERALL TALLY — saare slots ka jama hisaab
+   49. SUB-DATE VIEW (point 1)
+   50. Slot-confirm gate (manual add)
+   51. APP VERSION + KYA NAYA HAI
+   52. 🧪 SELF-TEST — app khud apni jaanch kare (aapka data nahi badalta)
+   53. FILE KI KAHANI (TIMELINE) — SIRF PADHNA
+   54. CHHOOTI FILES — next date di, us din ki list bani, par file usme nahi
+   55. CASE-NO SUGGESTION DROPDOWN (har manual input ke liye ek hi engine)
+   56. BUNDLE — PARTY NAME LOOKUP
+   57. DRAG DROP + BULK
+   58. LOGIN
+   59. FIREBASE SYNC
+   60. SECONDARY STALE-DATA BANNER
+   61. CONTINUOUS SYNC — Peshgar jaisa live sync
+   62. Offline queue PERSIST — taaki offline+app-close pe pending push yaad rahe
+   63. FLUSH — queued changes ko push karo (net aane pe ya periodic)
+   64. BUNDLE SYNC DIAGNOSE
+   65. LIVE PULL TRACE
+   66. PUSH TRACE (Main pe chalao)
+   67. BUNDLE FIREBASE FORMAT
+   68. CFM FIREBASE FORMAT
+   69. PULL GUARD — Main phone pe galti se pull na ho
+   70. NETWORK RETRY — bina baar-baar dabaye
+   71. OVERDUE MODAL
+   72. DISPOSE — HAR JAGAH (overdue se, ya back-date jaaye bina)
+   73. DISPOSE CONFIRM
+   74. URGENT SCAN / ENTRY
+   75. SCANNER CONTEXT — urgent + addcase
+   76. DISPOSE CONFIRM (confirmDisposeNo was here - re-adding)
+   77. UI POLISH note
+   ══════════════════════════════════════════════════════════════════ */
+
 // ════ GLOBAL ERROR SAFETY NET ════
 // Unexpected error aaye to app silently toot na jaye — user ko pata chale + console mein detail
 window.addEventListener('error',function(ev){
@@ -2020,6 +2145,7 @@ function switchDP(btn){
   document.querySelectorAll('.dtab').forEach(b=>b.classList.remove('on'));
   document.querySelectorAll('.dpanel').forEach(p=>p.classList.remove('on'));
   btn.classList.add('on');
+  try{btn.scrollIntoView({inline:'nearest',block:'nearest'});}catch(e){}
   document.getElementById(id).classList.add('on');
   if(id==='dp-qr')qrRefreshPending();
 }
@@ -2067,9 +2193,65 @@ function openDB(){
     r.onerror=e=>rej(e.target.errorCode);
   });
 }
+// ═══ DATA LIKHNE KA EK DARWAZA — writeDate() ═══
+// Date ka data (YYYY-MM-DD_N) jahan bhi likha jaaye, ek hi jagah se:
+//   save (active/archive) → cache saaf → Firebase queue (Main par) → flush.
+// Pehle har jagah ye khud karna padta tha; 3 jagah queue bhool gaye the (overdue
+// remark, date kholte waqt auto-merge, auto-merge cleanup) — wo badlav kabhi
+// Firebase par nahi jaate the. Firebase se AAYA data {remote:true} — wapas push nahi.
+let _wdFlushT=null;
+async function writeDate(key,data,opt){
+  opt=opt||{};
+  if(_tabReadOnly)throw new Error('READONLY_TAB');
+  if(opt.archive)await idbSAR(key,data);else await idbSM(key,data);
+  if(!opt.noCache){try{invalidateAllDatesCache();}catch(e){}try{invalidateOvCache();}catch(e){}}
+  if(!opt.remote&&/^\d{4}-\d{2}-\d{2}_\d+$/.test(key)&&typeof deviceRole!=='undefined'&&deviceRole!=='secondary'){
+    try{
+      _cmPendingDates.add(key);savePendingQueue();
+      if(!opt.noFlush&&_fbDb&&navigator.onLine){clearTimeout(_wdFlushT);_wdFlushT=setTimeout(()=>{flushCmPush().catch(()=>{});},1500);}
+    }catch(e){console.warn('writeDate queue:',e);}
+  }
+  return true;
+}
+
+// ═══ DO TAB EK SAATH — sirf EK tab/window data likh sakta hai ═══
+// Doosre tab mein app "sirf dekhne" wala ho jaata hai — warna dono ek hi data par
+// likh ke ek doosre ka kaam mita sakte the. Rok yahin (har IndexedDB write ka
+// raasta) + bundle bulk-put + urgent log mein.
+let _tabReadOnly=false;
+async function acquireTabLock(){
+  try{
+    if(!(navigator.locks&&navigator.locks.request))return true; // purana browser — pehle jaisa
+    const got=await new Promise(resolve=>{
+      navigator.locks.request('cfm-writer',{ifAvailable:true},lock=>{
+        if(!lock){resolve(false);return;}
+        resolve(true);
+        return new Promise(()=>{}); // tab band hone tak lock pakde raho
+      }).catch(()=>resolve(true));
+    });
+    if(!got){
+      _tabReadOnly=true;
+      try{showTabROBanner();}catch(e){}
+      // Jab pehla tab band ho → ye tab likh sakta hai, par taaza data ke liye reload
+      navigator.locks.request('cfm-writer',lock=>{
+        try{const b=document.getElementById('tabROBanner');if(b){b.innerHTML='✅ Doosra tab band ho gaya — <b>page reload karo</b> to yahan kaam kar sakte ho <button onclick="location.reload()" style="margin-left:6px;padding:3px 10px;border-radius:8px;border:none;background:#fff;color:#b45309;font-weight:800">Reload</button>';}}catch(e){}
+        return new Promise(()=>{});
+      }).catch(()=>{});
+    }
+    return got;
+  }catch(e){return true;}
+}
+function showTabROBanner(){
+  if(document.getElementById('tabROBanner'))return;
+  const d=document.createElement('div');d.id='tabROBanner';
+  d.style.cssText='position:fixed;top:0;left:0;right:0;z-index:20000;background:#b45309;color:#fff;font-weight:700;font-size:13px;padding:9px 12px;text-align:center;box-shadow:0 2px 10px rgba(0,0,0,.25)';
+  d.innerHTML='🔒 App doosre tab/window mein pehle se khula hai — yahan sirf DEKH sakte ho, save nahi hoga. Wahi tab use karo.';
+  document.body.appendChild(d);
+}
 function idbTx(store,mode,fn){
   return new Promise((res,rej)=>{
     if(!db){rej(new Error('DB not open'));return;}
+    if(mode==='readwrite'&&_tabReadOnly){rej(new Error('READONLY_TAB: app doosre tab mein khula hai'));return;}
     let tx,s,r;
     try{tx=db.transaction(store,mode);s=tx.objectStore(store);r=fn(s);}
     catch(e){rej(e);return;}
@@ -2117,7 +2299,7 @@ function idbBulkGet(store,keys){
 // Ek hi transaction mein sab likho = 100-200ms. Purani files bhi clear karo (mirror).
 function idbBulkPutBundle(files,clearFirst){
   return new Promise((resolve)=>{
-    if(!db){resolve(false);return;}
+    if(!db||_tabReadOnly){resolve(false);return;}
     const arr=Object.values(files||{});
     let settled=false;
     const finish=(ok)=>{if(!settled){settled=true;resolve(ok);}};
@@ -2183,6 +2365,12 @@ function esc(s){if(s==null)return '';return String(s).replace(/[&<>"']/g,c=>({'&
 // agle auto-pull mein CHUP-CHAAP MIT jaata tha. Kaam karne wale ko lagta tha
 // ho gaya. Ab Secondary par kaam shuru hi nahi hota, saaf bata deta hai.
 function secondaryBlock(fromScan){
+  if(_tabReadOnly){
+    const m='🔒 App doosre tab/window mein khula hai — yahan save nahi hoga. Wahi tab use karo.';
+    try{if(fromScan&&typeof showSC==='function')showSC(m,'#dc2626');else showToast(m,'d');}catch(e){}
+    try{haptic('error');}catch(e){}
+    return true;
+  }
   if(typeof deviceRole==='undefined'||deviceRole!=='secondary')return false;
   const msg='🔒 Ye SECONDARY device hai — yahan kiya kaam save/sync nahi hota (agle sync pe mit jaata). Ye kaam MAIN phone par karo.';
   try{ if(fromScan&&typeof showSC==='function')showSC(msg,'#dc2626'); else showToast(msg,'d'); }catch(e){}
@@ -2616,6 +2804,7 @@ window.onload=async()=>{
   }
   try{
     await openDB();
+    await acquireTabLock();   // doosra tab pehle se khula? → ye tab sirf-dekhne wala
     requestPersistentStorage();
     try{installModalCloseButtons();}catch(e){}
     workDate.value=_localISO(new Date());
@@ -2809,8 +2998,7 @@ async function loadLocal(){
       // Naye-merge hue rows IDB mein bhi likh do — taaki agli baar isi date pe load
       // karne par dubara scan na karna pade, aur Bundle/overdue/tag sab isi data se
       // consistent rahein (jaisa Excel-upload path mein already hota hai).
-      await idbSM(dKey(),cData);
-      invalidateAllDatesCache();
+      if(!_tabReadOnly&&deviceRole!=='secondary')await writeDate(dKey(),cData);   // save + Firebase queue
     }
   }catch(e){console.error('loadLocal upcoming-merge:',e);}
   // Pending-from-previous flag karo (date switch pe bhi highlight dikhe)
@@ -3981,8 +4169,7 @@ async function cleanupStaleAutoMerge(caseNo,oldNextDate,newNextDate){
     const untouched=(r.sent!=='Sent')&&(r.received!=='Received')&&(!r._disposed);
     if(!untouched)return;
     rows.splice(idx,1);
-    await idbSM(key,rows);
-    invalidateAllDatesCache();
+    await writeDate(key,rows);   // save + Firebase queue (pehle sirf phone par hatti thi)
   }catch(e){console.error('cleanupStaleAutoMerge:',e);}
 }
 
@@ -4270,7 +4457,13 @@ async function uploadExcel(){if(secondaryBlock()){return;}
       // (taaki flag Firebase push mein bhi jaaye, Peshgar ko exact same files mile)
       invalidateAllDatesCache();
       const pendInfo=await markPendingFromPrevious();
-      await saveLocal(); // ab flag ke saath save + push
+      const _upOk=await saveLocal(); // ab flag ke saath save + push
+      if(!_upOk){
+        // Save fail (storage bhari) — naya version list se wapas hatao, jhootha ✅ nahi
+        try{await idbSV(workDate.value,vs&&vs.length?vs:[]);if(vs&&vs.length){upV=vs.reduce((m,v)=>Math.max(m,v),0);await saveCurV();}await loadVersions();}catch(e){}
+        showToast('❌ UPLOAD SAVE FAIL — list phone mein save nahi hui. Phone ki jagah dekho aur dobara upload karo.','d');haptic('error');
+        resetBtn();return;
+      }
       drawTable(getFiltered());await updateDash();updateSU();
       speak("Excel uploaded");
       if(pendInfo.pendingCount>0){
@@ -5223,13 +5416,55 @@ searchBox.addEventListener("input",()=>{clearTimeout(sDeb);sDeb=setTimeout(()=>{
   },1200);}catch(e){}
   drawTable(getFiltered());
 },150);});
-async function updateNextDate(cn,val){
+// Next date Sunday par? — backup mein 38 files ki next date Sunday daal di gayi thi
+// (typing galti). Sunday ki koi cause-list nahi banti, aisi file "gum" ho sakti hai.
+// Rokte nahi (kabhi special sitting ho sakti hai) — bas pakka karwaate hain.
+function ndIsSunday(d){try{return !!d&&/^\d{4}-\d{2}-\d{2}$/.test(d)&&new Date(d+'T12:00:00').getDay()===0;}catch(e){return false;}}
+function ndSundayOk(d){
+  if(!ndIsSunday(d))return true;
+  try{speak('Ravivaar hai','hi-IN');haptic('warn');}catch(e){}
+  return confirm('⚠️ '+fmtD(d)+' RAVIVAAR (Sunday) hai!\n\nUs din cause-list nahi banti — file chhoot sakti hai.\n\nKya ye date sahi hai?\nOK = haan, yahi rakho · Cancel = date badlo');
+}
+
+// ═══ NEXT DATE BADLI → BUNDLE MEIN FILE PURANE KHAANE MEIN TO NAHI? ═══
+// CIS test mein 11 files aisi mili thi: next date badli, file purani tareekh ke
+// khaane mein hi rakhi rahi. Ab next date save hote hi poochte hain; "Haan" par
+// Move screen nayi tareekh bhar ke khulti hai — move aap khud confirm karte ho.
+function bundleShiftCheck(cn,nd){
+  try{
+    if(!nd||!/^\d{4}-\d{2}-\d{2}$/.test(nd)||_tabReadOnly||deviceRole==='secondary')return false;
+    if(typeof bFiles==='undefined'||!bFiles)return false;
+    const ck=_unpKey(String(cn||'').trim());if(ck==='|')return false;
+    const f=Object.values(bFiles).find(x=>x&&!x.hidden&&_unpKey(String(x.id).trim())===ck);
+    if(!f||f.cat)return false;                       // bundle mein nahi / category wali (tay date nahi)
+    const day=parseInt(nd.split('-')[2],10);
+    if(f.md===day)return false;                       // pehle se sahi khaane mein
+    const where='Date '+f.md+(f.sd!=null?'/'+f.sd:'')+' — Col '+dispCol(f.col);
+    setTimeout(()=>{
+      try{speak('Bundle badlo','hi-IN');}catch(e){}
+      if(!confirm('📦 '+f.id+' bundle mein "'+where+'" mein rakhi hai,\npar nayi next date '+fmtD(nd)+' hai.\n\nOK = abhi Date '+day+' mein shift karo\nCancel = baad mein'))return;
+      bOpenMove(f.id);
+      try{
+        bMCat=null;bmApplyMode('date');
+        bMMD=day;bMSD=null;
+        const lc=(typeof _lastColForDate!=='undefined'&&_lastColForDate)?_lastColForDate['date:'+day]:null;
+        if(lc)bMC=lc;
+        bRenderMoveForm();
+      }catch(e){console.warn('bundleShiftCheck form:',e);}
+    },350);
+    return true;
+  }catch(e){console.warn('bundleShiftCheck:',e);return false;}
+}
+
+async function updateNextDate(cn,val){if(secondaryBlock()){drawTable(getFiltered());return;}
   const idx=cData.findIndex(r=>caseMatch(r.caseno,cn));if(idx===-1)return;
+  if(val&&!ndSundayOk(val)){drawTable(getFiltered());return;}
   const oldNextDate=cData[idx].nextdate||'';
   cData[idx].nextdate=val;cData[idx].searchableText=gSrch(cData[idx]);
   if(val&&oldNextDate)await cleanupStaleAutoMerge(cData[idx].caseno,oldNextDate,val);
-  await saveLocal();await updateDash();
-  if(val){speakNextDate(val);showToast('📅 Next date: '+fmtD(val));}
+  const ok=await saveLocal();await updateDash();
+  if(!ok){drawTable(getFiltered());return;}   // saveLocal ne SAVE FAIL dikha diya — jhootha ✅ nahi
+  if(val){speakNextDate(val);showToast('📅 Next date: '+fmtD(val));bundleShiftCheck(cData[idx].caseno,val);}
   else showToast('📅 Next date clear ho gaya','w');
 }
 async function updateRemark(cn,val){if(secondaryBlock()){return;}
@@ -5336,7 +5571,7 @@ async function confirmUndo(){if(secondaryBlock()){return;}
     cData[idx]._disposed=false; // dispose flag bhi hatao
     cData[idx].remark=cleanUndoRemark(cData[idx].remark); // Dispose/Jail/Old tags hatao
     const bid=_cdCN.toUpperCase();
-    if(bFiles[bid]&&bFiles[bid].hidden){bFiles[bid].hidden=false;invalidateBundleIdx();await idbSBn(bFiles[bid]);scheduleBundlePush();if(activeTab==='bundle')bRenderGrid();}
+    if(bFiles[bid]&&bFiles[bid].hidden){bFiles[bid].hidden=false;invalidateBundleIdx();if(await bSave(bFiles[bid]))scheduleBundlePush();if(activeTab==='bundle')bRenderGrid();}
     showToast('↩ SENT undo ho gaya: '+_cdCN);
   }else if(_undoAction==='unreceived'){
     cData[idx].received='';cData[idx].receiveddate='';cData[idx].nextdate='';
@@ -5357,9 +5592,6 @@ function onManualInput(){
   closeDD();
   try{const inp=document.getElementById('manualCaseInput');if(inp&&inp._sg)sgUpdate(inp,inp._sg);}catch(e){}
 }
-function onManualKeyDown(e){ /* arrow/enter ab document-capture handler (caseSuggest) sambhalta hai */ }
-function updDDHL(items){items.forEach((el,i)=>{el.classList.toggle("act",i===dropIdx);if(i===dropIdx)el.scrollIntoView({block:"nearest"});});}
-function selDD(cn){manualCaseInput.value=cn;closeDD();document.getElementById("manualStatus").className="smsg";}
 function closeDD(){document.getElementById("caseDD").style.display="none";dropIdx=-1;}
 document.addEventListener("click",e=>{
   if(!e.target.closest(".dwrap"))closeDD();
@@ -5481,6 +5713,7 @@ async function saveNextDate(){if(secondaryBlock()){return;}
     showToast('⚠️ Date bharo, ya remark mein "Dispose" likho','d');
     return;
   }
+  if(d&&!ndSundayOk(d)){try{document.getElementById('ndInput').focus();}catch(e){}return;}
   const idx=cData.findIndex(r=>caseMatch(r.caseno,lastRcvCase));
   if(idx!==-1&&rcvDate)cData[idx].receiveddate=rcvDate; // chosen received-date set karo
   let oldNextDate='';
@@ -5508,7 +5741,10 @@ async function saveNextDate(){if(secondaryBlock()){return;}
     speakNextDate(d);
   }
   if(idx!==-1&&d)await cleanupStaleAutoMerge(cData[idx].caseno,oldNextDate,d);
-  await saveLocal();drawTable(getFiltered());updateDash();resetJO();lastRcvCase=null;_ndRcvMode=false;
+  const _okND=await saveLocal();drawTable(getFiltered());updateDash();resetJO();
+  // Save hua aur nayi date di → bundle mein file purane khaane mein to nahi?
+  if(_okND&&idx!==-1&&d&&!isDispose)bundleShiftCheck(cData[idx].caseno,d);
+  lastRcvCase=null;_ndRcvMode=false;
 }
 
 // ════ DOWNLOAD ════
@@ -5588,6 +5824,7 @@ let _archiveRunning=false;
 let _archKeepActive=(()=>{try{return new Set(JSON.parse(localStorage.getItem('cm_arch_keep')||'[]'));}catch(e){return new Set();}})();
 function _saveArchKeep(){try{localStorage.setItem('cm_arch_keep',JSON.stringify([..._archKeepActive]));}catch(e){}}
 async function autoArchiveOldData(silent){
+  if(_tabReadOnly)return;
   if(_archiveRunning)return;
   _archiveRunning=true;
   const today=new Date();today.setHours(0,0,0,0);
@@ -5728,7 +5965,7 @@ function tgLoadCfg(){
 // ── Telegram pe backup file bhejo ──
 async function tgSendBackup(silent){
   const cfg=tgGetCfg();
-  if(!cfg||!cfg.token||!cfg.chatId){if(!silent)markBackupDone('telegram');showToast('⚠️ Pehle Telegram bot setup karo','d');return false;}
+  if(!cfg||!cfg.token||!cfg.chatId){showToast('⚠️ Pehle Telegram bot setup karo','d');return false;}  // (pehle yahan galti se 'telegram backup ho gaya' darj ho jaata tha)
   if(!navigator.onLine){if(!silent)showToast('📡 Net nahi — net aane pe bheji jayegi','w');return false;}
   try{
     const bk=await buildBackupData();
@@ -5767,6 +6004,9 @@ async function tgSendBackup(silent){
     }
     if(!data){if(!silent)showToast('❌ Telegram error: '+(lastErr&&lastErr.message||'network'),'d');else console.warn('tgSendBackup fail (retry next cycle):',lastErr&&lastErr.message);return false;}
     if(data.ok){
+      // Safal upload — Health Check ke liye darj karo (auto aur manual dono).
+      // Pehle ye kabhi darj nahi hota tha, isliye Health 'Telegram: kabhi nahi' dikhata tha.
+      try{markBackupDone('telegram');}catch(e){}
       if(!silent)showToast('✅ Backup Telegram pe bhej diya!');
       const st=document.getElementById('tgStatus');if(st){st.textContent='✅ Last sent: '+new Date().toLocaleTimeString('en-IN');st.className='smsg s-ok';}
       return true;
@@ -5789,6 +6029,7 @@ async function tgTestSend(){
 // ── DAILY AUTO-BACKUP CHECK (app load + net connect pe) ──
 // 3:30 PM ke baad: (1) auto-download once, (2) telegram bheji once
 async function checkDailyBackup(){
+  if(_tabReadOnly)return;   // doosra tab hi backup bhejega (dohra na jaaye)
   const today=_todayStr();
 
   // ── 1. AUTO-DOWNLOAD (din mein ek baar, 3:30 PM ke baad) ──
@@ -6091,7 +6332,7 @@ async function hideBundleEntry(caseNo){
     }
   }
   if(target){
-    target.hidden=true;await idbSBn(target);scheduleBundlePush();if(activeTab==='bundle')bRenderGrid();showToast('📁 '+targetId+' bundle se hide ho gaya (SENT)');
+    target.hidden=true;if(!(await bSave(target)))return;scheduleBundlePush();if(activeTab==='bundle')bRenderGrid();showToast('📁 '+targetId+' bundle se hide ho gaya (SENT)');
   }
 }
 
@@ -7209,6 +7450,31 @@ function bUpdateSP(){
   else eb.style.display='none';
 }
 function bUpdateST(){const el=document.getElementById('scan-ml');if(el&&(scanCtx==='bundle'||scanCtx==='bundlefree'))el.textContent=(scanCtx==='bundlefree'?'🆓 Free ':'📷 ')+`Bundle → Date ${bAMD}${bASD!=null?'/'+bASD:''} ${dispCol(bAC)}`;}
+// ═══ BUNDLE SAVE — fail ho to jhootha kaam memory mein na rahe ═══
+// Pehle har bundle kaam pehle memory (bFiles) badalta tha, phir save. Save fail
+// (phone ki storage bhari) → error, par file memory mein "rakhi" dikhti rahti aur
+// baad mein Firebase par bhi chali jaati — jabki phone mein thi hi nahi.
+// Ab: save fail → phone mein jo SACH mein save hai wahi memory mein wapas + SAVE FAIL.
+async function bSave(obj){
+  try{await idbSBn(obj);return true;}
+  catch(e){await _bSaveFailed(e);return false;}
+}
+async function bDel(id){
+  try{await idbDB(id);return true;}
+  catch(e){await _bSaveFailed(e);return false;}
+}
+async function _bSaveFailed(e){
+  console.error('bundle save fail:',e);
+  const ro=/READONLY/.test(e&&e.message||'');
+  try{showToast(ro?'🔒 App doosre tab mein khula hai — yahan save nahi hoga':'❌ SAVE FAIL — bundle ka badlav phone mein save nahi hua ('+((e&&(e.name||e.message))||'error')+'). Dobara karo; baar-baar ho to phone ki jagah khaali karo.','d');haptic('error');speak('Save fail','hi-IN');}catch(_){}
+  try{
+    const arr=await idbAB();
+    const fresh={};arr.forEach(f=>{if(f&&f.id)fresh[f.id]=f;});
+    bFiles=fresh;invalidateBundleIdx();
+    try{bRenderGrid();}catch(_){}try{bUpdateSP();}catch(_){}
+  }catch(_){}
+}
+
 async function bAddFile(rawId,fromScan){if(secondaryBlock(!!fromScan)){return false;}
   // NULL/UNDEFINED GUARD: scanner ya koi caller kabhi null/undefined de de to
   // rawId.trim() par crash ho jaata tha. Ab chup-chaap false return.
@@ -7234,7 +7500,7 @@ async function bAddFile(rawId,fromScan){if(secondaryBlock(!!fromScan)){return fa
     speak('Pehle se bundle mein hai. '+exSpk,'hi-IN');haptic('error');return false;
     }
     const obj={id,md:bActiveCat?0:bAMD,sd:bActiveCat?null:bASD,col:bAC,cat:bActiveCat||null,at:Date.now(),st:'placed',hidden:false,_freeAdd:true};actLog('bundleAdd');
-    bFiles[id]=obj;invalidateBundleIdx();await idbSBn(obj);scheduleBundlePush();
+    bFiles[id]=obj;invalidateBundleIdx();if(!(await bSave(obj))){if(fromScan){try{showSC('❌ SAVE FAIL — '+id+' bundle mein save nahi hui','#dc2626');}catch(_){}}return false;}scheduleBundlePush();
     if(bActiveCat&&CAT_REMARK_WORD[bActiveCat]){await addCategoryWordToRemark(id,CAT_REMARK_WORD[bActiveCat]);}
     _lastColForDate[bColKey()]=bAC;saveLastCols();
     const slotLabel=bActiveCat?((CAT_LABELS[bActiveCat]||bActiveCat)+'-'+dispCol(bAC)):('Date '+bAMD+(bASD!=null?'/'+bASD:'')+'-'+dispCol(bAC));
@@ -7324,7 +7590,7 @@ async function bAddFile(rawId,fromScan){if(secondaryBlock(!!fromScan)){return fa
   // _autoCat NAHI lagta — ye aapka apna faisla hai, isliye auto-category
     // system ise kabhi nahi hataayega ya badlega.
     const obj={id,md:bActiveCat?0:bAMD,sd:bActiveCat?null:bASD,col:bAC,cat:bActiveCat||null,at:Date.now(),st:'placed',hidden:false};actLog('bundleAdd');
-  bFiles[id]=obj;invalidateBundleIdx();await idbSBn(obj);scheduleBundlePush();
+  bFiles[id]=obj;invalidateBundleIdx();if(!(await bSave(obj))){if(fromScan){try{showSC('❌ SAVE FAIL — '+id+' bundle mein save nahi hui','#dc2626');}catch(_){}}return false;}scheduleBundlePush();
   // Agar file kisi CATEGORY (old/stay/committal etc) mein add hui, to us category ka word
   // CFM remark mein automatically add karo (taaki CFM mein tag dikhe, sent/received ke baad bhi rahe)
   if(bActiveCat&&CAT_REMARK_WORD[bActiveCat]){
@@ -7460,7 +7726,7 @@ async function confirmMismatch(){
   // Main date = CFM ki SAHI date (cfmDay), sub-date = overflow (jahan space hai)
   try{
     const obj={id,md:cfmDay,sd:mmSD,col:bAC,cat:bActiveCat||null,at:Date.now(),st:'placed',hidden:false};
-    bFiles[id]=obj;invalidateBundleIdx();await idbSBn(obj);scheduleBundlePush();
+    bFiles[id]=obj;invalidateBundleIdx();if(!(await bSave(obj))){try{showSC('❌ SAVE FAIL — '+id+' bundle mein save nahi hui','#dc2626');}catch(_){}return false;}scheduleBundlePush();
     showSC('✅ '+id+' → Date '+cfmDay+'/'+mmSD+' '+dispCol(bAC),'#16a34a');
     speak(cfmDay+', सब '+mmSD+', '+spellCol(bAC),'hi-IN');haptic('scan');
     bUpdateSP();bRenderGrid();
@@ -7470,9 +7736,9 @@ async function confirmMismatch(){
   }
 }
 function cancelMismatch(){document.getElementById('mmModal').classList.remove('on');mmPending={id:'',cfmDay:0};showSC('❌ Scan reject: date mismatch','#dc2626');}
-async function bSetStatus(id,st){if(!bFiles[id])return;bFiles[id].st=st;await idbSBn(bFiles[id]);scheduleBundlePush();showToast(st==='missing'?'⚠ Missing: '+id:'✅ Restored: '+id,st==='missing'?'w':'');bRenderGrid();if(bSlot)bRenderSlot();bRenderSearch();}
-async function bUnhide(id){if(secondaryBlock()){return;}if(!bFiles[id])return;bFiles[id].hidden=false;invalidateBundleIdx();await idbSBn(bFiles[id]);scheduleBundlePush();showToast('✅ '+id+' wapas dikhaya');bRenderGrid();bRenderSearch();}
-async function bDelFile(id){if(secondaryBlock()){return;}delete bFiles[id];invalidateBundleIdx();await idbDB(id);scheduleBundlePush();showToast('Hata diya: '+id,'d');bRenderGrid();if(bSlot)bRenderSlot();bRenderSearch();}
+async function bSetStatus(id,st){if(!bFiles[id])return;bFiles[id].st=st;if(!(await bSave(bFiles[id])))return;scheduleBundlePush();showToast(st==='missing'?'⚠ Missing: '+id:'✅ Restored: '+id,st==='missing'?'w':'');bRenderGrid();if(bSlot)bRenderSlot();bRenderSearch();}
+async function bUnhide(id){if(secondaryBlock()){return;}if(!bFiles[id])return;bFiles[id].hidden=false;invalidateBundleIdx();if(!(await bSave(bFiles[id])))return;scheduleBundlePush();showToast('✅ '+id+' wapas dikhaya');bRenderGrid();bRenderSearch();}
+async function bDelFile(id){if(secondaryBlock()){return;}delete bFiles[id];invalidateBundleIdx();if(!(await bDel(id)))return;scheduleBundlePush();showToast('Hata diya: '+id,'d');bRenderGrid();if(bSlot)bRenderSlot();bRenderSearch();}
 function bOpenMove(id){bMoveId=id;const f=bFiles[id];
   // NULL GUARD: agar file beech mein hat gayi (Firebase sync, doosre device se
   // remove) aur user purana button daba de, to f undefined hota tha aur
@@ -7547,7 +7813,7 @@ async function doBundleMove(){if(secondaryBlock()){return;}
   };
   const targetLabel=bMCat?`${CAT_LABELS[bMCat]||bMCat}-${dispCol(bMC)}`:`Date ${bMMD}${bMSD!=null?'/'+bMSD:''}-${dispCol(bMC)}`;
   if(_bulkMoveMode&&_ddSel.size>0){
-    for(const rawId of _ddSel){if(!bFiles[rawId])continue;applyTarget(bFiles[rawId]);await idbSBn(bFiles[rawId]);}
+    for(const rawId of _ddSel){if(!bFiles[rawId])continue;applyTarget(bFiles[rawId]);if(!(await bSave(bFiles[rawId])))return;}
     scheduleBundlePush();
     showToast(`✅ ${_ddSel.size} files moved → ${targetLabel}`);
     _ddSel.clear();_bulkMoveMode=false;_ddSelMode=false;
@@ -7556,12 +7822,455 @@ async function doBundleMove(){if(secondaryBlock()){return;}
     closeBMModal();bRenderGrid();if(bSlot){bSlot=null;swBV('grid');}bRenderSearch();return;
   }
   _bulkMoveMode=false;if(!bMoveId||!bFiles[bMoveId])return;
-  applyTarget(bFiles[bMoveId]);await idbSBn(bFiles[bMoveId]);
+  applyTarget(bFiles[bMoveId]);if(!(await bSave(bFiles[bMoveId])))return;
   scheduleBundlePush();
   showToast(`✅ Moved → ${targetLabel}`);
   closeBMModal();bRenderGrid();if(bSlot){bSlot=null;swBV('grid');}bRenderSearch();
 }
 let _bSearchT=null;
+// ═══ APP VERSION + KYA NAYA HAI ═══
+// Har nayi file par upar ek entry jodo — Health mein dikhta hai, taaki pata rahe
+// phone par kaunsa version chal raha hai aur kya badla (purani file wapas lagani ho to).
+const APP_BUILD='v16.6 · 22-11-2026';
+const APP_CHANGELOG=[
+  {v:'v16.6',d:'22-11-2026',items:[
+    'Data likhne ka ek darwaza — overdue remark, date kholte waqt auto-merge aur auto-merge cleanup ab Firebase par bhi jaate hain',
+    'Do tab ek saath: doosra tab sirf-dekhne wala (data mitne se bachav)',
+    'Startup par pending Firebase queue mitne ka bug theek',
+    'Next date badli aur file bundle mein purane khaane mein → shift karne ko poochta hai',
+    'File ki kahani (🕘) — har date par file ke saath kya hua',
+    'Health: chhooti files (next date ki list mein naam nahi), 🧪 Self-test, Telegram backup ka sahi samay',
+    'Tools ke tabs groups mein'
+  ]},
+  {v:'v16.5',d:'22-11-2026',items:['CIS Pendency Milaan (sirf jaanch)','Health ka jhootha 🔴 pending theek','Sunday next-date chetavani']},
+  {v:'v16.4',d:'21-11-2026',items:['Bundle mein party naam','Overdue se dispose ka bug theek','Case no suggestion dropdown']},
+];
+function changelogHTML(){
+  return APP_CHANGELOG.map((c,i)=>'<div style="margin-top:'+(i?8:0)+'px"><div style="font-size:12px;font-weight:800;color:var(--navy)">'+esc(c.v)+' <span style="color:var(--mu);font-weight:600">· '+esc(c.d)+'</span></div>'
+    +c.items.map(t=>'<div style="font-size:11.5px;color:var(--txt);line-height:1.5;padding-left:8px">• '+esc(t)+'</div>').join('')+'</div>').join('');
+}
+
+// ═══ 🧪 SELF-TEST — app khud apni jaanch kare (aapka data nahi badalta) ═══
+// Sirf ek alag key '__selftest' likh ke turant mitata hai (storage chal raha hai
+// ya nahi). Baaki sab sirf padhna.
+async function runSelfTest(){
+  const box=document.getElementById('selfTestBox');if(!box)return;
+  box.innerHTML='<div style="color:var(--mu);font-size:12px">⏳ Jaanch chal rahi hai…</div>';
+  const res=[];const add=(ok,t,sub)=>res.push({ok,t,sub:sub||''});
+  const re=/^\d{4}-\d{2}-\d{2}_\d+$/;
+  // 1. Storage likh/padh/mita sakte hain?
+  if(_tabReadOnly)add(null,'Storage likhna','Ye tab sirf-dekhne wala hai (doosra tab khula) — jaanch chhodi');
+  else{
+    try{
+      const v='t'+Date.now();
+      await idbSM('__selftest',v);const back=await idbGM('__selftest');await idbDM('__selftest');
+      const gone=await idbGM('__selftest');
+      add(back===v&&gone==null,'Storage likh/padh/mita sakte hain',back===v?'':'Padha hua alag: '+back);
+    }catch(e){add(false,'Storage likh/padh nahi pa rahe',e&&e.message);}
+  }
+  try{localStorage.setItem('__st','1');const ok=localStorage.getItem('__st')==='1';localStorage.removeItem('__st');add(ok,'Settings (localStorage) chal rahi hai');}catch(e){add(false,'localStorage band hai',e&&e.message);}
+  // 2. Storage pakka (browser khud na mitaye) + kitni bhari
+  try{
+    if(navigator.storage&&navigator.storage.persisted){const p=await navigator.storage.persisted();add(p?true:null,p?'Storage PAKKA hai (browser khud nahi mitayega)':'Storage pakka NAHI — phone bhara to browser data mita sakta hai','Chrome menu → Add to Home screen / app install karo, phir dobara jaancho');}
+    if(navigator.storage&&navigator.storage.estimate){const e=await navigator.storage.estimate();if(e.quota){const pct=Math.round(e.usage/e.quota*100);add(pct<80,'Storage istemal: '+(e.usage/1048576).toFixed(1)+' MB ('+pct+'%)',pct>=80?'Phone ki jagah kam — purani files hatao':'');}}
+  }catch(e){}
+  // 3. Har date ka data sahi shape mein?
+  try{
+    const mk=(await idbAMK()).filter(k=>re.test(k));const ak=(await idbAARK()).filter(k=>re.test(k));
+    let bad=[],dup=[],noCn=0,rows=0;
+    const chk=(k,a)=>{if(!Array.isArray(a)){bad.push(k);return;}rows+=a.length;const s=new Set();for(const r of a){const cn=String(r&&r.caseno||'').trim();if(!cn){noCn++;continue;}const ck=_unpKey(cn);if(s.has(ck))dup.push(k+': '+cn);s.add(ck);}};
+    const bm=mk.length?await idbBulkGet(SM,mk):{};for(const k of mk)chk(k,bm[k]&&bm[k].value);
+    const ba=ak.length?await idbBulkGet(SAR,ak):{};for(const k of ak)chk(k,ba[k]&&ba[k].value);
+    add(!bad.length,(mk.length+ak.length)+' dates, '+rows.toLocaleString()+' records — sahi shape',bad.length?'Kharab: '+bad.slice(0,5).join(', '):'');
+    add(!dup.length,'Ek date mein ek case do baar nahi',dup.length?dup.slice(0,4).join(' · ')+(dup.length>4?' …+'+(dup.length-4):''):'');
+    add(!noCn,'Har record mein case no hai',noCn?noCn+' record bina case no':'');
+    const both=mk.filter(k=>ak.includes(k));
+    add(!both.length,'Koi date active aur archive dono mein nahi',both.length?both.slice(0,5).join(', '):'');
+    // 4. Cache = IndexedDB?
+    invalidateAllDatesCache();const all=await getAllDatesData();
+    const ck=Object.keys(all).filter(k=>re.test(k)).length;
+    add(ck===mk.length,'App ki yaaddasht (cache) = phone ka data ('+ck+'/'+mk.length+')');
+    // 5. Pending queue ki har date phone par hai?
+    const qMiss=[..._cmPendingDates].filter(k=>!mk.includes(k)&&!ak.includes(k));
+    add(!qMiss.length,'Firebase queue ('+_cmPendingDates.size+') ki har date phone par hai',qMiss.length?'Gayab: '+qMiss.slice(0,5).join(', '):'');
+  }catch(e){add(false,'Data jaanch nahi ho payi',e&&e.message);}
+  // 6. Bundle
+  try{
+    const arr=await idbAB();const ids=new Map();let badSlot=[];
+    for(const f of arr){if(f.hidden)continue;const k=_unpKey(String(f.id||'').trim());(ids.get(k)||ids.set(k,[]).get(k)).push(f);if(!f.cat&&!(f.md>=1&&f.md<=31))badSlot.push(f.id);if(!f.col)badSlot.push(f.id+' (col nahi)');}
+    // Ek hi case alag likhawat mein do baar (jaise "WS/5608/2026" aur "W/S/5608/2026")
+    const dups=[...ids.values()].filter(a=>a.length>1);
+    const where=f=>(f.cat?(CAT_LABELS[f.cat]||f.cat):'Date '+f.md)+' '+dispCol(f.col)+(f.st==='missing'?' (missing)':'');
+    add(!dups.length,arr.length.toLocaleString()+' bundle files — koi case do jagah nahi',dups.length?dups.slice(0,5).map(a=>a.map(f=>'"'+f.id+'" '+where(f)).join(' + ')).join(' · ')+' — ek ko Hatao':'');
+    add(!badSlot.length,'Har bundle file ki jagah sahi',badSlot.length?badSlot.slice(0,5).join(', '):'');
+    add(Object.keys(bFiles||{}).length===arr.length,'Bundle: yaaddasht = phone ('+Object.keys(bFiles||{}).length+'/'+arr.length+')');
+  }catch(e){add(false,'Bundle jaanch nahi ho payi',e&&e.message);}
+  // 7. Zaroori functions maujood?
+  const need=['saveLocal','writeDate','flushCmPush','fbPushAll','deepVerify','buildBackupData','importBackup','tgSendBackup','bAddFile','doBundleMove','getAllOverdueFiles','disposeCaseEverywhere','openTimeline','cisRun'];
+  const miss=need.filter(n=>{try{return typeof window[n]!=='function';}catch(e){return true;}});
+  add(!miss.length,'App ke '+need.length+' zaroori hisse maujood',miss.length?'Gayab: '+miss.join(', '):'');
+  add(!_tabReadOnly,_tabReadOnly?'Ye tab sirf-dekhne wala hai (app doosre tab mein khula)':'Sirf yahi tab data likh raha hai');
+  const bad=res.filter(r=>r.ok===false).length,warn=res.filter(r=>r.ok===null).length;
+  box.innerHTML='<div style="font-size:12.5px;font-weight:800;color:'+(bad?'#b91c1c':warn?'#92400e':'#15803d')+';margin-bottom:6px">'+(bad?'🔴 '+bad+' cheez(ein) theek nahi':warn?'🟡 Sab theek, '+warn+' dhyan dene layak':'✅ Sab jaanch pass — '+res.length+' cheezein')+'</div>'
+    +res.map(r=>'<div style="font-size:12px;line-height:1.5;padding:2px 0;color:'+(r.ok===false?'#b91c1c':r.ok===null?'#92400e':'var(--txt)')+'">'+(r.ok===false?'🔴':r.ok===null?'🟡':'✅')+' '+esc(r.t)+(r.sub?'<div style="font-size:11px;color:var(--mu);padding-left:20px">'+esc(r.sub)+'</div>':'')+'</div>').join('');
+  return res;
+}
+
+// ═══ FILE KI KAHANI (TIMELINE) — SIRF PADHNA ═══
+// Active + archive ki har date, bundle ki abhi ki jagah, urgent log — ek screen par.
+async function _allRecsFor(ck){
+  const out=[];
+  const all=await getAllDatesData();
+  for(const k in all){const a=all[k];if(!Array.isArray(a))continue;for(const r of a)if(_unpKey(String(r.caseno||'').trim())===ck)out.push({k,r,arch:false});}
+  try{
+    const ark=(await idbAARK()).filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k)&&!all[k]);
+    const bulk=ark.length?await idbBulkGet(SAR,ark):{};
+    for(const k of ark){const a=bulk[k]&&bulk[k].value;if(!Array.isArray(a))continue;for(const r of a)if(_unpKey(String(r.caseno||'').trim())===ck)out.push({k,r,arch:true});}
+  }catch(e){console.warn('timeline archive:',e);}
+  out.sort((a,b)=>a.k<b.k?-1:a.k>b.k?1:0);
+  return out;
+}
+async function openTimeline(cn){
+  cn=String(cn||'').trim();
+  if(!cn){showToast('⚠️ Case No daalo','w');return;}
+  const ck=_unpKey(cn);if(ck==='|'){showToast('⚠️ Case No samajh nahi aaya','w');return;}
+  const body=document.getElementById('tlBody');
+  body.innerHTML='<div style="padding:20px;text-align:center;color:var(--mu)">⏳ Dhoondh rahe hain…</div>';
+  document.getElementById('tlModal').classList.add('on');
+  try{
+    const recs=await _allRecsFor(ck);
+    const f=Object.values(bFiles||{}).find(x=>x&&_unpKey(String(x.id).trim())===ck);
+    let urg=[];try{urg=(await ulGetAll()).filter(u=>_unpKey(String(u.caseno||u.case_no||'').trim())===ck);}catch(e){}
+    const name=(recs.slice().reverse().find(x=>x.r.partyname)||{r:{}}).r.partyname||bName(cn)||'';
+    const shown=(recs[0]&&recs[0].r.caseno)||(f&&f.id)||cn;
+    document.getElementById('tlSub').innerHTML='<b style="color:var(--navy)">'+esc(shown)+'</b>'+(name?' · '+esc(name):'');
+    if(!recs.length&&!f&&!urg.length){body.innerHTML='<div style="padding:16px;text-align:center;color:var(--mu)">Is case ka app mein koi record nahi mila.</div>';return;}
+    const ev=[];
+    for(const {k,r,arch} of recs){
+      const d=k.split('_')[0],v=k.split('_')[1];
+      const up=!!r._fromUpcoming;
+      ev.push({d,ic:up?'↪️':'📋',t:up?'Pichhli next date se is date ki list mein judi':'Cause list mein'+(v!=='1'?' (Upload '+v+')':''),sub:arch?'archive':'',col:'#64748b'});
+      if(r.sent==='Sent')ev.push({d:r.sentdate||d,ic:'📤',t:'SENT'+(r.senttime?' · '+new Date(r.senttime).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}):''),col:'#d97706'});
+      if(r.received==='Received')ev.push({d:r.receiveddate||d,ic:'📥',t:'RECEIVED',col:'#16a34a'});
+      if(r.nextdate)ev.push({d:r.receiveddate||d,ic:'📅',t:'Next date di: '+fmtD(r.nextdate)+(ndIsSunday(r.nextdate)?' ⚠️ Ravivaar':''),col:'#1d4ed8'});
+      if(r.remark)ev.push({d,ic:'📝',t:r.remark,col:'#475569'});
+      if(r._disposed)ev.push({d:r._disposeDate||d,ic:'🗂',t:'Disposed',col:'#6b7280'});
+    }
+    urg.forEach(u=>{
+      if(u.sentDate)ev.push({d:u.sentDate,ic:'🚨',t:'Urgent bheji'+(u.sentTime?' · '+u.sentTime:'')+(u.sentRemark?' · '+u.sentRemark:''),col:'#dc2626'});
+      if(u.receivedDate)ev.push({d:u.receivedDate,ic:'🚨',t:'Urgent wapas aayi'+(u.receivedTime?' · '+u.receivedTime:'')+(u.receivedRemark?' · '+u.receivedRemark:''),col:'#16a34a'});
+    });
+    if(f&&f.at)ev.push({d:_localISO(new Date(f.at)),ic:'📦',t:'Bundle mein rakhi (aakhri badlav)',col:'#0e7490'});
+    const ord={'📋':0,'↪️':0,'🚨':1,'📤':2,'📥':3,'📅':4,'📝':5,'🗂':6,'📦':7};
+    ev.sort((a,b)=>a.d<b.d?-1:a.d>b.d?1:(ord[a.ic]||0)-(ord[b.ic]||0));
+    let h='';
+    const last=recs[recs.length-1];
+    const disp=!!(last&&last.r._disposed);
+    let nd='';for(let i=recs.length-1;i>=0;i--){if(recs[i].r.nextdate){nd=recs[i].r.nextdate;break;}}
+    h+='<div style="background:#f8fafc;border:1.5px solid var(--bdr);border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:12.5px;line-height:1.7">'
+     +'<div><b>Abhi:</b> '+(disp?'🗂 Disposed':nd?('📅 Next date '+esc(fmtD(nd))):'—')+'</div>'
+     +'<div><b>Bundle:</b> '+(f?(f.hidden?'Hata di gayi':(f.cat?esc((CAT_LABELS[f.cat]||f.cat))+' — Col '+esc(dispCol(f.col)):'Date '+f.md+(f.sd!=null?'/'+f.sd:'')+' — Col '+esc(dispCol(f.col)))+(f.st==='missing'?' ⚠️ Missing':'')):'Nahi')+'</div>'
+     +'<div><b>Kul:</b> '+recs.length+' date(s) par list mein</div></div>';
+    let lastD='';
+    h+='<div style="position:relative;padding-left:4px">';
+    for(const e of ev){
+      if(e.d!==lastD){h+='<div style="font-size:11px;font-weight:800;color:var(--mu);margin:10px 0 4px">'+esc(fmtD(e.d))+(ndIsSunday(e.d)?' (Ravi)':'')+'</div>';lastD=e.d;}
+      h+='<div style="display:flex;gap:8px;align-items:flex-start;padding:4px 0 4px 8px;border-left:2px solid #e2e8f0"><span style="flex:0 0 auto">'+e.ic+'</span><span style="font-size:12.5px;color:'+e.col+';font-weight:600;line-height:1.4">'+esc(e.t)+(e.sub?' <span style="font-size:10px;color:var(--mu);font-weight:500">('+esc(e.sub)+')</span>':'')+'</span></div>';
+    }
+    h+='</div>';
+    body.innerHTML=h;
+  }catch(e){console.error('openTimeline:',e);body.innerHTML='<div class="smsg s-err">❌ Kahani nahi ban payi: '+esc(e&&e.message||'')+'</div>';}
+}
+// ═══ CHHOOTI FILES — next date di, us din ki list bani, par file usme nahi ═══
+// Matlab ya to next date galat daali, ya file cause-list mein chhoot gayi. SIRF PADHNA.
+async function findMissedFiles(){
+  const today=_localISO(new Date());
+  const all=await getAllDatesData();
+  const map={};
+  try{const ark=(await idbAARK()).filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k)&&!all[k]);const bulk=ark.length?await idbBulkGet(SAR,ark):{};for(const k of ark){const a=bulk[k]&&bulk[k].value;if(Array.isArray(a))map[k]=a;}}catch(e){}
+  for(const k in all)if(Array.isArray(all[k]))map[k]=all[k];
+  const official={},acted=new Set(),latest=new Map();
+  const keys=Object.keys(map).filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k)).sort().reverse();
+  for(const k of keys){
+    const d=k.split('_')[0];official[d]=official[d]||new Set();
+    for(const r of map[k]){
+      const ck=_unpKey(String(r.caseno||'').trim());if(ck==='|')continue;
+      if(!r._fromUpcoming)official[d].add(ck);
+      if(r.sent==='Sent'||r.received==='Received')acted.add(d+'#'+ck);
+      const e=latest.get(ck);
+      if(!e)latest.set(ck,{cn:r.caseno,pn:r.partyname||'',k:d,nd:r.nextdate||'',disp:!!r._disposed});
+      else{if(!e.nd&&r.nextdate)e.nd=r.nextdate;if(!e.pn&&r.partyname)e.pn=r.partyname;}
+    }
+  }
+  const bun=new Map();
+  try{Object.values(bFiles||{}).forEach(f=>{if(f&&!f.hidden)bun.set(_unpKey(String(f.id).trim()),f);});}catch(e){}
+  const out=[];
+  const t0=new Date(today+'T00:00:00');
+  latest.forEach((e,ck)=>{
+    if(e.disp)return;
+    const nd=(e.nd&&e.nd>=e.k)?e.nd:'';
+    if(!nd||nd>=today)return;
+    if((t0-new Date(nd+'T00:00:00'))/86400000<3)return;      // 2 din ki mohlat (list der se upload)
+    const off=official[nd];
+    if(!off||off.size<5)return;                               // us din list hi nahi bani (chhutti)
+    if(off.has(ck)||acted.has(nd+'#'+ck))return;
+    const f=bun.get(ck);
+    out.push({cn:e.cn,pn:e.pn,nd,slot:f?(f.cat?(CAT_LABELS[f.cat]||f.cat):'Date '+f.md)+' — Col '+dispCol(f.col):''});
+  });
+  out.sort((a,b)=>a.nd<b.nd?1:-1);
+  return out;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// CIS PENDENCY MILAAN — SIRF JAANCH (READ-ONLY)
+// • CIS list sirf is variable (_cis) mein — na IndexedDB, na localStorage,
+//   na Firebase, na backup. App band = list khatam.
+// • CFM / Bundle / Archive sirf PADHE jaate hain (getAllDatesData cache,
+//   readonly IDB transactions, bFiles object) — koi idbSM/saveLocal/push nahi.
+// ═══════════════════════════════════════════════════════════════════════
+let _cis=null; // {rows:[{sr,cn,ck,nd}], res:{...}, at}
+function _cisParseDate(v){
+  if(v==null||v==='')return '';
+  try{
+    if(v instanceof Date&&!isNaN(v))return _localISO(v);
+    if(typeof v==='number'&&isFinite(v)&&typeof XLSX!=='undefined'&&XLSX.SSF){
+      const d=XLSX.SSF.parse_date_code(v);if(d&&d.y>1990)return d.y+'-'+String(d.m).padStart(2,'0')+'-'+String(d.d).padStart(2,'0');
+      return null;
+    }
+    const s=String(v).trim();if(!s)return '';
+    let m=s.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})/);
+    if(m)return _cisYMD(+m[1],+m[2],+m[3]);
+    m=s.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{2,4})/);
+    if(m){let y=+m[3];if(y<100)y+=2000;return _cisYMD(y,+m[2],+m[1]);}
+    return null;
+  }catch(e){return null;}
+}
+function _cisYMD(y,mo,d){
+  if(!(y>1990&&y<2100&&mo>=1&&mo<=12&&d>=1&&d<=31))return null;
+  const dt=new Date(y,mo-1,d);if(dt.getMonth()!==mo-1)return null; // 31-02 jaisi galat date
+  return y+'-'+String(mo).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+}
+function _cisReadFile(file){
+  return new Promise((res,rej)=>{
+    const fr=new FileReader();
+    fr.onload=e=>{try{
+      const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      res(XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:''}));
+    }catch(err){rej(err);}};
+    fr.onerror=()=>rej(fr.error||new Error('file padh nahi paaye'));
+    fr.readAsArrayBuffer(file);
+  });
+}
+// Header row dhoondho (Sr / Case / Date) — na mile to column-order maan lo
+function _cisCols(aoa){
+  for(let i=0;i<Math.min(10,aoa.length);i++){
+    const r=(aoa[i]||[]).map(x=>String(x||'').toLowerCase());
+    const ci=r.findIndex(x=>/case|वाद|केस|मुकदम/.test(x));
+    const di=r.findIndex(x=>/date|तिथि|तारीख|दिनांक/.test(x));
+    if(ci>=0&&di>=0){const si=r.findIndex(x=>/^\s*(sr|s\.?\s*no|sl|क्र)/.test(x));return {start:i+1,sr:si,cn:ci,nd:di};}
+  }
+  const w=Math.max(...aoa.slice(0,20).map(r=>(r||[]).length),0);
+  return w>=3?{start:0,sr:0,cn:1,nd:2}:{start:0,sr:-1,cn:0,nd:1};
+}
+async function cisRun(){
+  const st=document.getElementById('cisStatus'),out=document.getElementById('cisResult'),btn=document.getElementById('cisRunBtn');
+  const f=document.getElementById('cisFile').files[0];
+  if(!f){st.textContent='⚠️ Pehle CIS ki Excel file chuno';st.className='smsg s-err';return;}
+  if(typeof XLSX==='undefined'){st.textContent='❌ Excel library load nahi hui — net on karke page reload karo';st.className='smsg s-err';return;}
+  if(f.size>20*1024*1024){st.textContent='❌ File bahut badi hai (20MB se zyada) — sahi file chuno';st.className='smsg s-err';return;}
+  btn.disabled=true;st.textContent='⏳ File padh rahe hain…';st.className='smsg';out.innerHTML='';
+  try{
+    const aoa=await _cisReadFile(f);
+    const col=_cisCols(aoa);
+    const rows=[],bad=[],dups=[];const seen=new Map();
+    for(let i=col.start;i<aoa.length;i++){
+      const r=aoa[i]||[];
+      const cn=String(r[col.cn]==null?'':r[col.cn]).replace(/\s+/g,' ').trim();
+      const rawD=r[col.nd];
+      if(!cn&&(rawD===''||rawD==null))continue; // khaali row
+      const sr=col.sr>=0?String(r[col.sr]||'').trim():String(i+1);
+      const ck=cn?_unpKey(cn):'|';
+      const nd=_cisParseDate(rawD);
+      if(ck==='|'){bad.push({sr,cn,d:String(rawD||''),why:'Case no samajh nahi aaya'});continue;}
+      if(nd===null){bad.push({sr,cn,d:String(rawD||''),why:'Date samajh nahi aayi'});}
+      if(seen.has(ck)){dups.push({sr,cn,first:seen.get(ck).sr});continue;}
+      const row={sr,cn,ck,nd:nd||'',badDate:nd===null};seen.set(ck,row);rows.push(row);
+    }
+    if(!rows.length){st.textContent='❌ File mein ek bhi case nahi mila — columns: Sr No | Case No | Next Date';st.className='smsg s-err';btn.disabled=false;return;}
+    st.textContent='⏳ '+rows.length+' case — CFM aur Bundle se milaa rahe hain…';
+    await new Promise(r=>setTimeout(r,30));
+    const res=await _cisCompare(rows);
+    res.bad=bad;res.dups=dups;
+    _cis={rows,res,at:Date.now(),fname:f.name};
+    st.textContent='✅ '+rows.length+' case milaaye ('+((res.ms/1000).toFixed(1))+' sec)';st.className='smsg s-ok';
+    cisRender();
+  }catch(e){
+    console.error('cisRun:',e);
+    st.textContent='❌ Milaan nahi ho paya: '+(e&&e.message||e);st.className='smsg s-err';
+  }finally{btn.disabled=false;}
+}
+// SIRF PADHNA — getAllDatesData (cache), archive readonly, bFiles
+async function _cisCompare(rows){
+  const t0=Date.now();
+  const today=_localISO(new Date());
+  // ── App index: har case ka sabse naya record ──
+  const app=new Map();
+  const all=await getAllDatesData();
+  const keys=Object.keys(all).filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k)).sort().reverse();
+  const listCount={}; // date → app list mein kitne case
+  for(const k of keys){
+    const a=all[k];if(!Array.isArray(a))continue;
+    const kd=k.split('_')[0];
+    listCount[kd]=Math.max(listCount[kd]||0,a.length);
+    for(const r of a){
+      const cn=String(r.caseno||'').trim();if(!cn)continue;
+      const ck=_unpKey(cn);if(ck==='|')continue;
+      let e=app.get(ck);
+      if(!e){e={cn,pn:r.partyname||'',ld:kd,nd:r.nextdate||'',disp:!!r._disposed,sent:r.sent==='Sent',rcv:r.received==='Received',src:'active'};app.set(ck,e);}
+      else{
+        if(!e.nd&&r.nextdate)e.nd=r.nextdate;
+        if(!e.pn&&r.partyname)e.pn=r.partyname;
+      }
+    }
+  }
+  // ── Archive (90+ din purana) — readonly ──
+  try{
+    const ark=(await idbAARK()).filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k)).sort().reverse();
+    const bulk=ark.length?await idbBulkGet(SAR,ark):{};
+    for(const k of ark){
+      const a=bulk[k]&&bulk[k].value;if(!Array.isArray(a))continue;
+      const kd=k.split('_')[0];
+      for(const r of a){
+        const cn=String(r.caseno||'').trim();if(!cn)continue;
+        const ck=_unpKey(cn);if(ck==='|'||app.has(ck))continue;
+        app.set(ck,{cn,pn:r.partyname||'',ld:kd,nd:r.nextdate||'',disp:!!r._disposed,sent:r.sent==='Sent',rcv:r.received==='Received',src:'archive'});
+      }
+    }
+  }catch(e){console.warn('cis archive read:',e);}
+  try{const ai=await loadArchIdx();for(const ck in ai){const e=ai[ck];if(!e||app.has(ck))continue;app.set(ck,{cn:e.caseno,pn:e.partyname||'',ld:'',nd:'',disp:!!e.disposed,sent:!!(e.sends&&e.sends.length),rcv:!!(e.recvs&&e.recvs.length),src:'archive'});}}catch(e){}
+  // App ki "agli date": latest record ki (ya pichle record ki) next date — par sirf
+  // agar wo latest list-date ke baad ki ho. Latest list-date aaj/aage ki ho aur next
+  // date na ho → wahi list-date.
+  const appNext=e=>{if(e.nd&&(!e.ld||e.nd>=e.ld))return e.nd;if(e.ld&&e.ld>=today)return e.ld;return '';};
+  // ── Bundle (bFiles) — sirf padhna ──
+  const bun=new Map();
+  Object.values(bFiles||{}).forEach(f=>{if(!f||!f.id||f.hidden)return;const ck=_unpKey(String(f.id).trim());if(ck!=='|')bun.set(ck,f);});
+  const slotTxt=f=>f.cat?((typeof CAT_LABELS!=='undefined'&&CAT_LABELS[f.cat])||f.cat)+' — '+dispCol(f.col):'Date '+f.md+(f.sd!=null?'/'+f.sd:'')+' — Col '+dispCol(f.col);
+  const statusTxt=e=>!e?'':e.disp?'Disposed (app)':e.rcv?'Received':e.sent?'SENT (court mein)':'—';
+  const R={notInApp:[],archOnly:[],dateDiff:[],wrongBundle:[],notInBundle:[],past:[],sunday:[],noDate:[],dispConflict:[],bundleNotCis:[],appNotCis:[],perDate:{}};
+  const cisSet=new Set();
+  for(const r of rows){
+    cisSet.add(r.ck);
+    const e=app.get(r.ck),b=bun.get(r.ck);
+    const pn=(e&&e.pn)||'';
+    if(r.nd){R.perDate[r.nd]=(R.perDate[r.nd]||0)+1;}
+    else if(!r.badDate)R.noDate.push({...r,pn});   // galat date "bad" mein pehle hi hai
+    if(r.nd&&r.nd<today)R.past.push({...r,pn,status:statusTxt(e)});
+    if(r.nd&&ndIsSunday(r.nd))R.sunday.push({...r,pn});
+    if(!e&&!b){R.notInApp.push(r);continue;}
+    if(e&&e.src==='archive'&&!b)R.archOnly.push({...r,pn,ld:e.ld,status:statusTxt(e)});
+    if(e&&e.disp)R.dispConflict.push({...r,pn,ld:e.ld});
+    const an=e?appNext(e):'';
+    if(an&&r.nd&&an!==r.nd)R.dateDiff.push({...r,pn,an});
+    if(b){
+      if(!b.cat&&r.nd){const day=parseInt(r.nd.split('-')[2],10);if(b.md!==day)R.wrongBundle.push({...r,pn,slot:slotTxt(b),want:'Date '+day});}
+    }else if(e&&e.src==='active'&&!e.disp){
+      R.notInBundle.push({...r,pn,status:statusTxt(e),ld:e.ld});
+    }
+  }
+  // ── Ulta: app/bundle mein hai, CIS pending mein nahi ──
+  bun.forEach((f,ck)=>{if(!cisSet.has(ck)){const e=app.get(ck);R.bundleNotCis.push({cn:f.id,pn:(e&&e.pn)||bName(f.id)||'',slot:slotTxt(f),status:statusTxt(e)});}});
+  app.forEach((e,ck)=>{
+    if(cisSet.has(ck)||bun.has(ck)||e.disp||e.src!=='active')return;
+    const an=appNext(e);
+    if(an&&an>=today)R.appNotCis.push({cn:e.cn,pn:e.pn,an,status:statusTxt(e)});
+  });
+  const byCn=(a,b)=>String(a.cn).localeCompare(String(b.cn),undefined,{numeric:true});
+  const byNd=(a,b)=>(a.nd||'').localeCompare(b.nd||'')||byCn(a,b);
+  ['notInApp','archOnly','notInBundle','dispConflict','bundleNotCis'].forEach(k=>R[k].sort(byCn));
+  ['dateDiff','wrongBundle','past','sunday'].forEach(k=>R[k].sort(byNd));
+  R.appNotCis.sort((a,b)=>(a.an||'').localeCompare(b.an||'')||byCn(a,b));
+  R.listCount=listCount;R.total=rows.length;R.ms=Date.now()-t0;
+  return R;
+}
+const CIS_CATS=[
+  {k:'notInApp',     ic:'🔴',t:'App mein kahin nahi',            s:'CIS mein pending — na CFM ki kisi list mein, na bundle mein. File kahan hai?', cols:[['Sr','sr'],['Case No','cn'],['CIS Next Date','nd',1]]},
+  {k:'wrongBundle',  ic:'🔴',t:'Galat bundle mein',              s:'Bundle ka khaana CIS ki next date se mel nahi khaata', cols:[['Case No','cn'],['Party','pn'],['CIS Next Date','nd',1],['Abhi rakhi','slot'],['Honi chahiye','want']]},
+  {k:'dateDiff',     ic:'🟠',t:'Next date alag',                 s:'App mein jo next date hai wo CIS se alag hai', cols:[['Case No','cn'],['Party','pn'],['CIS','nd',1],['App','an',1]]},
+  {k:'dispConflict', ic:'🟠',t:'App mein Disposed, CIS mein pending', s:'Ya to app mein galti se dispose hua, ya CIS mein update baaki', cols:[['Case No','cn'],['Party','pn'],['CIS Next Date','nd',1],['App aakhri date','ld',1]]},
+  {k:'past',         ic:'🟠',t:'CIS mein date beet chuki',       s:'Next date aaj se pehle ki — CIS mein aage ki date nahi lagi', cols:[['Case No','cn'],['Party','pn'],['CIS Next Date','nd',1],['App status','status']]},
+  {k:'sunday',       ic:'🟡',t:'CIS date Ravivaar (Sunday)',     s:'Us din cause-list nahi banti', cols:[['Case No','cn'],['Party','pn'],['CIS Next Date','nd',1]]},
+  {k:'notInBundle',  ic:'🟡',t:'App mein hai, bundle mein nahi', s:'CFM mein hai par bundle mein rakhi nahi gayi (status dekho)', cols:[['Case No','cn'],['Party','pn'],['CIS Next Date','nd',1],['App status','status'],['App aakhri date','ld',1]]},
+  {k:'archOnly',     ic:'🟡',t:'Sirf purane record mein (90+ din)', s:'App mein bas purana record — haal mein kisi list mein nahi aayi', cols:[['Case No','cn'],['Party','pn'],['CIS Next Date','nd',1],['App aakhri date','ld',1],['Status','status']]},
+  {k:'bundleNotCis', ic:'🔵',t:'Bundle mein hai, CIS pending mein nahi', s:'Dispose/transfer ho chuki? Record room bhejni ho sakti hai', cols:[['Case No','cn'],['Party','pn'],['Bundle mein','slot'],['App status','status']]},
+  {k:'appNotCis',    ic:'🔵',t:'App mein aage ki date, CIS mein nahi', s:'App ke hisaab se aage lagni hai, par CIS pendency mein nahi', cols:[['Case No','cn'],['Party','pn'],['App Next Date','an',1],['Status','status']]},
+  {k:'noDate',       ic:'⚪',t:'CIS mein next date khaali',      s:'', cols:[['Sr','sr'],['Case No','cn'],['Party','pn']]},
+  {k:'dups',         ic:'⚪',t:'CIS list mein do baar',          s:'Ek hi case do rows mein', cols:[['Sr','sr'],['Case No','cn'],['Pehli baar Sr','first']]},
+  {k:'bad',          ic:'⚪',t:'CIS rows jo samajh nahi aayi',   s:'', cols:[['Sr','sr'],['Case No','cn'],['Date (jaisi likhi)','d'],['Kyun','why']]},
+];
+function cisRender(){
+  const out=document.getElementById('cisResult');if(!out||!_cis)return;
+  const R=_cis.res;
+  let h='<div style="display:flex;gap:6px;margin:10px 0">'
+   +'<button class="btn" onclick="cisDownload()" style="flex:1;margin-top:0;background:linear-gradient(135deg,#059669,#047857);color:#fff;font-size:12.5px">📥 Result Excel Download</button>'
+   +'<button class="btn neutral" onclick="cisClear()" style="flex:0 0 auto;width:auto;margin-top:0;font-size:12.5px;padding-left:14px;padding-right:14px">✕ Hatao</button></div>';
+  h+='<div style="font-size:12px;color:var(--mu);margin-bottom:8px">CIS: <b>'+R.total+'</b> case · '+esc(_cis.fname||'')+'</div>';
+  // Aane wale 15 din: CIS vs app list
+  const today=_localISO(new Date());
+  const up=Object.keys(R.perDate).filter(d=>d>=today).sort().slice(0,15);
+  if(up.length){
+    h+='<details style="margin-bottom:8px;border:1.5px solid var(--bdr);border-radius:10px;padding:8px 11px"><summary style="font-weight:700;font-size:13px;cursor:pointer">📅 Aane wali dates — kitne case (CIS vs App)</summary>'
+     +'<div style="font-size:12px;margin-top:6px">'+up.map(d=>'<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--bdr)'+(ndIsSunday(d)?';color:#b45309':'')+'"><span>'+esc(fmtD(d))+(ndIsSunday(d)?' (Ravi)':'')+'</span><span><b>'+R.perDate[d]+'</b> CIS · '+(R.listCount[d]!=null?R.listCount[d]+' app':'— app')+'</span></div>').join('')+'</div></details>';
+  }
+  CIS_CATS.forEach(cat=>{
+    const a=R[cat.k]||[];
+    if(!a.length)return;
+    const show=a.slice(0,150);
+    h+='<details style="margin-bottom:8px;border:1.5px solid var(--bdr);border-radius:10px;padding:8px 11px">'
+     +'<summary style="font-weight:700;font-size:13px;cursor:pointer">'+cat.ic+' '+esc(cat.t)+' — <b>'+a.length+'</b></summary>'
+     +(cat.s?'<div style="font-size:11.5px;color:var(--mu);margin:4px 0 6px">'+esc(cat.s)+'</div>':'')
+     +'<div style="overflow-x:auto"><table class="cis-t"><tr>'+cat.cols.map(c=>'<th>'+esc(c[0])+'</th>').join('')+'</tr>'
+     +show.map(r=>'<tr>'+cat.cols.map(c=>{const v=r[c[1]];return '<td'+(c[1]==='cn'?' class="cn"':c[2]?' class="dt"':'')+'>'+esc(c[2]&&v?fmtD(v):(v==null?'':v))+'</td>';}).join('')+'</tr>').join('')
+     +'</table></div>'
+     +(a.length>show.length?'<div style="font-size:11.5px;color:var(--mu);margin-top:5px">…aur '+(a.length-show.length)+' — poori list Excel download mein</div>':'')
+     +'</details>';
+  });
+  const anyIssue=CIS_CATS.some(c=>(R[c.k]||[]).length);
+  if(!anyIssue)h+='<div style="background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:10px;padding:10px 13px;font-weight:700;color:#15803d">✅ Koi farak nahi mila</div>';
+  out.innerHTML=h;
+}
+function cisDownload(){
+  if(!_cis){showToast('⚠️ Pehle milaan karo','w');return;}
+  if(typeof XLSX==='undefined'){showToast('❌ Excel library load nahi hui','d');return;}
+  try{
+    const R=_cis.res;const wb=XLSX.utils.book_new();
+    const sum=[['CIS Pendency Milaan — '+fmtD(_localISO(new Date()))],['CIS file',_cis.fname||''],['CIS mein kul case',R.total],[],['Jaanch','Ginti']];
+    CIS_CATS.forEach(cat=>sum.push([cat.t,(R[cat.k]||[]).length]));
+    const ws0=XLSX.utils.aoa_to_sheet(sum);ws0['!cols']=[{wch:44},{wch:12}];
+    XLSX.utils.book_append_sheet(wb,ws0,'Saransh');
+    const used=new Set(['Saransh']);
+    CIS_CATS.forEach(cat=>{
+      const a=R[cat.k]||[];if(!a.length)return;
+      const aoa=[cat.cols.map(c=>c[0]),...a.map(r=>cat.cols.map(c=>{const v=r[c[1]];return c[2]&&v?fmtD(v):(v==null?'':v);}))];
+      const ws=XLSX.utils.aoa_to_sheet(aoa);ws['!cols']=cat.cols.map(c=>({wch:c[1]==='pn'?28:c[1]==='slot'?20:16}));
+      let nm=cat.t.replace(/[\\\/\?\*\[\]:]/g,'').slice(0,31);while(used.has(nm))nm=nm.slice(0,29)+'_'+used.size;used.add(nm);
+      XLSX.utils.book_append_sheet(wb,ws,nm);
+    });
+    const dates=Object.keys(R.perDate).sort();
+    if(dates.length){
+      const ws=XLSX.utils.aoa_to_sheet([['Date','Din','CIS case','App list'],...dates.map(d=>[fmtD(d),['Ravi','Som','Mangal','Budh','Guru','Shukra','Shani'][new Date(d+'T12:00:00').getDay()],R.perDate[d],R.listCount[d]!=null?R.listCount[d]:''])]);
+      XLSX.utils.book_append_sheet(wb,ws,'Date-wise ginti');
+    }
+    XLSX.writeFile(wb,'CIS_Milaan_'+_localISO(new Date())+'.xlsx');
+    showToast('✅ Excel download ho gaya');
+  }catch(e){console.error('cisDownload:',e);showToast('❌ Excel banane mein error: '+(e&&e.message||''),'d');}
+}
+function cisClear(){
+  _cis=null;
+  try{document.getElementById('cisResult').innerHTML='';const st=document.getElementById('cisStatus');st.textContent='';st.className='smsg';document.getElementById('cisFile').value='';}catch(e){}
+}
+
 // ═══ CASE-NO SUGGESTION DROPDOWN (har manual input ke liye ek hi engine) ═══
 // Aaj ki list + saari dates + archive se. "1234/24" = "1234/2024", naam se bhi.
 // Body mein fixed — kisi modal/section mein kat ta nahi; neeche jagah na ho
@@ -7768,6 +8477,7 @@ function bFCHTML(f,showLoc,inSlot=false){
     <div class="bact">
       ${isHidden?`<button class="smb" style="background:#eef2ff;color:var(--blue);border:1px solid rgba(26,86,219,.25)" data-fileid="${id}" onclick="bUnhide(_decId(this.dataset.fileid))">👁 Wapas Dikhao</button>`:f.st!=='missing'?`<button class="smb" style="background:rgba(217,119,6,.1);color:var(--amber);border:1px solid rgba(217,119,6,.25)" data-fileid="${id}" onclick="bSetStatus(_decId(this.dataset.fileid),'missing')">Missing</button>`:`<button class="smb" style="background:rgba(22,163,74,.1);color:var(--green);border:1px solid rgba(22,163,74,.25)" data-fileid="${id}" onclick="bSetStatus(_decId(this.dataset.fileid),'placed')">Wapas Mili</button>`}
       ${!isHidden?`<button class="smb" style="background:rgba(8,145,178,.1);color:var(--teal);border:1px solid rgba(8,145,178,.25)" data-fileid="${id}" onclick="bOpenMove(_decId(this.dataset.fileid))">⇄ Move</button>`:''}
+      <button class="smb" style="background:#f1f5f9;color:var(--navy);border:1px solid var(--bdr)" data-fileid="${id}" onclick="openTimeline(_decId(this.dataset.fileid))">🕘 Kahani</button>
       <button class="smb" style="background:rgba(220,38,38,.1);color:var(--red);border:1px solid rgba(220,38,38,.2)" data-fileid="${id}" onclick="bDelFile(_decId(this.dataset.fileid))">Hatao</button>
     </div>
   </div>`;
@@ -7804,7 +8514,7 @@ async function onSlotDrop(e,md,sd,col,btn){
   e.preventDefault();btn.classList.remove('drop-over');let ids=[];
   try{ids=JSON.parse(e.dataTransfer.getData('text/plain'));}catch(err){return;}
   if(!ids.length)return;let moved=0;
-  for(const rawId of ids){if(!bFiles[rawId])continue;bFiles[rawId].md=md;bFiles[rawId].sd=sd;bFiles[rawId].col=col;await idbSBn(bFiles[rawId]);moved++;}
+  for(const rawId of ids){if(!bFiles[rawId])continue;bFiles[rawId].md=md;bFiles[rawId].sd=sd;bFiles[rawId].col=col;if(!(await bSave(bFiles[rawId])))return;moved++;}
   if(moved){scheduleBundlePush();showToast(`✅ ${moved} file(s) → Date ${md}${sd!=null?'/'+sd:''}-${dispCol(col)}`);if(_ddSelMode){_ddSel.clear();_ddSelMode=false;updateBulkBar();}bOpenDate(md);bRenderSearch();}
 }
 
@@ -7936,6 +8646,7 @@ function updateStaleBanner(){
 }
 
 async function fbPullSilent(){
+  if(_tabReadOnly)return;
   if(!_fbDb)return;
   try{
     // CFM saari dates
@@ -7945,7 +8656,7 @@ async function fbPullSilent(){
       const k=doc.id;if(!/^\d{4}-\d{2}-\d{2}_\d+$/.test(k))continue;
       const d=doc.data();
       const rows=cfmFromFirebase(d);
-      if(rows){await idbSM(k,rows);cfmN++;}
+      if(rows){await writeDate(k,rows,{remote:true,noCache:true});cfmN++;}
     }
     invalidateAllDatesCache();
     // Meta
@@ -8092,6 +8803,7 @@ function updateRoleUI(){
 
 // Secondary device: Main ke data ko auto-receive karo (live)
 function startSecondarySync(){
+  if(_tabReadOnly)return;
   if(!_fbDb||deviceRole!=='secondary')return;
   if(_secSyncUnsub){_secSyncUnsub();}
   if(_secBundleUnsub){_secBundleUnsub();}
@@ -8220,6 +8932,7 @@ function commitWithTimeout(batch,ms){
 // "Sabhi Data Push Karo" wahi date skip karta rehta aur Secondary/Peshgar par
 // purana data hi dikhta rehta. Ab manual button hamesha force karta hai.
 async function fbPushAll(force){
+  if(_tabReadOnly){showToast('🔒 App doosre tab mein khula hai — push wahin se karo','d');return;}
   if(!_fbDb){showToast('⚠️ Firebase connect nahi hai! Pehle credentials daal kar Connect karo.','d');return;}
   // Secondary device push nahi kar sakta — sirf main device data push karta hai
   if(deviceRole==='secondary'){showToast('📥 Ye Secondary device hai — sirf receive karta hai. Push sirf Main device se hota hai.','d');return;}
@@ -8254,15 +8967,20 @@ async function fbPushAll(force){
     // BULK READ — pehle har date ke liye alag idbGM (73+ sequential tx) lagti thi,
     // jo slow device pe "5% pe atak jana" ka karan banti thi. Ab ek hi bulk transaction.
     const bulkData=await idbBulkGet(SM,dataKeys);
+    let _qChanged=false;
     const toPush=[]; // {key, data, hash}
     for(const k of dataKeys){
       try{
         const rec=bulkData[k];
         const d=rec?rec.value:null;
-        if(d&&Array.isArray(d)&&d.length){
+        // Khaali date (0 records) bhi bhejo — background flush bhi bhejta hai; warna
+        // Firebase par purana data reh jaata aur ginti "phone par 2 zyada" dikhati.
+        if(d&&Array.isArray(d)){
           const dataStr=JSON.stringify(d);
           const hash=quickHash(dataStr);
-          if(!force&&_pushedHashes[k]===hash){skipped++;continue;} // unchanged — skip (force pe nahi)
+          // unchanged — skip (force pe nahi). Pehle hi pahunch chuki hai, to queue mein
+          // padi ho to wahan se bhi hata do (warna Health jhootha 🔴 dikhata).
+          if(!force&&_pushedHashes[k]===hash){skipped++;if(_cmPendingDates.delete(k))_qChanged=true;continue;}
           const sizeKB=Math.round(dataStr.length/1024);
           if(sizeKB>1000){failCount++;failedDates.push(k+' ('+sizeKB+'KB — 1MB limit se zyada)');continue;}
           toPush.push({key:k,data:d,hash:hash,size:dataStr.length});
@@ -8273,7 +8991,7 @@ async function fbPushAll(force){
     for(const k of archKeys){
       try{
         const d=await idbGAR(k);
-        if(d&&Array.isArray(d)&&d.length){
+        if(d&&Array.isArray(d)&&(d.length||_cmPendingDates.has(k))){
           const dataStr=JSON.stringify(d);
           if(Math.round(dataStr.length/1024)>1000){failCount++;failedDates.push(k+' (1MB se zyada)');continue;}
           toPush.push({key:k,data:d,hash:quickHash(dataStr),size:dataStr.length});
@@ -8332,6 +9050,21 @@ async function fbPushAll(force){
       }catch(e){lastErr=e;}
       if(committed){
         chunk.forEach(item=>{_pushedHashes[item.key]=item.hash;cfmCount++;recordCount+=item.data.length;});
+        // Queue se hatao — PAR sirf tab jab push ke dauraan us date mein naya kaam na
+        // hua ho (phone par abhi bhi wahi data hai jo bheja). Pehle queue kabhi saaf
+        // nahi hoti thi: "Sabhi Data Push" ke baad bhi Health 🔴 pending dikhata tha.
+        try{
+          const ks=chunk.map(x=>x.key).filter(k=>_cmPendingDates.has(k));
+          if(ks.length){
+            const cur=await idbBulkGet(SM,ks);
+            for(const item of chunk){
+              if(!_cmPendingDates.has(item.key))continue;
+              let d=cur[item.key]?cur[item.key].value:null;
+              if(!Array.isArray(d)){try{d=await idbGAR(item.key);}catch(e){}}
+              if(Array.isArray(d)&&quickHash(JSON.stringify(d))===item.hash){_cmPendingDates.delete(item.key);_qChanged=true;}
+            }
+          }
+        }catch(e){console.warn('pushAll queue clean:',e);}
       }else{
         chunk.forEach(item=>{failCount++;failedDates.push(fmtD(item.key.split('_')[0]));_cmPendingDates.add(item.key);});
         console.error('Batch commit fail ('+firstDate+'):',lastErr);
@@ -8342,7 +9075,7 @@ async function fbPushAll(force){
     }
     savePushedHashes(); // hashes persist — reload ke baad bhi unchanged dates skip hongi
     done=total;
-    if(_cmPendingDates.size)savePendingQueue();
+    if(_cmPendingDates.size||_qChanged)savePendingQueue();
 
     // ═══ META — bhi batched ═══
     fbProg(88,'Version meta push...');
@@ -8442,7 +9175,11 @@ let _cmPendingBundle=false; // bundle push baaki hai
 let _cmPendingUrgent=false;
 // ════ Offline queue PERSIST — taaki offline+app-close pe pending push yaad rahe ════
 const PENDING_KEY='cmPendingQueue';
+let _pqLoaded=false;
 function savePendingQueue(){
+  // Queue abhi localStorage se load nahi hui (startup) → pehle load karke JODO,
+  // warna pehle se pending dates mit jaati (startup mein loadLocal pehle chalta hai).
+  if(!_pqLoaded)loadPendingQueue();
   try{
     localStorage.setItem(PENDING_KEY,JSON.stringify({
       dates:[..._cmPendingDates],
@@ -8454,17 +9191,20 @@ function savePendingQueue(){
 function loadPendingQueue(){
   try{
     const raw=localStorage.getItem(PENDING_KEY);
-    if(!raw)return;
+    if(!raw){_pqLoaded=true;return;}
     const q=JSON.parse(raw);
     if(q){
-      if(Array.isArray(q.dates))_cmPendingDates=new Set(q.dates);
-      _cmPendingBundle=!!q.bundle;
-      _cmPendingUrgent=!!q.urgent;
+      // JODO, replace nahi — memory mein jo is beech queue hua wo bhi rahe
+      if(Array.isArray(q.dates))q.dates.forEach(k=>_cmPendingDates.add(k));
+      _cmPendingBundle=_cmPendingBundle||!!q.bundle;
+      _cmPendingUrgent=_cmPendingUrgent||!!q.urgent;
     }
   }catch(e){}
+  finally{_pqLoaded=true;}
 }
 
 async function fbPush(){
+  if(_tabReadOnly)return;
   if(!cData.length)return;
   if(!_fbDb||!navigator.onLine){
     // Offline ya Firebase nahi — queue mein daalo, baad mein push hoga
@@ -8508,6 +9248,7 @@ async function fbPushVersionMeta(){
 // Bundle push (debounced + offline queue)
 let _bPushTimer;
 function scheduleBundlePush(){
+  if(_tabReadOnly)return;
   clearTimeout(_bPushTimer);
   _bPushTimer=setTimeout(async()=>{
     if(deviceRole==='secondary')return; // secondary push nahi karta
@@ -8525,6 +9266,7 @@ function scheduleBundlePush(){
 // jama hote jaate the (same date kai baar likhne ki koshish).
 let _flushBusy=false;
 async function flushCmPush(){
+  if(_tabReadOnly)return;
   if(!_fbDb||!navigator.onLine||deviceRole==='secondary')return;
   if(_flushBusy)return;
   _flushBusy=true;
@@ -8532,6 +9274,7 @@ async function flushCmPush(){
   finally{ _flushBusy=false; }
 }
 async function _flushCmPushInner(){
+  const _metaDates=new Set(); // jin dates ka data gaya — unki version list bhi (offline _2 upload)
   let changed=false;
   // Pending CFM dates push karo
   if(_cmPendingDates.size){
@@ -8562,7 +9305,7 @@ async function _flushCmPushInner(){
           // sync atka hua hai. Timeout se ek-do date fail ho jaaye to bhi
           // agli baar (retry-timer se) apne aap try ho jaati hai.
           await withTimeout(_fbDb.collection('cfm').doc(dk).set(cfmToFirebase(d)),15000,'Queue flush');
-          _cmPendingDates.delete(dk);changed=true;
+          _cmPendingDates.delete(dk);changed=true;_metaDates.add(dk.split('_')[0]);
           // Jo bheja uska hash yaad rakho — Health Check isi se jaanchta hai ki
           // phone ka data aur Firebase ka data ek hi hai ya nahi.
           try{_pushedHashes[dk]=quickHash(JSON.stringify(d));savePushedHashes();}catch(e){}
@@ -8573,6 +9316,14 @@ async function _flushCmPushInner(){
         }
       }catch(e){/* agli baar try hoga */}
     }
+  }
+  // Jin dates ka data gaya, unki version list (cfm_meta) bhi — warna offline mein
+  // kiya gaya doosra upload (_2) Secondary ko kabhi dikhta hi nahi tha.
+  for(const wd of _metaDates){
+    try{
+      const vs=await idbGV(wd);const cv=await idbGM('cv_'+wd);
+      if(Array.isArray(vs)&&vs.length)await withTimeout(_fbDb.collection('cfm_meta').doc(wd).set({versions:vs,cv:cv||1,at:Date.now()}),10000,'Version meta');
+    }catch(e){/* agli push par fbPushAll bhi bhejta hai */}
   }
   // Pending bundle
   if(_cmPendingBundle){
@@ -9230,7 +9981,7 @@ async function fbPushBundle(force){
 
 // Urgent logs push (debounced)
 let _urgPushTimer;
-function scheduleUrgentPush(){clearTimeout(_urgPushTimer);_urgPushTimer=setTimeout(async()=>{if(deviceRole==='secondary')return;if(!_fbDb||!navigator.onLine){_cmPendingUrgent=true;savePendingQueue();return;}_cmPendingUrgent=true;savePendingQueue();try{await fbPushUrgent();_cmPendingUrgent=false;savePendingQueue();}catch(e){_cmPendingUrgent=true;savePendingQueue();}},1500);}
+function scheduleUrgentPush(){if(_tabReadOnly)return;clearTimeout(_urgPushTimer);_urgPushTimer=setTimeout(async()=>{if(deviceRole==='secondary')return;if(!_fbDb||!navigator.onLine){_cmPendingUrgent=true;savePendingQueue();return;}_cmPendingUrgent=true;savePendingQueue();try{await fbPushUrgent();_cmPendingUrgent=false;savePendingQueue();}catch(e){_cmPendingUrgent=true;savePendingQueue();}},1500);}
 async function fbPushUrgent(){
   if(!_fbDb)return false;
   if(deviceRole==='secondary')return false; // secondary push nahi karta
@@ -9418,7 +10169,14 @@ function markBackupDone(kind){
   }catch(e){}
 }
 function lastBackupInfo(){
-  try{return JSON.parse(localStorage.getItem(LAST_BK_KEY)||'{}');}catch(e){return {};}
+  let o={};try{o=JSON.parse(localStorage.getItem(LAST_BK_KEY)||'{}')||{};}catch(e){o={};}
+  // Purani app mein safal Telegram backup darj nahi hota tha — tab tak auto-Telegram
+  // ki aakhri tareekh (crtLastAutoTg = 'YYYY-MM-DD') se andaaza (us din ki shaam 5 baje).
+  try{
+    const d=localStorage.getItem('crtLastAutoTg');
+    if(!o.telegram&&d&&/^\d{4}-\d{2}-\d{2}$/.test(d)){const t=new Date(d+'T17:00:00').getTime();if(t&&t<=Date.now())o.telegram=t;}
+  }catch(e){}
+  return o;
 }
 function _agoText(ts){
   if(!ts)return 'kabhi nahi';
@@ -9451,12 +10209,15 @@ async function deepVerify(onProg){
   try{
     // 1. Local sab dates (active + archive)
     const local={};
+    // KHAALI dates bhi lo (0 records). Pehle inhe chhod diya jaata tha — agar
+    // Firebase par us date mein data ho aur phone par khaali, to wo "doosre device
+    // se aayi date" bol ke chhup jaata tha.
     for(const k of (await idbAMK()).filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k))){
-      const d=await idbGM(k); if(Array.isArray(d)&&d.length)local[k]=d;
+      const d=await idbGM(k); if(Array.isArray(d))local[k]=d;
     }
     for(const k of (await idbAARK()).filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k))){
-      if(local[k])continue;
-      const d=await idbGAR(k); if(Array.isArray(d)&&d.length)local[k]=d;
+      if(local[k]&&local[k].length)continue;
+      const d=await idbGAR(k); if(Array.isArray(d)&&(d.length||!local[k]))local[k]=d;
     }
     onProg&&onProg('Firebase se data padh rahe hain...');
     const snap=await fbRetry(()=>_fbDb.collection('cfm').get(),'CFM verify',1,12000);
@@ -9473,8 +10234,10 @@ async function deepVerify(onProg){
     for(const k of allKeys){
       i++; if(i%25===0)onProg&&onProg('Milaan '+i+'/'+allKeys.length+'...');
       const L=local[k], R=remote[k];
-      if(L&&!R){out.missing.push(k);continue;}
+      if(L&&!R){if(L.length)out.missing.push(k);continue;}   // khaali date Firebase par na ho — koi baat nahi
       if(!L&&R){out.extra.push(k);continue;}
+      if(!L.length&&!R.length)continue;                       // dono khaali
+      if(!L.length&&R.length){out.diff.push({key:k,why:'phone par KHAALI, Firebase par '+R.length+' records'});continue;}
       out.checked++;
       // Sirf wo fields jo sach mein maayne rakhte hain — at/timestamp nahi
       const norm=rows=>JSON.stringify((rows||[]).map(r=>[
@@ -9485,12 +10248,19 @@ async function deepVerify(onProg){
       else if(quickHash(norm(L))!==quickHash(norm(R))){out.diff.push({key:k,why:'records barabar par andar ka data alag'});}
       else{
         out.same++;
-        // Firebase se pakka milaa → ab is date ka push-record ban gaya (sirf jab
-        // queue mein nahi; queue wali date ka faisla flush karega).
-        if(_pushedHashes[k]===undefined&&!_cmPendingDates.has(k))_pushedHashes[k]=quickHash(JSON.stringify(L));
+        // Kya Firebase par BILKUL wahi hai jo phone push karta? (sab fields — naam,
+        // srno, tags bhi.) Haan → push ho chuka maano: queue se hatao + hash likho.
+        // Pehle sirf hash na hone par likhte the aur queue chhoote nahi the, isliye
+        // "barabar" aane ke baad bhi upar 🔴 pending bana rehta tha.
+        try{
+          if(JSON.stringify(cfmFromFirebase(cfmToFirebase(L)))===JSON.stringify(R)){
+            _pushedHashes[k]=quickHash(JSON.stringify(L));
+            if(_cmPendingDates.has(k)){_cmPendingDates.delete(k);out.cleared=(out.cleared||0)+1;}
+          }
+        }catch(e){}
       }
     }
-    try{savePushedHashes();}catch(e){}
+    try{savePushedHashes();savePendingQueue();}catch(e){}
 
     // 3. Bundle
     onProg&&onProg('Bundle milaan...');
@@ -9545,9 +10315,59 @@ async function runDeepVerify(){
   if(r.extra.length){
     h+='<div style="font-size:11.5px;color:#92400e;margin-top:6px">ℹ️ Firebase par '+r.extra.length+' aisi date(s) hain jo is phone par nahi (doosre device se aayi hongi)</div>';
   }
+  if(r.cleared)h+='<div style="font-size:11.5px;color:#15803d;margin-top:6px">✓ '+r.cleared+' date(s) Firebase par pahunchi hui mili — pending list se hata di</div>';
   if(bad)h+='<div style="font-size:11.5px;color:#b91c1c;font-weight:700;margin-top:7px">→ Firebase → "Sabhi Data Push Karo" dabao, phir dobara jaanch karo</div>';
   h+='</div>';
   box.innerHTML=h;
+  await healthRefreshPending();
+}
+
+// Health: kya kuch Firebase par jaana baaki hai? Queue + har date ka data-hash
+// (aakhri safal push ke hash se). "Har Date Milaao" ke baad dobara banta hai.
+async function healthPendingHTML(preData){
+  let h='';
+  if(deviceRole==='secondary'){
+    return '<div style="background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:10px;padding:9px 13px;margin-bottom:14px;font-size:12.5px;font-weight:600;color:#1d4ed8">📥 Ye SECONDARY device hai — yahan se Firebase par kuch nahi jaata, sirf Main se aata hai.</div>';
+  }
+  const re=/^\d{4}-\d{2}-\d{2}_\d+$/;
+  const dateKeys=(await idbAMK()).filter(k=>re.test(k));
+  const ark=(await idbAARK()).filter(k=>re.test(k));
+  const dirty=new Set(_cmPendingDates||[]);
+  let untracked=0;
+  const chk=async(k,getter)=>{const d=await getter(k);if(!Array.isArray(d)||!d.length||dirty.has(k))return;const ph=_pushedHashes[k];if(ph===undefined){untracked++;return;}if(ph!==quickHash(JSON.stringify(d)))dirty.add(k);};
+  for(const k of dateKeys)await chk(k,async kk=>(preData&&preData.has(kk))?preData.get(kk):await idbGM(kk));
+  for(const k of ark)await chk(k,idbGAR);
+  const pend=dirty.size,pendB=!!_cmPendingBundle,pendU=!!_cmPendingUrgent;
+  if(pend||pendB||pendU){
+    const parts=[];
+    if(pend)parts.push(pend+' date(s)');
+    if(pendB)parts.push('bundle');
+    if(pendU)parts.push('urgent');
+    const sample=[...dirty].sort().slice(0,6).map(k=>fmtD(k.split('_')[0])).join(', ');
+    const canPush=_fbDb&&navigator.onLine;
+    h+='<div style="background:#fef2f2;border:1.5px solid #fecaca;border-radius:10px;padding:11px 13px;margin-bottom:14px">'
+     +'<div style="font-size:13px;font-weight:800;color:#b91c1c">🔴 '+parts.join(' + ')+' abhi Firebase par pakka nahi pahuncha</div>'
+     +(pend?'<div style="font-size:11.5px;color:#b91c1c;margin-top:3px">'+esc(sample)+(pend>6?' …+'+(pend-6):'')+'</div>':'')
+     +'<div style="font-size:11.5px;color:#b91c1c;margin-top:4px">Jab tak ye push nahi hota, doosre phone (Secondary/Peshgar) par purana data hi dikhega.</div>'
+     +(canPush?'<button class="btn" onclick="healthPushNow(this)" style="margin-top:8px;padding:9px;font-size:12.5px;background:#dc2626;color:#fff;width:100%">📤 Abhi Push Karo</button>'
+              :'<div style="font-size:11.5px;color:#b91c1c;font-weight:700;margin-top:4px">📵 Net/Firebase nahi — net aate hi apne aap jaayega.</div>')
+     +'</div>';
+  }else{
+    h+='<div style="background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:10px;padding:9px 13px;margin-bottom:14px;font-size:12.5px;font-weight:600;color:#15803d">✅ Har date ka data wahi hai jo aakhri baar Firebase par gaya — kuch pending nahi</div>';
+  }
+  if(untracked){
+    h+='<div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:10px;padding:9px 13px;margin-bottom:14px;font-size:12px;font-weight:600;color:#92400e">ℹ️ '+untracked+' date(s) ka push-record is phone par nahi hai (purana ya Firebase se aaya data). Pakka karne ke liye neeche "Har Date Milaao" dabao.</div>';
+  }
+  return h;
+}
+async function healthRefreshPending(){
+  try{const b=document.getElementById('hPendBox');if(b)b.innerHTML=await healthPendingHTML(null);}catch(e){console.error(e);}
+}
+async function healthPushNow(btn){
+  if(secondaryBlock())return;
+  try{btn.disabled=true;btn.textContent='⏳ Push ho raha hai…';}catch(e){}
+  try{await flushCmPush();}catch(e){}
+  await healthRefreshPending();
 }
 
 async function openHealth(){
@@ -9631,46 +10451,48 @@ async function openHealth(){
        +'</div>';
     }catch(e){}
 
-    // ── 2b. Kya kuch push hona baaki hai? ──
-    // PEHLE ye sirf QUEUE dekhta tha. Par kai raaston se data Firebase tak
-    // nahi pahunchta aur queue mein bhi nahi hota (backup restore, kamzor
-    // signal mein app band, Secondary par kiya kaam) — tab bhi yahan
-    // "✅ sab Firebase par hai" dikh jaata tha. Ab har date ka DATA-HASH us hash
-    // se milaate hain jo aakhri safal push mein gaya tha. Ye phone par hi hota
-    // hai, net nahi chahiye.
+    // ── 2b. Kya kuch push hona baaki hai? ── (healthPendingHTML — neeche)
+    try{h+='<div id="hPendBox">'+(await healthPendingHTML(_hData))+'</div>';}catch(e){console.error('health pending:',e);}
+    // ── 2b-ii. Sunday next-date wali files (aaj ya aage) — inki cause-list nahi banti ──
     try{
-      if(deviceRole==='secondary'){
-        h+='<div style="background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:10px;padding:9px 13px;margin-bottom:14px;font-size:12.5px;font-weight:600;color:#1d4ed8">📥 Ye SECONDARY device hai — yahan se Firebase par kuch nahi jaata, sirf Main se aata hai.</div>';
-      }else{
-        const dirty=new Set(_cmPendingDates||[]);
-        // Hash hai par data badal gaya → pakka pending (red).
-        // Hash hi nahi (purana data jo hash-system se pehle push hua, ya Firebase se
-        // pull hua) → pata nahi; red nahi, alag se batao.
-        let untracked=0;
-        const chk=async(k,getter)=>{const d=await getter(k);if(!Array.isArray(d)||!d.length||dirty.has(k))return;const ph=_pushedHashes[k];if(ph===undefined){untracked++;return;}if(ph!==quickHash(JSON.stringify(d)))dirty.add(k);};
-        for(const k of dateKeys)await chk(k,async kk=>_hData.has(kk)?_hData.get(kk):await idbGM(kk));
-        for(const k of ark)await chk(k,idbGAR);
-        const pend=dirty.size;
-        const pendB=!!_cmPendingBundle, pendU=!!_cmPendingUrgent;
-        if(pend||pendB||pendU){
-          const parts=[];
-          if(pend)parts.push(pend+' date(s)');
-          if(pendB)parts.push('bundle');
-          if(pendU)parts.push('urgent');
-          const sample=[...dirty].sort().slice(0,6).map(k=>fmtD(k.split('_')[0])).join(', ');
-          h+='<div style="background:#fef2f2;border:1.5px solid #fecaca;border-radius:10px;padding:11px 13px;margin-bottom:14px">'
-           +'<div style="font-size:13px;font-weight:800;color:#b91c1c">🔴 '+parts.join(' + ')+' abhi Firebase par pakka nahi pahuncha</div>'
-           +(pend?'<div style="font-size:11.5px;color:#b91c1c;margin-top:3px">'+esc(sample)+(pend>6?' …+'+(pend-6):'')+'</div>':'')
-           +'<div style="font-size:11.5px;color:#b91c1c;margin-top:4px">Jab tak ye push nahi hota, doosre phone (Secondary/Peshgar) par purana data hi dikhega. '
-           +'Net on karke Firebase → "Sabhi Data Push Karo" dabao.</div></div>';
-        }else{
-          h+='<div style="background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:10px;padding:9px 13px;margin-bottom:14px;font-size:12.5px;font-weight:600;color:#15803d">✅ Har date ka data wahi hai jo aakhri baar Firebase par gaya — kuch pending nahi</div>';
-        }
-        if(untracked){
-          h+='<div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:10px;padding:9px 13px;margin-bottom:14px;font-size:12px;font-weight:600;color:#92400e">ℹ️ '+untracked+' date(s) ka push-record is phone par nahi hai (purana ya Firebase se aaya data). Pakka karne ke liye neeche "Har Date Milaao" dabao.</div>';
-        }
+      const today=_localISO(new Date());
+      const all=await getAllDatesData();const seenS=new Map();
+      for(const k in all){const a=all[k];if(!Array.isArray(a))continue;
+        for(const r of a){const nd=r.nextdate||'';if(nd>=today&&ndIsSunday(nd)){const ck=_unpKey(String(r.caseno||'').trim());if(!seenS.has(ck))seenS.set(ck,{cn:r.caseno,pn:r.partyname||'',nd,from:k.split('_')[0]});}}}
+      if(seenS.size){
+        const list=[...seenS.values()].sort((a,b)=>a.nd<b.nd?-1:1);
+        h+='<div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:10px;padding:11px 13px;margin-bottom:14px">'
+         +'<div style="font-size:12.5px;font-weight:800;color:#92400e">📅 '+list.length+' file(s) ki next date RAVIVAAR (Sunday) hai</div>'
+         +'<div style="font-size:11.5px;color:#92400e;margin:3px 0 5px">Us din cause-list nahi banti — date theek kar do warna file chhoot sakti hai:</div>'
+         +list.slice(0,10).map(x=>'<div style="font-size:12px;color:var(--txt);line-height:1.6">· <b>'+esc(x.cn)+'</b> '+esc(x.pn)+' → <b style="color:#b45309">'+esc(fmtD(x.nd))+'</b> <span style="color:var(--mu)">(di gayi '+esc(fmtD(x.from))+')</span></div>').join('')
+         +(list.length>10?'<div style="font-size:11.5px;color:var(--mu)">…aur '+(list.length-10)+'</div>':'')
+         +'</div>';
       }
-    }catch(e){console.error('health pending:',e);}
+    }catch(e){console.error('health sunday:',e);}
+    // ── 2b-iii. Chhooti files ──
+    try{
+      const miss=await findMissedFiles();
+      if(miss.length){
+        const lim=_localISO(new Date(Date.now()-60*86400000));
+        const recent=miss.filter(x=>x.nd>=lim),older=miss.length-recent.length;
+        h+='<div style="background:#fff7ed;border:1.5px solid #fed7aa;border-radius:10px;padding:11px 13px;margin-bottom:14px">'
+         +'<div style="font-size:12.5px;font-weight:800;color:#9a3412">🔍 '+recent.length+' file(s) apni next date ki cause-list mein nahi thi (pichhle 60 din)</div>'
+         +'<div style="font-size:11.5px;color:#9a3412;margin:3px 0 5px">Ya next date galat daali gayi, ya file list mein chhoot gayi — ek baar dekh lo. Case par tap = poori kahani.</div>'
+         +recent.slice(0,15).map(x=>'<div style="font-size:12px;line-height:1.7;cursor:pointer" onclick="openTimeline(this.dataset.cn)" data-cn="'+esc(x.cn)+'">· <b style="color:var(--navy)">'+esc(x.cn)+'</b> '+esc(x.pn)+' → <b style="color:#c2410c">'+esc(fmtD(x.nd))+'</b>'+(x.slot?' <span style="color:var(--mu)">('+esc(x.slot)+')</span>':'')+'</div>').join('')
+         +(recent.length>15?'<div style="font-size:11.5px;color:var(--mu)">…aur '+(recent.length-15)+'</div>':'')
+         +(older?'<div style="font-size:11.5px;color:var(--mu);margin-top:4px">+ '+older+' isse purani</div>':'')
+         +'</div>';
+      }
+    }catch(e){console.error('health missed:',e);}
+
+    // ── 2d. Self-test + version ──
+    h+='<div style="font-size:10.5px;font-weight:800;color:var(--mu);letter-spacing:.5px;margin-bottom:8px">🧪 SELF-TEST</div>'
+     +'<div style="background:var(--bg);border:1.5px solid var(--bdr);border-radius:10px;padding:11px 13px;margin-bottom:14px">'
+     +'<div style="font-size:11.5px;color:var(--mu);line-height:1.45;margin-bottom:8px">App khud apni jaanch karta hai — storage, data ki shape, duplicate, queue, bundle. Aapka data nahi badalta.</div>'
+     +'<button class="btn" onclick="runSelfTest()" style="margin-top:0;background:linear-gradient(135deg,#7c3aed,#5b21b6);color:#fff">🧪 Self-test chalao</button>'
+     +'<div id="selfTestBox" style="margin-top:9px"></div>'
+     +'<details style="margin-top:10px"><summary style="font-size:12px;font-weight:700;cursor:pointer;color:var(--navy)">📌 Version: '+esc(APP_BUILD)+' — kya naya hai</summary><div style="margin-top:6px">'+changelogHTML()+'</div></details>'
+     +'</div>';
 
     // ── 2c. Deep verify button ──
     h+='<div style="font-size:10.5px;font-weight:800;color:var(--mu);letter-spacing:.5px;margin-bottom:8px">🔍 GEHRI JAANCH</div>'
@@ -9705,14 +10527,15 @@ async function openHealth(){
         // "Barabar" tabhi jab DONO — dates aur bundle — mel khayein.
         // Pehle sirf bundle dekha jaata tha, isliye dates ka bada farak hote
         // hue bhi "sab barabar" likh deta tha.
-        const okB=Math.abs(diffB)<=Math.max(5,bAll.length*0.02);
-        const okD=Math.abs(diffD)<=2;
+        // Bina chhoot ke — 1 ka farak bhi farak hai. (Pehle 2 dates / 2% bundle ki
+        // chhoot thi, isliye chhota farak "barabar" dikh jaata tha.)
+        const okB=diffB===0, okD=diffD===0;
         const ok=okB&&okD;
         h+='<div style="background:'+(ok?'#f0fdf4':'#fffbeb')+';border:1.5px solid '+(ok?'#bbf7d0':'#fde68a')+';border-radius:10px;padding:11px 13px;margin-bottom:14px">'
          +'<div style="font-size:12.5px;font-weight:600;color:var(--txt)">Dates — is phone: <b>'+localTotalDates+'</b> <span style="color:var(--mu);font-weight:500">('+dateKeys.length+' active + '+ark.length+' archive)</span> · Firebase: <b>'+fbDates+'</b></div>'
          +'<div style="font-size:12.5px;font-weight:600;color:var(--txt);margin-top:3px">Bundle — is phone: <b>'+bAll.length+'</b> · Firebase: <b>'+fbBn+'</b></div>'
-         +(ok?'<div style="font-size:11.5px;color:#15803d;font-weight:700;margin-top:6px">✅ Dono taraf barabar</div>'
-             :'<div style="font-size:11.5px;color:#92400e;font-weight:700;margin-top:6px">🟡 Farak hai — "Sabhi Data Push Karo" se milaa lo</div>')
+         +(ok?'<div style="font-size:11.5px;color:#15803d;font-weight:700;margin-top:6px">✅ Ginti barabar <span style="font-weight:500;color:var(--mu)">— andar ka data upar "Har Date Milaao" se pakka hota hai</span></div>'
+             :'<div style="font-size:11.5px;color:#92400e;font-weight:700;margin-top:6px">🟡 Ginti mein farak'+(diffD?' — dates: '+(diffD>0?'phone par '+diffD+' zyada':'Firebase par '+(-diffD)+' zyada'):'')+(diffB?' — bundle: '+(diffB>0?'phone par '+diffB+' zyada':'Firebase par '+(-diffB)+' zyada'):'')+'. "Har Date Milaao" se dekho kaunsi.</div>')
          +'</div>';
       }catch(e){
         h+='<div style="background:#fef2f2;border-radius:10px;padding:11px 13px;margin-bottom:14px;font-size:12px;color:#b91c1c">Firebase padha nahi ja saka: '+esc(e.message)+'</div>';
@@ -9772,6 +10595,7 @@ async function fbRetry(fn,label,tries,perTryMs){
 }
 
 async function fbPullAll(){
+  if(_tabReadOnly){showToast('🔒 App doosre tab mein khula hai — wahin se karo','d');return;}
   if(!_fbDb){showToast('⚠️ Firebase connected nahi hai','w');return;}
   // Main device ka data MASTER hai — usko pull se overwrite nahi karna chahiye
   if(deviceRole==='main'){
@@ -9791,7 +10615,7 @@ async function fbPullAll(){
       if(!/^\d{4}-\d{2}-\d{2}_\d+$/.test(key))continue;
       const d=doc.data();
       const rows=cfmFromFirebase(d);
-      if(rows){await idbSM(key,rows);invalidateAllDatesCache();}
+      if(rows){await writeDate(key,rows,{remote:true});}
     }
     // 2. Version metadata
     const metaSnaps=await fbRetry(()=>_fbDb.collection('cfm_meta').get(),'Version info');
@@ -10080,6 +10904,7 @@ async function openOverdueModal(){
       <div style="display:flex;gap:8px;margin-top:10px">
         <button class="ov-save" style="flex:1" onclick="ovSave(${i})">💾 Save</button>
         <button onclick="ovDispose(${i})" style="flex:1;padding:11px;background:rgba(107,114,128,.12);border:1.5px solid #9ca3af;border-radius:9px;font-size:13px;font-weight:700;color:#4b5563;cursor:pointer">🗂 Dispose</button>
+        <button onclick="openTimeline(_ovData[${i}]&&_ovData[${i}].caseno)" title="File ki kahani" style="flex:0 0 auto;padding:11px 12px;background:#f1f5f9;border:1.5px solid var(--bdr);border-radius:9px;font-size:13px;cursor:pointer">🕘</button>
       </div>
     </div>`;
   }).join('');
@@ -10128,36 +10953,38 @@ async function ovSave(i){if(secondaryBlock()){return;}
   if(/^(dispose|disposed|nipt|nipta|खारिज)$/i.test(remark.trim())){return ovDispose(i);}
   const days=_ovRemSel[cn]??null;
 
-  // Save to the actual IDB key where this record lives
+  // Asli date (srcKey) par save — active mein na ho to ARCHIVE mein (pehle archive
+  // wale record par kuch save nahi hota tha, phir bhi "✅ Saved" dikhta tha).
+  // Save fail (storage bhari) → SAVE FAIL, crash nahi, jhootha ✅ nahi.
   const srcKey=r._srcKey;
-  if(srcKey){
-    const keyData=await idbGM(srcKey);
-    if(keyData&&Array.isArray(keyData)){
-      const idx=keyData.findIndex(x=>String(x.caseno).toUpperCase()===String(cn).toUpperCase());
-      if(idx!==-1){
-        keyData[idx].remark=remark; // always assign (khali karne pe bhi save ho — clear ho sake)
-        if(days!==null){
-          if(days===0){delete keyData[idx]._reminder;}
-          else{const rd=new Date();rd.setDate(rd.getDate()+days);keyData[idx]._reminder=_localISO(rd);}
-        }
-        keyData[idx].searchableText=gSrch(keyData[idx]);
-        await idbSM(srcKey,keyData);invalidateAllDatesCache();
-      }
-    }
-  }
-
-  // Also update current cData if same date
-  const idx=cData.findIndex(x=>String(x.caseno).toUpperCase()===String(cn).toUpperCase());
-  if(idx!==-1){
-    cData[idx].remark=remark; // always assign (khali karne pe bhi save ho — clear ho sake)
+  let saved=false,failed=false;
+  const applyTo=x=>{
+    x.remark=remark; // always assign (khali karne pe bhi save ho — clear ho sake)
     if(days!==null){
-      if(days===0){delete cData[idx]._reminder;}
-      else{const rd=new Date();rd.setDate(rd.getDate()+days);cData[idx]._reminder=_localISO(rd);}
+      if(days===0){delete x._reminder;}
+      else{const rd=new Date();rd.setDate(rd.getDate()+days);x._reminder=_localISO(rd);}
     }
-    cData[idx].searchableText=gSrch(cData[idx]);
-    await saveLocal();
+    x.searchableText=gSrch(x);
+  };
+  if(srcKey&&srcKey!==dKey()){
+    try{
+      let keyData=await idbGM(srcKey),arch=false;
+      if(!Array.isArray(keyData)){keyData=await idbGAR(srcKey);arch=true;}
+      if(Array.isArray(keyData)){
+        const kx=keyData.findIndex(x=>String(x.caseno).toUpperCase()===String(cn).toUpperCase());
+        if(kx!==-1){applyTo(keyData[kx]);await writeDate(srcKey,keyData,{archive:arch});saved=true;}
+      }
+    }catch(e){console.error('ovSave srcKey:',e);failed=true;}
   }
-  checkReminders();
+  // Aaj khuli date mein bhi ye case ho to wahan bhi (saveLocal se)
+  const idx=cData.findIndex(x=>String(x.caseno).toUpperCase()===String(cn).toUpperCase());
+  if(idx!==-1&&!failed){
+    applyTo(cData[idx]);
+    if(await saveLocal())saved=true;else failed=true;
+  }
+  if(failed){showToast('❌ SAVE FAIL — '+cn+' ka remark save nahi hua, dobara karo','d');haptic('error');return;}
+  if(!saved){showToast('⚠️ '+cn+' ka record nahi mila — remark save nahi hua','w');return;}
+  try{checkReminders();}catch(e){}
   const msg=days===0?'❌ Reminder cancel hua':`✅ Saved${days?' | '+days+' din mein reminder':''}`;
   showToast(msg);haptic('success');
   const el=document.getElementById('ovi-'+i);
@@ -10215,7 +11042,7 @@ async function disposeCaseEverywhere(cn,opt){
       const i=arr.findIndex(r=>_unpKey(String(r.caseno||'').trim())===ck);
       if(i===-1)continue;
       mark(arr[i]);
-      if(inArch)await idbSAR(k,arr);else await idbSM(k,arr);
+      await writeDate(k,arr,{archive:inArch,noFlush:true});
       // Verify — sach mein likha gaya?
       const back=inArch?await idbGAR(k):await idbGM(k);
       const bi=Array.isArray(back)?back.findIndex(r=>_unpKey(String(r.caseno||'').trim())===ck):-1;
