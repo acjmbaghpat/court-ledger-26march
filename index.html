@@ -280,8 +280,6 @@ td input:focus{background:#fff;border-color:var(--blue)}
 .drawer-hd-title{font-size:15px;font-weight:800;color:#fff;letter-spacing:-.2px}
 .drawer-close{width:32px;height:32px;border-radius:8px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.15);color:#fff;font-size:16px;display:flex;align-items:center;justify-content:center;cursor:pointer}
 /* Drawer tab nav */
-.dtgrp{flex-shrink:0;align-self:stretch;display:flex;align-items:center;padding:0 4px 0 10px;margin-left:4px;border-left:1px solid rgba(255,255,255,.18);color:rgba(255,255,255,.38);font-size:9px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;writing-mode:vertical-rl;transform:rotate(180deg)}
-.dtgrp.first{border-left:none;margin-left:0;padding-left:4px}
 .dtabs{display:flex;overflow-x:auto;scrollbar-width:none;gap:2px;padding-bottom:0}
 .dtabs::-webkit-scrollbar{display:none}
 .dtab{flex-shrink:0;padding:9px 12px;background:none;border:none;color:rgba(255,255,255,.5);font-size:12px;font-weight:600;border-bottom:2.5px solid transparent;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;transition:all .15s;white-space:nowrap;font-family:inherit}
@@ -1019,21 +1017,18 @@ input:focus,select:focus,textarea:focus{
       <button class="drawer-close" onclick="closeDrawer()">✕</button>
     </div>
     <div class="dtabs" id="dtabBar">
-      <span class="dtgrp first">Roz</span>
       <button class="dtab on" data-dp="dp-version" onclick="switchDP(this)"><span class="dice">📋</span>Version</button>
-      <button class="dtab" data-dp="dp-addcase" onclick="switchDP(this)"><span class="dice">➕</span>Add Case</button>
       <button class="dtab" data-dp="dp-upload"  onclick="switchDP(this)"><span class="dice">📤</span>Upload</button>
       <button class="dtab" data-dp="dp-translate" onclick="switchDP(this)"><span class="dice">🔤</span>Translate</button>
+      <button class="dtab" data-dp="dp-addcase" onclick="switchDP(this)"><span class="dice">➕</span>Add Case</button>
+      <button class="dtab" data-dp="dp-backup"  onclick="switchDP(this)"><span class="dice">🗄</span>Backup</button>
+      <button class="dtab" data-dp="dp-sync"    onclick="switchDP(this)"><span class="dice">🔥</span>Firebase</button>
+      <button class="dtab" data-dp="dp-export"  onclick="switchDP(this)"><span class="dice">📥</span>Export</button>
       <button class="dtab" data-dp="dp-qr" onclick="switchDP(this)"><span class="dice">🔲</span>QR Codes</button>
-      <span class="dtgrp">Jaanch</span>
       <button class="dtab" data-dp="dp-unplaced" onclick="switchDP(this)"><span class="dice">📦</span>Bundle Check</button>
       <button class="dtab" data-dp="dp-cis" onclick="switchDP(this)"><span class="dice">🔎</span>CIS Milaan</button>
       <button class="dtab" data-dp="dp-peshgar" onclick="switchDP(this)"><span class="dice">⚠️</span>Peshgar</button>
       <button class="dtab" data-dp="dp-mywork"  onclick="switchDP(this)"><span class="dice">📈</span>Mera Kaam</button>
-      <span class="dtgrp">Data</span>
-      <button class="dtab" data-dp="dp-backup"  onclick="switchDP(this)"><span class="dice">🗄</span>Backup</button>
-      <button class="dtab" data-dp="dp-sync"    onclick="switchDP(this)"><span class="dice">🔥</span>Firebase</button>
-      <button class="dtab" data-dp="dp-export"  onclick="switchDP(this)"><span class="dice">📥</span>Export</button>
     </div>
   </div>
 
@@ -2222,12 +2217,20 @@ let _tabReadOnly=false;
 async function acquireTabLock(){
   try{
     if(!(navigator.locks&&navigator.locks.request))return true; // purana browser — pehle jaisa
+    // Lock na mile to turant read-only NAHI — 3 sec ruko. APK mein phone ghumane
+    // (rotation) par Android naya WebView purane ke band hone se pehle khol deta
+    // hai; purana thodi der mein lock chhod deta hai. Asli doosra tab khula ho tabhi
+    // 3 sec baad bhi lock nahi milega → read-only.
     const got=await new Promise(resolve=>{
-      navigator.locks.request('cfm-writer',{ifAvailable:true},lock=>{
-        if(!lock){resolve(false);return;}
-        resolve(true);
-        return new Promise(()=>{}); // tab band hone tak lock pakde raho
-      }).catch(()=>resolve(true));
+      let done=false;const fin=v=>{if(!done){done=true;resolve(v);}};
+      let ac=null;try{ac=new AbortController();}catch(e){}
+      const t=setTimeout(()=>{try{ac&&ac.abort();}catch(e){}fin(false);},3000);
+      navigator.locks.request('cfm-writer',ac?{signal:ac.signal}:{},lock=>{
+        clearTimeout(t);
+        if(done){return;}            // 3 sec nikal gaye — read-only ban chuke (neeche wala intezaar sambhalega)
+        fin(true);
+        return new Promise(()=>{});  // tab band hone tak lock pakde raho
+      }).catch(err=>{clearTimeout(t);fin(err&&err.name==='AbortError'?false:true);});
     });
     if(!got){
       _tabReadOnly=true;
@@ -5430,7 +5433,7 @@ function ndSundayOk(d){
 // CIS test mein 11 files aisi mili thi: next date badli, file purani tareekh ke
 // khaane mein hi rakhi rahi. Ab next date save hote hi poochte hain; "Haan" par
 // Move screen nayi tareekh bhar ke khulti hai — move aap khud confirm karte ho.
-function bundleShiftCheck(cn,nd){
+function bundleShiftCheck(cn,nd,hintOnly){
   try{
     if(!nd||!/^\d{4}-\d{2}-\d{2}$/.test(nd)||_tabReadOnly||deviceRole==='secondary')return false;
     if(typeof bFiles==='undefined'||!bFiles)return false;
@@ -5440,6 +5443,11 @@ function bundleShiftCheck(cn,nd){
     const day=parseInt(nd.split('-')[2],10);
     if(f.md===day)return false;                       // pehle se sahi khaane mein
     const where='Date '+f.md+(f.sd!=null?'/'+f.sd:'')+' — Col '+dispCol(f.col);
+    if(hintOnly){
+      // RECEIVE ke dauraan (lagaataar scan) — rokne wala popup nahi, sirf yaad-dahaani
+      setTimeout(()=>{try{showToast('📦 '+f.id+': bundle mein abhi "'+where+'" — nayi date '+fmtD(nd)+' → Date '+day+' mein rakhna','w');}catch(e){}},600);
+      return true;
+    }
     setTimeout(()=>{
       try{speak('Bundle badlo','hi-IN');}catch(e){}
       if(!confirm('📦 '+f.id+' bundle mein "'+where+'" mein rakhi hai,\npar nayi next date '+fmtD(nd)+' hai.\n\nOK = abhi Date '+day+' mein shift karo\nCancel = baad mein'))return;
@@ -5743,7 +5751,7 @@ async function saveNextDate(){if(secondaryBlock()){return;}
   if(idx!==-1&&d)await cleanupStaleAutoMerge(cData[idx].caseno,oldNextDate,d);
   const _okND=await saveLocal();drawTable(getFiltered());updateDash();resetJO();
   // Save hua aur nayi date di → bundle mein file purane khaane mein to nahi?
-  if(_okND&&idx!==-1&&d&&!isDispose)bundleShiftCheck(cData[idx].caseno,d);
+  if(_okND&&idx!==-1&&d&&!isDispose)bundleShiftCheck(cData[idx].caseno,d,true);   // RECEIVE flow: sirf toast
   lastRcvCase=null;_ndRcvMode=false;
 }
 
@@ -5921,7 +5929,7 @@ async function exportBackup(){
     const bk=await buildBackupData();
     const blob=new Blob([JSON.stringify(bk)],{type:"application/json"});
     const url=URL.createObjectURL(blob),a=document.createElement("a");
-    a.href=url;a.download="CourtBundleBackup_"+new Date().toISOString().split("T")[0]+".json";
+    a.href=url;a.download="CourtBundleBackup_"+_localISO(new Date())+".json";
     document.body.appendChild(a);a.click();markBackupDone('manual');document.body.removeChild(a);URL.revokeObjectURL(url);
     if(stEl){stEl.textContent="✅ Backup export ho gaya!";stEl.className="smsg s-ok";clearTimeout(stEl._t);stEl._t=setTimeout(()=>stEl.className="smsg",3000);}
   }catch(err){if(stEl){stEl.textContent="❌ Export fail: "+err;stEl.className="smsg s-err";}}
@@ -7831,8 +7839,16 @@ let _bSearchT=null;
 // ═══ APP VERSION + KYA NAYA HAI ═══
 // Har nayi file par upar ek entry jodo — Health mein dikhta hai, taaki pata rahe
 // phone par kaunsa version chal raha hai aur kya badla (purani file wapas lagani ho to).
-const APP_BUILD='v16.6 · 22-11-2026';
+const APP_BUILD='v16.7 · 23-11-2026';
 const APP_CHANGELOG=[
+  {v:'v16.7',d:'23-11-2026',items:[
+    'Tools: ROZ/JAANCH label hataye; kram — Version, Upload, Translate, Add Case, Backup, Firebase, Export, phir baaki',
+    'Sync race theek: push ke dauraan kiya SENT ab Firebase se chhoot nahi sakta (flush, fbPush, Har Date Milaao)',
+    'APK mein phone ghumane par app galti se "sirf-dekhne" wala nahi banta (3 sec intezaar)',
+    'RECEIVE ke waqt bundle-shift ka popup nahi, sirf yaad-dahaani',
+    'Suggestion: poora case no likhte hi band; nayi list ke case turant suggest',
+    'Download file-naam mein raat 12–5:30 ke beech galat (kal ki) tareekh theek'
+  ]},
   {v:'v16.6',d:'22-11-2026',items:[
     'Data likhne ka ek darwaza — overdue remark, date kholte waqt auto-merge aur auto-merge cleanup ab Firebase par bhi jaate hain',
     'Do tab ek saath: doosra tab sirf-dekhne wala (data mitne se bachav)',
@@ -8283,9 +8299,15 @@ function caseSuggest(q,limit){
   if(!qn)return [];
   // Index abhi bana nahi → aaj ki list se turant, aur index banne do
   let idx=_sgIdx;
+  const _todayIdx=()=>(cData||[]).map(r=>{const cn=String(r.caseno||'').trim();return {cn,pn:String(r.partyname||''),sec:String(r.section||''),n:cn.toLowerCase().replace(/[^a-z0-9]/g,''),t:_sgTok(cn),p:String(r.partyname||'').toLowerCase(),src:'today'};}).filter(x=>x.cn);
   if(!idx||_bNamesSrc!==_allDatesCache||_bNamesCD!==cData||_bNamesCDL!==(cData?cData.length:0)){
     bNamesRefresh();
-    if(!idx)idx=(cData||[]).map(r=>{const cn=String(r.caseno||'').trim();return {cn,pn:String(r.partyname||''),sec:String(r.section||''),n:cn.toLowerCase().replace(/[^a-z0-9]/g,''),t:_sgTok(cn),p:String(r.partyname||'').toLowerCase(),src:'today'};}).filter(x=>x.cn);
+    // Index purana (abhi-abhi nayi list aayi / date badli) → aaj ki list SEEDHE bhi
+    // dekho, warna naye case 5 sec tak suggest hi nahi hote. Purane index ki
+    // 'today' entries hata do (wo ab galat ho sakti hain).
+    const t=_todayIdx();
+    if(!idx)idx=t;
+    else{const seen=new Set(t.map(x=>_unpKey(x.cn)));idx=t.concat(idx.filter(x=>x.src!=='today'&&!seen.has(_unpKey(x.cn))));}
   }
   const tokOk=(rt,t)=>rt.some(x=>x===t||x.startsWith(t)||(/^\d{2}$/.test(t)&&/^(19|20)\d{2}$/.test(x)&&x.endsWith(t)));
   const out=[];
@@ -8333,6 +8355,10 @@ function sgUpdate(inp,cfg){
   if(!tok){sgClose();return;}
   _sgItems=caseSuggest(tok,15);_sgHi=-1;
   if(!_sgItems.length){sgClose();return;}
+  // Poora case no likh diya (bilkul mel) → dropdown band, taaki neeche ke
+  // SENT/RECEIVED / Add button na dhake
+  const tn=tok.toLowerCase().replace(/[^a-z0-9]/g,'');
+  if(_sgItems.some(r=>r.n===tn)&&_sgItems.filter(r=>r.n.startsWith(tn)).length===1){sgClose();return;}
   const box=_sgEnsureBox();
   box.innerHTML=_sgItems.map((r,i)=>{
     const tag=r.src==='today'?'<span class="sg-tag sg-today">Aaj ki list</span>':r.src==='archive'?'<span class="sg-tag">Archive</span>':'<span class="sg-tag">'+esc(fmtD(r.src))+'</span>';
@@ -9226,8 +9252,12 @@ async function fbPush(){
     setSyncDot('busy');
     await withTimeout(_fbDb.collection('cfm').doc(k).set(cfmToFirebase(JSON.parse(snap))),20000,'CFM push');
     // Push ke dauraan naya kaam hua ho (cData badla) to date queue mein hi rahe
-    if(dKey()!==k||JSON.stringify(cData)===snap){_cmPendingDates.delete(k);savePendingQueue();}
-    _pushedHashes[k]=quickHash(snap);savePushedHashes(); // hash = jo SACH MEIN gaya
+    // Queue se tabhi hatao jab phone par abhi bhi WAHI data ho jo bheja (push ke
+    // dauraan naya kaam hua ho ya date badli ho — dono mein IndexedDB se dobara milao).
+    const _h=quickHash(snap);
+    _pushedHashes[k]=_h;savePushedHashes();
+    let _cur=null;try{_cur=await idbGM(k);}catch(e){}
+    if(Array.isArray(_cur)&&quickHash(JSON.stringify(_cur))===_h){_cmPendingDates.delete(k);savePendingQueue();} // hash = jo SACH MEIN gaya
     setSyncDot('ok');
   }catch(e){
     setSyncDot('err');   // date queue mein pehle se hai
@@ -9304,11 +9334,16 @@ async function _flushCmPushInner(){
           // agar write khud latak jaaye to user ko pata bhi nahi chalta ki
           // sync atka hua hai. Timeout se ek-do date fail ho jaaye to bhi
           // agli baar (retry-timer se) apne aap try ho jaati hai.
+          const _sentHash=quickHash(JSON.stringify(d));
           await withTimeout(_fbDb.collection('cfm').doc(dk).set(cfmToFirebase(d)),15000,'Queue flush');
-          _cmPendingDates.delete(dk);changed=true;_metaDates.add(dk.split('_')[0]);
           // Jo bheja uska hash yaad rakho — Health Check isi se jaanchta hai ki
           // phone ka data aur Firebase ka data ek hi hai ya nahi.
-          try{_pushedHashes[dk]=quickHash(JSON.stringify(d));savePushedHashes();}catch(e){}
+          try{_pushedHashes[dk]=_sentHash;savePushedHashes();}catch(e){}
+          _metaDates.add(dk.split('_')[0]);
+          // Queue se tabhi hatao jab push ke DAURAAN is date mein naya kaam na hua ho
+          // (warna wo naya kaam — jaise beech mein kiya SENT — kabhi Firebase na jaata).
+          let _now=null;try{_now=await idbGM(dk);if(!Array.isArray(_now))_now=await idbGAR(dk);}catch(e){}
+          if(Array.isArray(_now)&&quickHash(JSON.stringify(_now))===_sentHash){_cmPendingDates.delete(dk);changed=true;}
         }else{
           // Kahin bhi nahi mili (delete ho chuki) — queue se hata do,
           // warna ye entry hamesha ke liye "pending" dikhati rahegi.
@@ -10254,8 +10289,13 @@ async function deepVerify(onProg){
         // "barabar" aane ke baad bhi upar 🔴 pending bana rehta tha.
         try{
           if(JSON.stringify(cfmFromFirebase(cfmToFirebase(L)))===JSON.stringify(R)){
-            _pushedHashes[k]=quickHash(JSON.stringify(L));
-            if(_cmPendingDates.has(k)){_cmPendingDates.delete(k);out.cleared=(out.cleared||0)+1;}
+            const hL=quickHash(JSON.stringify(L));
+            // Milaan ke dauraan phone par is date mein naya kaam to nahi hua? (dobara padho)
+            let cur=null;try{cur=await idbGM(k);if(!Array.isArray(cur))cur=await idbGAR(k);}catch(e){}
+            if(Array.isArray(cur)&&quickHash(JSON.stringify(cur))===hL){
+              _pushedHashes[k]=hL;
+              if(_cmPendingDates.has(k)){_cmPendingDates.delete(k);out.cleared=(out.cleared||0)+1;}
+            }
           }
         }catch(e){}
       }
@@ -10726,7 +10766,7 @@ async function pgMissDownloadExcel(){
     (reverse||[]).forEach(r=>{const loc=r.location==='steno'?'Steno':r.location==='judge'?'Judge':'';rows.push([sr++,'CRITICAL (PG received, CFM not sent)',r.caseno||'',r.partyname||'',r.section||'',r.ps||'',r.sentdate?fmtD(r.sentdate):'',loc,'Bina office se nikle Peshgar ke paas']);});
     (normal||[]).forEach(r=>{rows.push([sr++,'Pending (CFM sent, PG not received)',r.caseno||'',r.partyname||'',r.section||'',r.ps||'',r.sentdate?fmtD(r.sentdate):'','','Peshgar ne abhi receive nahi ki']);});
     (toOffice||[]).forEach(r=>{const loc=r.location==='steno'?'Steno':r.location==='judge'?'Judge':'';rows.push([sr++,'To-Office (PG sent, office not received)',r.caseno||'',r.partyname||'',r.section||'',r.ps||'','',loc,'Office ne wapas receive nahi ki']);});
-    const fname='Peshgar_Mismatch_'+new Date().toISOString().split('T')[0]+'.xlsx';
+    const fname='Peshgar_Mismatch_'+_localISO(new Date())+'.xlsx';
     if(typeof ExcelJS!=='undefined'){
       const wb=new ExcelJS.Workbook();wb.creator='ACJM Baghpat';
       const ws=wb.addWorksheet('Peshgar Mismatch',{pageSetup:{paperSize:9,orientation:'landscape',fitToPage:true,fitToWidth:1,fitToHeight:0}});
@@ -10777,13 +10817,13 @@ async function ovDownloadExcel(){
       const buf=await wb.xlsx.writeBuffer();
       const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
       const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;
-      a.download='Overdue_'+new Date().toISOString().split('T')[0]+'.xlsx';
+      a.download='Overdue_'+_localISO(new Date())+'.xlsx';
       document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
     }else{
       const ws=XLSX.utils.aoa_to_sheet([headers,...rows]);
       ws['!cols']=([6,18,28,16,14,14,14,12,30]).map(w=>({wch:w}));
       const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Overdue Files');
-      XLSX.writeFile(wb,'Overdue_'+new Date().toISOString().split('T')[0]+'.xlsx');
+      XLSX.writeFile(wb,'Overdue_'+_localISO(new Date())+'.xlsx');
     }
     showToast('✅ Overdue Excel download ho gayi!');
   }catch(e){showToast('❌ Download error: '+e.message,'d');}
