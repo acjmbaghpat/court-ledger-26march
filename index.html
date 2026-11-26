@@ -202,6 +202,22 @@ textarea{resize:vertical}
 
 /* ═══════════════ DROPDOWN ═══════════════ */
 .dwrap{position:relative}
+/* FIR Khojo */
+.tab-btn.fir-tab{flex:0 0 auto!important;padding-left:14px!important;padding-right:14px!important}
+.fir-row,.fir-row2{margin-bottom:10px}
+.fir-row2{display:flex;gap:10px}
+.fir-row label,.fir-row2 label{display:block;font-size:11.5px;font-weight:700;color:var(--mu);margin-bottom:4px}
+.fir-in{width:100%;box-sizing:border-box;padding:12px 13px;font-size:17px;font-weight:700;border:2px solid var(--bdr);border-radius:11px;background:#f8fafc;color:var(--navy);outline:none}
+.fir-in.kp-on{border-color:#1d4ed8;background:#fff;box-shadow:0 0 0 3px rgba(29,78,216,.12)}
+select.fir-in{font-size:15px}
+.fir-kp{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:4px}
+.fir-kp button{padding:13px 0;font-size:20px;font-weight:700;border:1.5px solid var(--bdr);border-radius:11px;background:#fff;color:var(--navy);cursor:pointer;box-shadow:0 2px 0 rgba(13,27,62,.06)}
+.fir-kp button:active{background:#eef2ff;transform:translateY(1px)}
+.fir-kp .kp-del{color:#dc2626}.fir-kp .kp-clr{color:#b45309;font-size:16px}.fir-kp .kp-yr{color:#0e7490;font-size:16px}
+.fir-kp .kp-0{grid-column:1 / span 2}
+.fir-kp .kp-go{grid-column:3 / span 2;background:linear-gradient(135deg,#0891b2,#0e7490);color:#fff;border:none;font-size:18px}
+#firModal{z-index:902!important}
+
 #tlModal{z-index:905!important} /* Health/Overdue ke upar khule */
 table.cis-t{width:100%!important;min-width:0!important;border-collapse:collapse!important;table-layout:auto!important;font-size:11.5px!important;background:none!important;box-shadow:none!important}
 table.cis-t th,table.cis-t td{padding:5px 6px!important;font-size:11.5px!important;text-align:left!important;border-bottom:1px solid var(--bdr)!important;text-transform:none!important;letter-spacing:0!important;background:none!important;position:static!important;height:auto!important;line-height:1.35!important;vertical-align:top}
@@ -1437,6 +1453,7 @@ input:focus,select:focus,textarea:focus{
   <div id="tab-bar">
     <button class="tab-btn on" onclick="switchTab('cfm')">⚖️ Court Files</button>
     <button class="tab-btn"   onclick="switchTab('bundle')">📁 Bundle Tracker</button>
+    <button class="tab-btn fir-tab" onclick="openFirSearch()" title="Police Station + FIR se case khojo">🔍 FIR</button>
   </div>
 </div>
 
@@ -1900,6 +1917,33 @@ input:focus,select:focus,textarea:focus{
 </div>
 
 <!-- OVERDUE MODAL -->
+<div class="modal" id="firModal">
+  <div class="msh" style="max-height:94vh;overflow-y:auto">
+    <div class="mt" style="margin:0">🔍 FIR se Case Khojo</div>
+    <div id="cispInfo" style="font-size:12px;margin:6px 0 12px;color:var(--txt)"></div>
+    <div class="fir-row"><label>Police Station</label>
+      <select id="cispPS" class="fir-in" onchange="cispFocus('cispFir')"><option value="">— Police Station chuno —</option></select></div>
+    <div class="fir-row2">
+      <div style="flex:1.4"><label>FIR Number</label><input id="cispFir" class="fir-in kp-on" inputmode="none" autocomplete="off" onfocus="cispFocus('cispFir')" onkeydown="if(event.key==='Enter')cispSearch()" placeholder="—"></div>
+      <div style="flex:1"><label>Year</label><input id="cispYr" class="fir-in" inputmode="none" autocomplete="off" onfocus="cispFocus('cispYr')" onkeydown="if(event.key==='Enter')cispSearch()" placeholder="2026"></div>
+    </div>
+    <div class="fir-kp">
+      <button onclick="cispKey('7')">7</button><button onclick="cispKey('8')">8</button><button onclick="cispKey('9')">9</button><button class="kp-del" onclick="cispKey('del')">⌫</button>
+      <button onclick="cispKey('4')">4</button><button onclick="cispKey('5')">5</button><button onclick="cispKey('6')">6</button><button class="kp-clr" onclick="cispKey('clr')">C</button>
+      <button onclick="cispKey('1')">1</button><button onclick="cispKey('2')">2</button><button onclick="cispKey('3')">3</button><button class="kp-yr" onclick="cispFocus(_cispActive==='cispFir'?'cispYr':'cispFir')">⇄</button>
+      <button class="kp-0" onclick="cispKey('0')">0</button><button class="kp-go" onclick="cispSearch()">Go</button>
+    </div>
+    <div id="cispRes" style="margin-top:12px"></div>
+    <details id="cispUpBox" style="margin-top:14px;border:1.5px dashed var(--bdr);border-radius:12px;padding:10px 12px">
+      <summary style="font-weight:700;font-size:13px;cursor:pointer;color:var(--navy)">📤 CIS pendency list upload / badlo</summary>
+      <p style="font-size:11.5px;color:var(--mu);margin:8px 0;line-height:1.5">CIS ki "All Pendency" Excel — columns: Sr No | Case No | Party | Act | Police Station | FIR No. Naya upload purani list ko badal deta hai. 🔒 List sirf is phone mein — Firebase / backup mein nahi jaati.</p>
+      <input type="file" id="cispFile" accept=".xlsx,.xls,.csv" style="width:100%;font-size:12px;margin-bottom:8px">
+      <button class="btn" id="cispUpBtn" onclick="cispUpload()" style="margin-top:0;background:linear-gradient(135deg,#0891b2,#0e7490);color:#fff">📤 Upload karo</button>
+      <div id="cispStatus" class="smsg" style="margin-top:8px"></div>
+      <button class="btn neutral" onclick="cispClear()" style="margin-top:8px;padding:8px;font-size:12px">🗑 Saved list hatao</button>
+    </details>
+  </div>
+</div>
 <div class="modal" id="tlModal">
   <div class="msh" style="max-height:92vh;overflow-y:auto">
     <div class="mt">🕘 File ki Kahani</div>
@@ -5913,7 +5957,8 @@ async function deleteOldData(){
 // Backup data builder — JSON object banata hai (auto-download + telegram dono use karte hain)
 async function buildBackupData(){
   const avk=await idbAVK(),vd={};for(const d of avk){const r=await idbTx(SV,'readonly',s=>s.get(d));if(r)vd[d]=r.versions;}
-  const amk=await idbAMK(),md={};for(const k of amk){const v=await idbGM(k);if(v!==null)md[k]=v;}
+  // CIS pendency list (FIR Khojo) backup mein NAHI — sirf phone par (CISP_KEY)
+  const amk=(await idbAMK()).filter(k=>k!==CISP_KEY),md={};for(const k of amk){const v=await idbGM(k);if(v!==null)md[k]=v;}
   const allB=await idbAB();
   // Archive store bhi backup mein (90+ din purana data — taaki export mein na chhute)
   const ark=await idbAARK(),ad={};for(const k of ark){const v=await idbGAR(k);if(v!==null)ad[k]=v;}
@@ -7839,8 +7884,12 @@ let _bSearchT=null;
 // ═══ APP VERSION + KYA NAYA HAI ═══
 // Har nayi file par upar ek entry jodo — Health mein dikhta hai, taaki pata rahe
 // phone par kaunsa version chal raha hai aur kya badla (purani file wapas lagani ho to).
-const APP_BUILD='v16.7 · 23-11-2026';
+const APP_BUILD='v16.8 · 25-11-2026';
 const APP_CHANGELOG=[
+  {v:'v16.8',d:'25-11-2026',items:[
+    '🔍 FIR se Case Khojo: Police Station + FIR No + Saal → Pending hai ya nahi, case no, party, last working date, fix date, bundle mein jagah',
+    'CIS pendency list phone mein save (Firebase / backup mein nahi); CIS ke lambe case-type CFM ke chhote roop se jode jaate hain (WSC, CRI, WC…)'
+  ]},
   {v:'v16.7',d:'23-11-2026',items:[
     'Tools: ROZ/JAANCH label hataye; kram — Version, Upload, Translate, Add Case, Backup, Firebase, Export, phir baaki',
     'Sync race theek: push ke dauraan kiya SENT ab Firebase se chhoot nahi sakta (flush, fbPush, Har Date Milaao)',
@@ -8035,6 +8084,271 @@ async function findMissedFiles(){
   });
   out.sort((a,b)=>a.nd<b.nd?1:-1);
   return out;
+}
+
+// ═══ FIR KHOJO — CIS PENDENCY LIST (phone mein save) + THANA/FIR/SAAL SEARCH ═══
+// • List phone ki IndexedDB (metadata store, key 'cisPend') mein — Firebase par
+//   NAHI jaati, backup mein NAHI jaati (buildBackupData isse chhodta hai).
+//   Naya upload purani list ko poora badal deta hai.
+// • CFM / Bundle sirf PADHE jaate hain.
+const CISP_KEY='cisPend';
+let _cisp=null;          // {at,fname,rows:[{sr,cn,pn,act,ps,fir,yr}],ps:[[name,count]]}
+let _cispIdx=null;       // Map "psKey|fir|yr" → [row]
+// CIS ka lamba case-type → CFM ka chhota (aapke data se: 95%+ mel)
+const CISP_TYPE_MAP={'warrant or summons criminal case':'WSC','cri case':'CRI','warrant case':'WC','final report':'FR','complaint cases':'CC','complaint case':'CC','criminal misc cases':'CMC','criminal misc case':'CMC','summan case':'SC','summons case':'SC','bail application':'BA','criminal misc':'CM','ndps':'NDPS','misc cases':'MC','misc case':'MC'};
+const CISP_ALT={WSC:['WS'],CMC:['CRIMISC'],CRI:['CRICASE']};
+// "Warrant or Summons Criminal Case/9987/2020" → {short:'WSC/9987/2020', keys:Set(_unpKey...)}
+function cispShort(cn){
+  const s=String(cn||'').trim();
+  const m=s.match(/^(.*?)\s*\/\s*(\d+)\s*\/\s*(\d{4})\s*$/);
+  const keys=new Set();const k0=_unpKey(s);if(k0!=='|')keys.add(k0);
+  if(!m)return {short:s,keys};
+  const t=m[1].toLowerCase().replace(/\s+/g,' ').trim();
+  let pre=CISP_TYPE_MAP[t];
+  if(!pre){pre=t.split(' ').filter(w=>w&&!/^(or|and|of|the)$/.test(w)).map(w=>w[0]).join('').toUpperCase();}
+  const short=pre+'/'+parseInt(m[2],10)+'/'+m[3];
+  keys.add(_unpKey(short));
+  (CISP_ALT[pre]||[]).forEach(a=>keys.add(_unpKey(a+'/'+m[2]+'/'+m[3])));
+  return {short,keys};
+}
+// CFM (active + archive) mein in keys ke saare records — sirf padhna
+async function _recsForKeys(keys){
+  const out=[];
+  const all=await getAllDatesData();
+  for(const k in all){const a=all[k];if(!Array.isArray(a))continue;for(const r of a)if(keys.has(_unpKey(String(r.caseno||'').trim())))out.push({k,r});}
+  try{
+    const ark=(await idbAARK()).filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k)&&!all[k]);
+    const bulk=ark.length?await idbBulkGet(SAR,ark):{};
+    for(const k of ark){const a=bulk[k]&&bulk[k].value;if(!Array.isArray(a))continue;for(const r of a)if(keys.has(_unpKey(String(r.caseno||'').trim())))out.push({k,r});}
+  }catch(e){}
+  out.sort((a,b)=>a.k<b.k?-1:a.k>b.k?1:0);
+  return out;
+}
+function _psKey(s){return String(s||'').toLowerCase().replace(/[\s.\-_,()\/]+/g,'');}
+function _firNorm(s){const d=String(s==null?'':s).replace(/[^0-9]/g,'').replace(/^0+/,'');return d;}
+function _yrNorm(s){let d=String(s==null?'':s).replace(/[^0-9]/g,'');if(!d)return '';if(d.length===2)d='20'+d;return d.length===4?d:'';}
+// "123/2024", "0123/24", "123 of 2024", "123-2024" → {fir,yr}
+function _firSplit(v){
+  const s=String(v==null?'':v).trim();if(!s)return {fir:'',yr:''};
+  const m=s.match(/(\d+)\s*(?:\/|-|of|OF|सन्|सन)\s*(\d{2,4})\b/);
+  if(m)return {fir:_firNorm(m[1]),yr:_yrNorm(m[2])};
+  return {fir:_firNorm(s),yr:''};
+}
+function _cispBuildIdx(){
+  _cispIdx=new Map();
+  if(!_cisp||!Array.isArray(_cisp.rows))return;
+  for(const r of _cisp.rows){
+    if(!r.fir)continue;
+    const k=_psKey(r.ps)+'|'+r.fir+'|'+(r.yr||'');
+    (_cispIdx.get(k)||_cispIdx.set(k,[]).get(k)).push(r);
+  }
+}
+async function cispLoad(){
+  if(_cisp)return _cisp;
+  try{const v=await idbGM(CISP_KEY);if(v&&Array.isArray(v.rows)){_cisp=v;_cispBuildIdx();}}catch(e){console.warn('cispLoad:',e);}
+  return _cisp;
+}
+// Header pehchano: Sr | Case No | Party | Act | PS/Thana | FIR (+ alag Year column ho sakta hai)
+function _cispCols(aoa){
+  const find=(r,re)=>r.findIndex(x=>re.test(x));
+  for(let i=0;i<Math.min(15,aoa.length);i++){
+    const r=(aoa[i]||[]).map(x=>String(x||'').toLowerCase().trim());
+    const cn=find(r,/case\s*no|case\s*number|वाद\s*सं|वाद\s*संख्या|केस\s*नं|मुकदमा\s*सं|^case$/);
+    const ps=find(r,/^p\.?\s*s\.?$|police\s*station|thana|थाना|^ps\b/);
+    const fir=find(r,/fir|f\.i\.r|crime\s*no|मु\.?\s*अ\.?\s*सं|अपराध\s*सं|case\s*crime/);
+    if(cn>=0&&(ps>=0||fir>=0)){
+      return {start:i+1,
+        sr:find(r,/^(sr|s\.?\s*no|sl|क्र)/),cn,
+        pn:find(r,/party|name|पक्ष|नाम|petitioner|accused|parties/),
+        act:find(r,/^act|act\s*\/|section|धारा|अधिनियम|u\/s/),
+        ps,fir,
+        yr:find(r,/^year$|^yr$|fir\s*year|वर्ष|^सन/)};
+    }
+  }
+  // Header nahi mila → aapka bataya kram: Sr, Case No, Party, Act, PS, FIR
+  return {start:0,sr:0,cn:1,pn:2,act:3,ps:4,fir:5,yr:-1};
+}
+async function cispUpload(){
+  const st=document.getElementById('cispStatus'),f=document.getElementById('cispFile').files[0];
+  if(!f){st.textContent='⚠️ Pehle CIS ki Excel file chuno';st.className='smsg s-err';return;}
+  if(typeof XLSX==='undefined'){st.textContent='❌ Excel library load nahi hui — net on karke page reload karo';st.className='smsg s-err';return;}
+  if(f.size>25*1024*1024){st.textContent='❌ File bahut badi hai (25MB se zyada)';st.className='smsg s-err';return;}
+  if(_tabReadOnly){st.textContent='🔒 App doosre tab mein khula hai — yahan save nahi hoga';st.className='smsg s-err';return;}
+  const btn=document.getElementById('cispUpBtn');btn.disabled=true;
+  st.textContent='⏳ File padh rahe hain…';st.className='smsg';
+  try{
+    const aoa=await _cisReadFile(f);
+    const col=_cispCols(aoa);
+    const cell=(r,i)=>i>=0&&r[i]!=null?String(r[i]).replace(/\s+/g,' ').trim():'';
+    const rows=[];let noFir=0,bad=0;
+    for(let i=col.start;i<aoa.length;i++){
+      const r=aoa[i]||[];
+      const cn=cell(r,col.cn);
+      if(!cn){if(r.some(x=>String(x||'').trim()))bad++;continue;}
+      let {fir,yr}=_firSplit(r[col.fir]);
+      if(col.yr>=0&&cell(r,col.yr))yr=_yrNorm(r[col.yr])||yr;
+      if(!fir)noFir++;
+      rows.push({sr:cell(r,col.sr),cn,pn:cell(r,col.pn),act:cell(r,col.act),ps:cell(r,col.ps),fir,yr});
+    }
+    if(!rows.length){st.textContent='❌ File mein ek bhi case nahi mila — columns: Sr | Case No | Party | Act | PS | FIR';st.className='smsg s-err';btn.disabled=false;return;}
+    // Thane — alag likhawat (BARAUT / Baraut) ek hi gine, sabse zyada wala naam dikhe
+    const pm=new Map();
+    rows.forEach(r=>{const k=_psKey(r.ps);if(!k)return;const e=pm.get(k)||{n:new Map(),c:0};e.c++;e.n.set(r.ps,(e.n.get(r.ps)||0)+1);pm.set(k,e);});
+    const ps=[...pm.values()].map(e=>[[...e.n].sort((a,b)=>b[1]-a[1])[0][0],e.c]).sort((a,b)=>b[1]-a[1]);
+    const obj={at:Date.now(),fname:f.name,rows,ps};
+    await idbSM(CISP_KEY,obj);
+    const back=await idbGM(CISP_KEY);   // sach mein save hua?
+    if(!back||!Array.isArray(back.rows)||back.rows.length!==rows.length)throw new Error('save ke baad padhne par list nahi mili');
+    _cisp=obj;_cispBuildIdx();
+    st.textContent='✅ '+rows.length.toLocaleString()+' case save ho gaye · '+ps.length+' thane'+(noFir?' · '+noFir+' bina FIR no':'')+(bad?' · '+bad+' row bina case no chhodi':'');
+    st.className='smsg s-ok';
+    document.getElementById('cispFile').value='';
+    cispRenderForm();
+  }catch(e){
+    console.error('cispUpload:',e);
+    st.textContent='❌ SAVE FAIL — list save nahi hui: '+(e&&e.message||e)+'. Purani list (agar thi) waisi hi hai.';st.className='smsg s-err';
+  }finally{btn.disabled=false;}
+}
+async function cispRenderForm(){
+  await cispLoad();
+  const info=document.getElementById('cispInfo'),sel=document.getElementById('cispPS');
+  if(!info||!sel)return;
+  if(!_cisp){
+    info.innerHTML='<span style="color:#b45309;font-weight:700">⚠️ Abhi koi list upload nahi hui — neeche se CIS ki Excel upload karo</span>';
+    sel.innerHTML='<option value="">— pehle list upload karo —</option>';
+    try{document.getElementById('cispUpBox').open=true;}catch(e){}
+    return;
+  }
+  const days=Math.floor((Date.now()-_cisp.at)/86400000);
+  info.innerHTML='📋 List: <b>'+_cisp.rows.length.toLocaleString()+'</b> case · '+esc(fmtD(_localISO(new Date(_cisp.at))))
+    +(days>=20?' <span style="color:#b45309;font-weight:700">('+days+' din purani — nayi upload kar do)</span>':' <span style="color:var(--mu)">('+(days?days+' din pehle':'aaj')+')</span>');
+  const cur=sel.value;
+  sel.innerHTML='<option value="">— Police Station chuno —</option>'+(_cisp.ps||[]).map(([n,c])=>'<option value="'+esc(n)+'">'+esc(n)+' ('+c+')</option>').join('')+'<option value="*">⟐ Saare thane</option>';
+  if(cur)sel.value=cur;
+  if(!sel.value&&_cisp.ps&&_cisp.ps.length===1)sel.value=_cisp.ps[0][0];
+}
+// CFM + bundle se: aakhri kaam ki date, fix date, bundle jagah (sirf padhna)
+async function _cispCfmInfo(cn){
+  const {short,keys}=cispShort(cn);
+  const today=_localISO(new Date());
+  const out={found:false,short,cfmCn:'',pn:'',last:'',lastWhat:'',next:'',disp:false,bundle:''};
+  try{
+    const recs=await _recsForKeys(keys);
+    if(recs.length)out.cfmCn=recs[recs.length-1].r.caseno;
+    if(recs.length){
+      out.found=true;
+      const lr=recs[recs.length-1];
+      out.disp=!!lr.r._disposed;
+      out.pn=(recs.slice().reverse().find(x=>x.r.partyname)||{r:{}}).r.partyname||'';
+      // Aakhri working date: aaj tak ki sabse nayi list-date jisme file aayi
+      for(let i=recs.length-1;i>=0;i--){
+        const d=recs[i].k.split('_')[0];
+        if(d<=today){out.last=d;const r=recs[i].r;out.lastWhat=r.received==='Received'?'RECEIVED':r.sent==='Sent'?'SENT (wapas nahi aayi)':'list mein';break;}
+      }
+      // Fix date: sabse nayi next date, ya aage ki list-date
+      let nd='';for(let i=recs.length-1;i>=0;i--){if(recs[i].r.nextdate){nd=recs[i].r.nextdate;break;}}
+      const fut=recs.map(x=>x.k.split('_')[0]).filter(d=>d>today).sort()[0]||'';
+      out.next=(nd&&nd>=(out.last||''))?nd:(fut||nd);
+    }
+  }catch(e){console.warn('cispCfmInfo:',e);}
+  try{
+    const f=Object.values(bFiles||{}).find(x=>x&&!x.hidden&&keys.has(_unpKey(String(x.id).trim())));
+    if(f&&!out.cfmCn)out.cfmCn=f.id;
+    if(f)out.bundle=(f.cat?((CAT_LABELS[f.cat]||f.cat)):'Date '+f.md+(f.sd!=null?'/'+f.sd:''))+' — Col '+dispCol(f.col)+(f.st==='missing'?' ⚠️ Missing':'');
+    if(!out.pn)out.pn=bName(short)||'';
+  }catch(e){}
+  // Exact case CFM/bundle mein nahi → isi NUMBER/SAAL par alag type ka case hai?
+  // (jaise CIS "Cri Case/1100334/2010", CFM "WSC/1100334/2010"). Jodte NAHI —
+  // sirf hint, aap khud check karo.
+  if(!out.found&&!out.bundle){
+    try{
+      const m=String(cn).match(/(\d+)\s*\/\s*(\d{4})\s*$/);
+      if(m){
+        const tail=parseInt(m[1],10)+','+m[2];const seen=new Set();out.maybe=[];
+        const chk=x=>{const s=String(x||'').trim();const k=_unpKey(s);if(seen.has(k)||keys.has(k))return;if(k.split('|')[1]===tail){seen.add(k);out.maybe.push(s);}};
+        const all=await getAllDatesData();for(const k in all){const a=all[k];if(Array.isArray(a))for(const r of a)chk(r.caseno);}
+        try{const ark=(await idbAARK()).filter(k=>/^\d{4}-\d{2}-\d{2}_\d+$/.test(k)&&!all[k]);const bulk=ark.length?await idbBulkGet(SAR,ark):{};for(const k of ark){const a=bulk[k]&&bulk[k].value;if(Array.isArray(a))for(const r of a)chk(r.caseno);}}catch(e){}
+        Object.values(bFiles||{}).forEach(f=>{if(f&&!f.hidden)chk(f.id);});
+      }
+    }catch(e){}
+  }
+  return out;
+}
+async function cispSearch(){
+  const res=document.getElementById('cispRes');
+  await cispLoad();
+  if(!_cisp){res.innerHTML='<div class="smsg s-err">⚠️ Pehle CIS ki pendency list upload karo (neeche)</div>';document.getElementById('cispUpBox').open=true;return;}
+  const ps=document.getElementById('cispPS').value;
+  const fir=_firNorm(document.getElementById('cispFir').value);
+  const yr=_yrNorm(document.getElementById('cispYr').value);
+  if(!ps){res.innerHTML='<div class="smsg s-err">⚠️ Police Station chuno</div>';return;}
+  if(!fir){res.innerHTML='<div class="smsg s-err">⚠️ FIR Number daalo</div>';cispFocus('cispFir');return;}
+  const pk=ps==='*'?'':_psKey(ps);
+  let hits;
+  if(pk&&yr)hits=(_cispIdx.get(pk+'|'+fir+'|'+yr)||[]).concat(_cispIdx.get(pk+'|'+fir+'|')||[]);
+  else hits=_cisp.rows.filter(r=>r.fir===fir&&(!pk||_psKey(r.ps)===pk)&&(!yr||!r.yr||r.yr===yr));
+  const asOf=esc(fmtD(_localISO(new Date(_cisp.at))));
+  if(!hits.length){
+    res.innerHTML='<div style="background:#fef2f2;border:2px solid #fecaca;border-radius:12px;padding:13px 14px">'
+      +'<div style="font-size:15px;font-weight:800;color:#b91c1c">❌ PENDING LIST MEIN NAHI</div>'
+      +'<div style="font-size:12.5px;color:#b91c1c;margin-top:4px">'+esc(ps==='*'?'Saare thane':ps)+' · FIR '+esc(fir)+(yr?'/'+esc(yr):'')+'</div>'
+      +'<div style="font-size:12px;color:var(--mu);margin-top:6px;line-height:1.5">Ya to case dispose ho chuka, ya is court ka nahi, ya thana/saal alag hai.<br>List '+asOf+' ki hai — naya case ho to nayi list upload karo.</div></div>';
+    try{speak('Pending nahi','hi-IN');haptic('warn');}catch(e){}
+    return;
+  }
+  res.innerHTML='<div style="color:var(--mu);font-size:12px;padding:6px 0">⏳ CFM aur bundle se jaankari la rahe hain…</div>';
+  let h='<div style="background:#f0fdf4;border:2px solid #86efac;border-radius:12px;padding:10px 14px;margin-bottom:10px"><div style="font-size:15px;font-weight:800;color:#15803d">✅ PENDING'+(hits.length>1?' — '+hits.length+' case':'')+'</div><div style="font-size:11.5px;color:#15803d">CIS list '+asOf+' ke hisaab se</div></div>';
+  for(const r of hits.slice(0,20)){
+    const c=await _cispCfmInfo(r.cn);
+    const tl=c.cfmCn||c.short;
+    h+='<div style="background:#fff;border:1.5px solid var(--bdr);border-radius:12px;padding:12px 13px;margin-bottom:10px;box-shadow:0 2px 8px rgba(13,27,62,.05)">'
+      +'<div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">'
+      +'<div><div style="font-size:16px;font-weight:800;color:var(--navy)">'+esc(c.short)+'</div>'
+      +(c.short!==r.cn?'<div style="font-size:11px;color:var(--mu)">'+esc(r.cn)+'</div>':'')+'</div>'
+      +'<button class="smb" style="background:#f1f5f9;color:var(--navy);border:1px solid var(--bdr);flex:0 0 auto" data-cn="'+esc(tl)+'" onclick="openTimeline(this.dataset.cn)">🕘 Kahani</button></div>'
+      +(c.pn?'<div style="font-size:13.5px;font-weight:700;color:var(--txt);margin-top:4px">👤 '+esc(c.pn)+'</div>':'')
+      +(r.pn&&r.pn!==c.pn?'<div style="font-size:12px;color:var(--mu)">'+esc(r.pn)+'</div>':'')
+      +'<div style="font-size:11.5px;color:var(--mu);margin-top:3px;line-height:1.4">'+(r.act?esc(r.act)+'<br>':'')+esc(r.ps||'')+' · FIR '+esc(r.fir)+(r.yr?'/'+esc(r.yr):'')+'</div>'
+      +'<div style="margin-top:9px;font-size:13px;line-height:1.8;background:#f8fafc;border-radius:9px;padding:8px 11px">'
+      +(c.found
+        ?'<div>🗓 <b>Last working date:</b> '+(c.last?esc(fmtD(c.last))+' <span style="color:var(--mu);font-size:11.5px">('+esc(c.lastWhat)+')</span>':'—')+'</div>'
+         +'<div>📅 <b>Fix date:</b> '+(c.disp?'<b style="color:#6b7280">🗂 App mein Disposed</b>':c.next?'<b style="color:#1d4ed8">'+esc(fmtD(c.next))+'</b>'+(ndIsSunday(c.next)?' ⚠️ Ravivaar':''):'<span style="color:#b45309">CFM mein next date nahi</span>')+'</div>'
+        :'<div style="color:#b45309;font-weight:700">⚠️ CFM mein is case ka koi record nahi</div>'
+          +(c.maybe&&c.maybe.length?'<div style="font-size:12px;color:#92400e;line-height:1.5;margin:2px 0 4px">Isi number/saal par CFM mein: '+c.maybe.slice(0,3).map(x=>'<b data-cn="'+esc(x)+'" onclick="openTimeline(this.dataset.cn)" style="text-decoration:underline;cursor:pointer">'+esc(x)+'</b>').join(', ')+' — <i>type alag hai, khud check karo</i></div>':''))
+      +'<div>📦 <b>Bundle:</b> '+(c.bundle?'<b style="color:#0e7490">'+esc(c.bundle)+'</b>':'<span style="color:var(--mu)">bundle mein nahi</span>')+'</div>'
+      +'</div></div>';
+  }
+  if(hits.length>20)h+='<div style="font-size:12px;color:var(--mu)">…aur '+(hits.length-20)+' — saal bhar ke chhota karo</div>';
+  res.innerHTML=h;
+  try{speak('Pending hai','hi-IN');haptic('success');}catch(e){}
+}
+// ── Screen + number pad (eCourtIS jaisa) ──
+let _cispActive='cispFir';
+function cispFocus(id){
+  _cispActive=id;
+  ['cispFir','cispYr'].forEach(x=>{const el=document.getElementById(x);if(el)el.classList.toggle('kp-on',x===id);});
+}
+function cispKey(k){
+  const el=document.getElementById(_cispActive);if(!el)return;
+  if(k==='del')el.value=el.value.slice(0,-1);
+  else if(k==='clr'){document.getElementById('cispFir').value='';document.getElementById('cispYr').value='';cispFocus('cispFir');document.getElementById('cispRes').innerHTML='';return;}
+  else{
+    const max=_cispActive==='cispYr'?4:6;
+    if(el.value.length<max)el.value+=k;
+    if(_cispActive==='cispYr'&&el.value.length===4)setTimeout(cispSearch,120);
+  }
+  try{haptic('light');}catch(e){}
+}
+async function openFirSearch(){
+  document.getElementById('firModal').classList.add('on');
+  cispFocus('cispFir');
+  await cispRenderForm();
+}
+async function cispClear(){
+  if(!_cisp){showToast('Koi list save nahi hai','w');return;}
+  if(!confirm('CIS ki saved list ('+_cisp.rows.length+' case) phone se hata dein?\n(CFM / bundle par koi asar nahi)'))return;
+  try{await idbDM(CISP_KEY);_cisp=null;_cispIdx=null;document.getElementById('cispRes').innerHTML='';cispRenderForm();showToast('🗑 CIS list hata di');}
+  catch(e){showToast('❌ Hata nahi paye: '+(e&&e.message||''),'d');}
 }
 
 // ═══════════════════════════════════════════════════════════════════════
